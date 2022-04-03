@@ -3,15 +3,8 @@
 ! Copyright(c) 2019-2022. Advanced Micro Devices, Inc. All rights reserved
 ! -------------------------------------------------------------------
 */
-#include <cstddef>
-#include <cassert>
-#ifdef USE_CPU
-typedef int rocblas_int;
-#else
-#include "rocblas.hpp"
-#endif
 
-auto geblttrf_npvt_vec = [=]<typename T>( 
+auto geblttrf_npvt_vec = [=]( 
 			      rocblas_int const nvec,
 		              rocblas_int const nb,
 			      rocblas_int const nblocks,
