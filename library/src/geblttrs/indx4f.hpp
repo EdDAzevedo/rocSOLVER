@@ -1,4 +1,4 @@
-	inline auto indx4f = [=]( 
+	auto indx4f = [=]( 
 			rocblas_int const i1,
 			rocblas_int const i2,
 			rocblas_int const i3,
@@ -29,4 +29,4 @@
 			           (i4-1)*(ln1*ln2*ln3);
 
 		return( idx );
-	}
+	};

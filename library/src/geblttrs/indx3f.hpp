@@ -1,4 +1,3 @@
-
 	auto indx3f = [=]( 
 			rocblas_int const i1,
 			rocblas_int const i2,
@@ -26,4 +25,4 @@
 		size_t const ln2 = n2;
 		size_t const idx = (i1-1) + (i2-1)*ln1 + (i3-1)*(ln1*ln2);
 		return( idx );
-	}
+	};

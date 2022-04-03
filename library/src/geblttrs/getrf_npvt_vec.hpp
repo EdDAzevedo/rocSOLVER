@@ -1,12 +1,13 @@
+/*
 ! -------------------------------------------------------------------
-! Copyright(c) 2022. Advanced Micro Devices, Inc. All rights reserved
+! Copyright(c) 2019-2022. Advanced Micro Devices, Inc. All rights reserved
 ! -------------------------------------------------------------------
+*/
 
 
-template<classname T>
-auto getrf_npvt_vec = [=](rocblas_int const m,
-		                   rocblas_int const n,
-				   T *A_, rocblas_int const lda ) -> rocblas_int {
+auto getrf_npvt_vec = [=]( rocblas_int const m,
+			   rocblas_int const n,
+			   T *A_, rocblas_int const lda ) -> rocblas_int {
 /*
 !     ----------------------------------------
 !     Perform LU factorization without pivoting
@@ -18,12 +19,13 @@ auto getrf_npvt_vec = [=](rocblas_int const m,
 		return(  (m < n) ? m : n );
 	};
 
+	rocblas_int const ncolA = n;
 #include "indx3f.hpp"
 #include "A3array.hpp"
 #include "syncthreads.hpp"
 
       rocblas_int info = 0;
-      rocblas_int const min_mn = min(m,n)
+      rocblas_int const min_mn = min(m,n);
 /*
 ! 
 ! % ----------------------------------------------------------
@@ -69,7 +71,7 @@ auto getrf_npvt_vec = [=](rocblas_int const m,
 		      info = (is_zero && (info == 0)) ? j : info;
 
 		      T const inv_Ujj_iv = one/Ujj_iv;
-		      for(roblas_int ia=jp1; ia <= m; ia++) {
+		      for(rocblas_int ia=jp1; ia <= m; ia++) {
 			      A(iv,ia,j) = A(iv,ia,j) * inv_Ujj_iv;
 		      };
 	      };
@@ -91,4 +93,4 @@ auto getrf_npvt_vec = [=](rocblas_int const m,
       __syncthreads();
 #endif
       return(info);
-}
+};

@@ -1,7 +1,8 @@
+/*
 ! -------------------------------------------------------------------
 ! Copyright(c) 2019-2022. Advanced Micro Devices, Inc. All rights reserved
 ! -------------------------------------------------------------------
-template<classname T>
+*/
 auto getrs_npvt_vec = [=]( rocblas_int const n,
 		           rocblas_int const nrhs,
 			   T *A_, rocblas_int const lda,
@@ -12,10 +13,13 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
 !     Perform forward and backward solve without pivoting
 !     ---------------------------------------------------
 */
-#include "idx3f.hpp"
+	rocblas_int const ncolA = n;
+	rocblas_int const ncolB = nrhs;
+
+#include "indx3f.hpp"
 #include "A3array.hpp"
 #include "B3array.hpp"
-#include "syncthread.hpp"
+#include "syncthreads.hpp"
 
       T const one = 1;
       rocblas_int info = 0;
@@ -139,4 +143,4 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
 
 
       return(info);
-}
+};

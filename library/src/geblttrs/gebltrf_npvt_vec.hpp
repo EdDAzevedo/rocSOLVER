@@ -1,13 +1,23 @@
+/*
 ! -------------------------------------------------------------------
 ! Copyright(c) 2019-2022. Advanced Micro Devices, Inc. All rights reserved
 ! -------------------------------------------------------------------
-inline auto gebltrf_npvt_vec = [=]( 
+*/
+#include <cstddef>
+#include <cassert>
+#ifdef USE_CPU
+typedef int rocblas_int;
+#else
+#include "rocblas.hpp"
+#endif
+
+auto geblttrf_npvt_vec = [=]<typename T>( 
 			      rocblas_int const nvec,
 		              rocblas_int const nb,
 			      rocblas_int const nblocks,
 			      T *A_, rocblas_int const lda,
                               T *B_, rocblas_int const ldb,
-			      T *C_, rocblas_int const ldc, ) -> rocblas_int {
+			      T *C_, rocblas_int const ldc ) -> rocblas_int {
 
 /*
 ! ------------------------------------------------------
@@ -26,6 +36,7 @@ inline auto gebltrf_npvt_vec = [=](
 #include "A4array.hpp"
 #include "B4array.hpp"
 #include "C4array.hpp"
+#include "syncthreads.hpp"
 
 #include "getrf_npvt_vec.hpp"
 #include "getrs_npvt_vec.hpp"
@@ -59,8 +70,6 @@ inline auto gebltrf_npvt_vec = [=](
 	};
 
 
-       ldu = ldc
-       ldd = ldb
 /*
 ! 
 ! % B1 = D1
@@ -73,12 +82,6 @@ inline auto gebltrf_npvt_vec = [=](
 ! % D3*U3 = C3 => U3 = D3 \ C3
 ! % D4 + A4*U3 = B4 => D4 = B4 - A4*U3
 ! 
-! % ----------------------------------
-! % in actual code, overwrite B with D
-! % overwrite C with U
-! % ----------------------------------
-! D = zeros(nb,nb,nblocks);
-! U = zeros(nb,nb,nblocks);
 */
 
 
@@ -133,6 +136,8 @@ inline auto gebltrf_npvt_vec = [=](
 */
 
        for( rocblas_int k=1; k <= (nblocks-1); k++) {
+
+	       SYNCTHREADS();
 /*
 !     --------------------------------------------------------------     
 !     U(:,1:nb,1:nb,k) = getrs_npvt( D(:,1:nb,1:nb,k), C(1:nb,1:nb,k) );
@@ -156,17 +161,17 @@ inline auto gebltrf_npvt_vec = [=](
 */
 
 	 {
-          rocblas_int const iv = 1
-          rocblas_int const mm = nb
-          rocblas_int const nn = nb
-          rocblas_int const kk = nb
-          T const alpha = -1
-          T const beta =  1
-          rocblas_int const ld1 = lda
-          rocblas_int const ld2 = ldu
-          rocblas_int const ld3 = ldd
+          rocblas_int const iv = 1;
+          rocblas_int const mm = nb;
+          rocblas_int const nn = nb;
+          rocblas_int const kk = nb;
+          T const alpha = -1;
+          T const beta =  1;
+          rocblas_int const ld1 = lda;
+          rocblas_int const ld2 = ldu;
+          rocblas_int const ld3 = ldd;
 
-	  rocblas_int linfo = gemm_nn_vec( nvec, mm,nn,kk,
+	  rocblas_int const linfo = gemm_nn_vec( nvec, mm,nn,kk,
 			  alpha, &(A(iv,1,1,k+1)), ld1,
 			         &(U(iv,1,1,k)),   ld2,
 	                  beta,  &(D(iv,1,1,k+1)), ld3 );
@@ -183,9 +188,9 @@ inline auto gebltrf_npvt_vec = [=](
 
 
 	  {
-          rocblas_int const iv = 1
-          rocblas_int const mm = nb
-          rocblas_int const nn = nb
+          rocblas_int const iv = 1;
+          rocblas_int const mm = nb;
+          rocblas_int const nn = nb;
 
 	  rocblas_int const linfo = getrf_npvt_vec(
 			               nvec,mm,nn,
@@ -196,6 +201,8 @@ inline auto gebltrf_npvt_vec = [=](
 
        }; // for k
 
+       SYNCTHREADS();
+
        return(info);
-}
+};
 

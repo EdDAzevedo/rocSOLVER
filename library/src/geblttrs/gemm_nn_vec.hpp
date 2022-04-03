@@ -1,4 +1,3 @@
-template<classname T>
 auto gemm_nn_vec = [=](
 		rocblas_int const nvec,
 		rocblas_int const m,
@@ -18,8 +17,15 @@ auto gemm_nn_vec = [=](
  *         alpha * matmul( A(iv,1:m,1:k), B(iv,1:k,1:n))
  * --------------------------------------------
 */
-#include "indx3f.hpp"
+	rocblas_int const ncolA = k;
+	rocblas_int const ncolB = n;
+	rocblas_int const ncolC = n;
 
+#include "indx3f.hpp"
+#include "A3array.hpp"
+#include "B3array.hpp"
+#include "C3array.hpp"
+#include "syncthreads.hpp"
 
 
 
@@ -28,19 +34,19 @@ auto gemm_nn_vec = [=](
 
 	rocblas_int const info = 0;
 
+	rocblas_int const iv_end = nvec;
 #ifdef  USE_CPU
 	rocblas_int const iv_start = 1;
 	rocblas_int const iv_inc = 1;
 #else
-	rocblas_int const iv_start = hipThreadId_x;
-	rocblas_int const iv_inc = hipThreadDim_x;
-	__syncthreads();
+	rocblas_int const iv_start = hipThreadIdx_x;
+	rocblas_int const iv_inc = hipBlockDim_x;
 #endif
 
+        for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
 	for(rocblas_int jc=1; jc <= n; jc++) {
         for(rocblas_int ic=1; ic <= m; ic++) {
 
-         for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
 
 		T cij = 0;
 
@@ -51,18 +57,17 @@ auto gemm_nn_vec = [=](
 
 		if (beta == 0) {
 	           C(iv,ic,jc) = alpha * cij;
-		}
+		   }
 		else {
-			C(iv,ic,jc) = beta*C(iv,ic,jc) + alpha * cij;
+		   C(iv,ic,jc) = beta*C(iv,ic,jc) + alpha * cij;
 		};
 
-	  };
+	};
 	};
 	};
 
-#ifndef USE_CPU
-	__syncthreads();
-#endif
+	SYNCTHREADS();
+
         return( info );
-}
+};
 

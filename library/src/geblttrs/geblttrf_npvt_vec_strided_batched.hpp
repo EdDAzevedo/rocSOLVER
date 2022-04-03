@@ -1,12 +1,22 @@
+/*
 ! -------------------------------------------------------------------
 ! Copyright(c) 2019-2022. Advanced Micro Devices, Inc. All rights reserved
 ! -------------------------------------------------------------------
+*/
 #pragma once
 
-template<classname T>
+#include <cstddef>
+#ifdef USE_CPU
+typedef int rocblas_int;
+#else
+#include "rocblas.hpp"
+#endif
+
+
+template<typename T>
 rocblas_status rocsolver_gebltrf_npvt_vec_strided_batched_kernel( 
 		rocblas_handle handle,
-		roblas_int const nvec,
+		rocblas_int const nvec,
 		rocblas_int const nb,
 		rocblas_int const nblocks,
 		rocblas_int const batchCount_group,
@@ -29,7 +39,7 @@ rocblas_status rocsolver_gebltrf_npvt_vec_strided_batched_kernel(
 	rocblas_int const i_start = 0;
 	rocblas_int const i_inc = 1;
 #else
-	rocblas_int const i_start = hipBlockIdx_x;
+	rocblas_int const i_start = hipThreadIdx_x;
 	rocblas_int const i_inc = hipBlockDim_x;
 #endif
 
