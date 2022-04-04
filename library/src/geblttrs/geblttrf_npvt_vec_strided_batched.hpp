@@ -11,6 +11,12 @@ typedef int rocblas_int;
 typedef int rocblas_status;
 typedef void * rocblas_handle;
 typedef long rocblas_stride;
+auto atomicMax = [=](rocblas_int *pinfo, rocblas_int ival) -> rocblas_int {
+	             rocblas_int old_ival;
+                    #pragma omp atomic 
+	            {  old_ival = (*pinfo);  *pinfo = (ival > (*pinfo)) ? ival : (*pinfo); };
+                  };
+
 #define rocblas_success 0
 #else
 #include "rocblas.hpp"
@@ -27,13 +33,10 @@ rocblas_status rocsolver_geblttrf_npvt_vec_strided_batched_kernel(
 		T * A_, rocblas_int const lda, rocblas_stride const strideA,
 		T * B_, rocblas_int const ldb, rocblas_stride const strideB,
 		T * C_, rocblas_int const ldc, rocblas_stride const strideC,
-		rocblas_int info_array[]
+		rocblas_int *pinfo
 		)
 {
-	rocblas_int info = 0;
-	rocblas_int linfo = 0;
-	rocblas_status istatus = rocblas_success;
-
+	rocblas_int info = atomicMax(pinfo,0);
 
 
 #include "geblttrf_npvt_vec.hpp"
@@ -42,8 +45,8 @@ rocblas_status rocsolver_geblttrf_npvt_vec_strided_batched_kernel(
 	rocblas_int const i_start = 0;
 	rocblas_int const i_inc = 1;
 #else
-	rocblas_int const i_start = hipThreadIdx_x;
-	rocblas_int const i_inc = hipBlockDim_x;
+	rocblas_int const i_start = hipBlockIdx_x;
+	rocblas_int const i_inc = hipGridDim_x;
 #endif
 
 	for(rocblas_int i=i_start; i < batchCount_group; i += i_inc ) {
@@ -51,14 +54,18 @@ rocblas_status rocsolver_geblttrf_npvt_vec_strided_batched_kernel(
 		size_t const idxB = i * strideB;
 		size_t const idxC = i * strideC;
 
-		T *A = &( A[idxA] );
-		T *B = &( B[idxA] );
-		T *C = &( C[idxA] );
+		T *Ap = &( A_[idxA] );
+		T *Bp = &( B_[idxA] );
+		T *Cp = &( C_[idxA] );
 
-		info_array[i] = rocsolver_gebltrf_npvt_vec( nvec, nb, nblocks,
-				A, lda,  B, ldb, C, ldc  );
+		rocblas_int const linfo = rocsolver_gebltrf_npvt_vec( 
+				nvec, nb, nblocks,
+				Ap, lda,  Bp, ldb, Cp, ldc  );
 				
+		if ( (linfo != 0) && (info == 0))  {
+			info = atomicMax(pinfo, linfo);
+		        };
 		};
 
-	return( istatus );
+	return( rocblas_success );
 };

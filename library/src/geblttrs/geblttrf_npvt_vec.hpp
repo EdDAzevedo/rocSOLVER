@@ -46,8 +46,6 @@ auto geblttrf_npvt_vec = [=](
 !     over-write matrix C with U
 !     --------------------------
 */
-	rocblas_int const ldd = ldb;
-	rocblas_int const ldu = ldc;
 
 	auto D = [=](   rocblas_int const iv, 
 			rocblas_int const i,
@@ -152,6 +150,7 @@ auto geblttrf_npvt_vec = [=](
 !    D(:,1:nb,1:nb,k+1) = B(1:nb,1:nb,k+1) - A(1:nb,1:nb,k+1) * U(:,1:nb,1:nb,k);
 !    ------------------------------------------------------------------------
 */
+	       SYNCTHREADS();
 
 	 {
           rocblas_int const iv = 1;
@@ -179,6 +178,7 @@ auto geblttrf_npvt_vec = [=](
 !      --------------------------------------------------
 */
 
+	       SYNCTHREADS();
 
 	  {
           rocblas_int const iv = 1;

@@ -50,9 +50,21 @@ auto gemm_nn_vec = [=](
 
 		T cij = 0;
 
+		rocblas_int const ja = 1;
+		T const * const Ap = &(A(iv,ic,ja));
+		T const * const Ap_inc = &(A(iv,ic,ja+1)) - Ap;
+
+		T const * const Bp = &(B(iv,ja,jc));
+		T const * const Bp_inc = &(B(iv,ja+1,jc)) - Bp;
+
                 #pragma unroll
 		for(rocblas_int ja=1; ja <= k; ja++) {
-			cij += A(iv,ic,ja) * B(iv,ja,jc);
+			// cij += A(iv,ic,ja) * B(iv,ja,jc);
+			T const Aik = *Ap;
+			T const Bkj = *Bp;
+			cij += Aik * Bkj;
+			Ap += Ap_inc;
+			Bp += Bp_inc;
 		};
 
 		if (beta == 0) {

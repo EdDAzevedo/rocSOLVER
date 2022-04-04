@@ -62,27 +62,21 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
 ! end;
 ! ----------------------------------------
 */
+      SYNCTHREADS();
 
-      for(rocblas_int i=1; i <= n; i++) {
+      for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
 
-#ifndef USE_CPU
-         --syncthreads();
-#endif
-
+        for(rocblas_int i=1; i <= n; i++) {
         for(rocblas_int j=1; j <= (i-1); j++) {
-	 for(rocblas_int k=1; k <= nrhs; k++) {
-           for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
+	for(rocblas_int k=1; k <= nrhs; k++) {
 		 B(iv,i,k) = B(iv,i,k) - A(iv,i,j) * B(iv,j,k);
 	         };
-	   };
+	         };
+                 }; 
+      }; 
 
-         }; // for j
-      }; // for i
 
-
-#ifndef USE_CPU
-         --syncthreads();
-#endif
+      SYNCTHREADS();
 
 /*
 ! 
@@ -108,38 +102,31 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
 */
 
 
-      for(rocblas_int ir=1; ir <= n; ir++) {
+      for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
+
+         for(rocblas_int ir=1; ir <= n; ir++) {
 	      rocblas_int const i = n - ir + 1;
 
-	      SYNCTHREADS();
+	      T const A_iv_i_i = A(iv,i,i);
+	      bool const is_zero = (A_iv_i_i == 0);
 
-	      for(rocblas_int j=(i+1); j <= n; j++) {
-		 for(rocblas_int k=1; k <= nrhs; k++) {
-	           for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
+	      T const Uii_iv = (is_zero) ? one : A_iv_i_i;
+	      info = (is_zero && (info == 0)) ? i : info;
+
+	      T const inv_Uii_iv = one/Uii_iv;
+
+	      for(rocblas_int k=1; k <= nrhs; k++) {
+	        for(rocblas_int j=(i+1); j <= n; j++) {
 			B(iv,i,k) = B(iv,i,k) - A(iv,i,j)*B(iv,j,k);
 		   };
+	           B(iv,i,k) *= inv_Uii_iv;
 		 };
-	      };
 
-	      SYNCTHREADS();
-
-
-	      for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
-		      T const A_iv_i_i = A(iv,i,i);
-		      bool const is_zero = (A_iv_i_i == 0);
-
-		      T const Uii_iv = (is_zero) ? one : A_iv_i_i;
-		      info = (is_zero && (info == 0)) ? i : info;
-
-		      T const inv_Uii_iv = one/Uii_iv;
-
-		      for(rocblas_int k=1; k <= nrhs; k++) {
-			      B(iv,i,k) *= inv_Uii_iv;
-		      };
-	      };
-      }; // for ir
+          };  // ir
+      }; // iv
 
 
+      SYNCTHREADS();
 
 
       return(info);
