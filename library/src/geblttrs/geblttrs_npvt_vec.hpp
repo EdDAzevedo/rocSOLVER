@@ -31,32 +31,39 @@ auto geblttrs_npvt_vec = [=]( rocblas_int const nvec,
  
    rocblas_int info = 0;
 
+#include "indx4f.hpp"
 #include "A4array.hpp"
 #include "D4array.hpp"
 #include "U4array.hpp"
+#include "syncthreads.hpp"
+
+  auto brhs = [=](rocblas_int const iv, 
+		  rocblas_int const i,
+		  rocblas_int const j,
+		  rocblas_int const k) -> T& {
+	  return( brhs_[ indx4f(iv,i,j,k,   nvec,nb,nblocks,nrhs) ] );
+  };
 
 
-
-
+   rocblas_int const ldx = ldbrhs;
+   rocblas_int const ldy = ldbrhs;
 
    auto x = [=](rocblas_int const iv,
                 rocblas_int const i,
 		rocblas_int const j,
-		rocblas_int const k ) -> rocblas_int {
+		rocblas_int const k ) -> T& {
 	   return( brhs(iv,i,j,k) );
    };
 
    auto y = [=](rocblas_int const iv,
                 rocblas_int const i,
 		rocblas_int const j,
-		rocblas_int const k ) -> rocblas_int {
+		rocblas_int const k ) -> T& {
 	   return( brhs(iv,i,j,k) );
    };
 
 
 
-      rocblas_int const ldx = ldbrhs;
-      rocblas_int const ldy = ldbrhs;
 
 
 /*
@@ -78,6 +85,7 @@ auto geblttrs_npvt_vec = [=]( rocblas_int const nvec,
 */
 
 
+/*
 ! for k=1:nblocks,
 !     if ((k-1) >= 1),
 !       y(:,1:nb,k,:) = y(:,1:nb,k,:) - A(:,1:nb,1:nb,k) * y(:,1:nb,k-1,:);
@@ -89,7 +97,7 @@ auto geblttrs_npvt_vec = [=]( rocblas_int const nvec,
 !      y(:,1:nb,k,:) = D(1:nb,1:nb,k) \ y(:,1:nb,k,:);
 !     end;
 ! end;
-
+*/
 
       for(rocblas_int k=1; k <= nblocks; k++) {
         if ((k-1) >= 1) {
@@ -109,9 +117,9 @@ auto geblttrs_npvt_vec = [=]( rocblas_int const nvec,
           rocblas_int const ld3 = ldy * nblocks;
 
 	  gemm_nn_vec( nvec, mm,nn,kk,
-		       alpha, &(A(iv,1,1,k),  ld1,
-			      &(y(iv,1,k-1,1),ld2,
-                       beta,  &(y(iv,1,k,1),  ld3 );
+		       alpha, &(A(iv,1,1,k)),  ld1,
+			      &(y(iv,1,k-1,1)),ld2,
+                       beta,  &(y(iv,1,k,1)),  ld3 );
 
          };
 

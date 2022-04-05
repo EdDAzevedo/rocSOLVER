@@ -4,17 +4,18 @@
 ! -------------------------------------------------------------------
 */
 
-#include <cstddef>
-#include <cassert>
+#include <stdlib.h>
+#include <assert.h>
 #ifdef USE_CPU
 typedef int rocblas_int;
 typedef int rocblas_status;
 typedef void * rocblas_handle;
 typedef long rocblas_stride;
-auto atomicMax = [=](rocblas_int *pinfo, rocblas_int ival) -> rocblas_int {
-	             rocblas_int old_ival;
-                    #pragma omp atomic 
-	            {  old_ival = (*pinfo);  *pinfo = (ival > (*pinfo)) ? ival : (*pinfo); };
+auto atomicMax = [](rocblas_int *pinfo, rocblas_int ival) -> rocblas_int {
+	             rocblas_int const old_ival = (*pinfo);
+	             *pinfo = (ival > old_ival)  ? ival : old_ival;
+
+		     return( old_ival );
                   };
 
 #define rocblas_success 0
@@ -55,8 +56,8 @@ rocblas_status rocsolver_geblttrf_npvt_vec_strided_batched_kernel(
 		size_t const idxC = i * strideC;
 
 		T *Ap = &( A_[idxA] );
-		T *Bp = &( B_[idxA] );
-		T *Cp = &( C_[idxA] );
+		T *Bp = &( B_[idxB] );
+		T *Cp = &( C_[idxC] );
 
 		rocblas_int const linfo = rocsolver_gebltrf_npvt_vec( 
 				nvec, nb, nblocks,

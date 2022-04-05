@@ -47,6 +47,9 @@ auto geblttrf_npvt_vec = [=](
 !     --------------------------
 */
 
+	rocblas_int const ldd = ldb;
+	rocblas_int const ldu = ldc;
+
 	auto D = [=](   rocblas_int const iv, 
 			rocblas_int const i,
 			rocblas_int const j,

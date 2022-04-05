@@ -57,7 +57,6 @@ auto gemm_nn_vec = [=](
 		T const * const Bp = &(B(iv,ja,jc));
 		T const * const Bp_inc = &(B(iv,ja+1,jc)) - Bp;
 
-                #pragma unroll
 		for(rocblas_int ja=1; ja <= k; ja++) {
 			// cij += A(iv,ic,ja) * B(iv,ja,jc);
 			T const Aik = *Ap;
