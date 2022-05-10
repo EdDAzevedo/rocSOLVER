@@ -31,7 +31,6 @@ auto geblttrf_npvt_vec = [=](
 #include "A4array.hpp"
 #include "B4array.hpp"
 #include "C4array.hpp"
-#include "syncthreads.hpp"
 
 #include "getrf_npvt_vec.hpp"
 #include "getrs_npvt_vec.hpp"
@@ -135,7 +134,7 @@ auto geblttrf_npvt_vec = [=](
 
        for( rocblas_int k=1; k <= (nblocks-1); k++) {
 
-	       SYNCTHREADS();
+	       SYNCTHREADS;
 /*
 !     --------------------------------------------------------------     
 !     U(:,1:nb,1:nb,k) = getrs_npvt( D(:,1:nb,1:nb,k), C(1:nb,1:nb,k) );
@@ -158,7 +157,7 @@ auto geblttrf_npvt_vec = [=](
 !    D(:,1:nb,1:nb,k+1) = B(1:nb,1:nb,k+1) - A(1:nb,1:nb,k+1) * U(:,1:nb,1:nb,k);
 !    ------------------------------------------------------------------------
 */
-	       SYNCTHREADS();
+	       SYNCTHREADS;
 
 	 {
           rocblas_int const iv = 1;
@@ -187,7 +186,7 @@ auto geblttrf_npvt_vec = [=](
 !      --------------------------------------------------
 */
 
-          SYNCTHREADS();
+          SYNCTHREADS;
 
 	  {
           rocblas_int const iv = 1;
@@ -204,7 +203,7 @@ auto geblttrf_npvt_vec = [=](
 
        }; // for k
 
-       SYNCTHREADS();
+       SYNCTHREADS;
 
        return(info);
 };

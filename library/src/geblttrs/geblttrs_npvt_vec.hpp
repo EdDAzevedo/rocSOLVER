@@ -35,7 +35,6 @@ auto geblttrs_npvt_vec = [=]( rocblas_int const nvec,
 #include "A4array.hpp"
 #include "D4array.hpp"
 #include "U4array.hpp"
-#include "syncthreads.hpp"
 
   auto brhs = [=](rocblas_int const iv, 
 		  rocblas_int const i,
@@ -143,7 +142,7 @@ auto geblttrs_npvt_vec = [=]( rocblas_int const nvec,
       };
 
 
-      SYNCTHREADS();
+      SYNCTHREADS;
 /*
 ! 
 ! % backward solve

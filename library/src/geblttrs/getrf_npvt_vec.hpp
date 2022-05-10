@@ -25,7 +25,6 @@ rocblas_int const lda
 	rocblas_int const ncolA = n;
 #include "indx3f.hpp"
 #include "A3array.hpp"
-#include "syncthreads.hpp"
 
       rocblas_int info = 0;
       rocblas_int const min_mn = (m < n) ? m : n;
@@ -59,7 +58,7 @@ rocblas_int const lda
       for(auto j=1; j <= min_mn; j++) {
 	      auto const jp1 = j + 1;
 
-	      SYNCTHREADS();
+	      SYNCTHREADS;
 
 /*
 !        ---------------------------------

@@ -25,7 +25,6 @@ T *B_, rocblas_int const ldb
 #include "indx3f.hpp"
 #include "A3array.hpp"
 #include "B3array.hpp"
-#include "syncthreads.hpp"
 
       T const one = 1;
       rocblas_int info = 0;
@@ -68,7 +67,7 @@ T *B_, rocblas_int const ldb
 ! end;
 ! ----------------------------------------
 */
-      SYNCTHREADS();
+      SYNCTHREADS;
 
       for(auto iv=iv_start; iv <= nvec; iv += iv_inc) {
 
@@ -82,7 +81,7 @@ T *B_, rocblas_int const ldb
       }; 
 
 
-      SYNCTHREADS();
+      SYNCTHREADS;
 
 /*
 ! 
@@ -132,7 +131,7 @@ T *B_, rocblas_int const ldb
       }; // iv
 
 
-      SYNCTHREADS();
+      SYNCTHREADS;
 
 
       return(info);

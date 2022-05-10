@@ -27,7 +27,6 @@ auto gemm_nn_vec = [=](
 #include "A3array.hpp"
 #include "B3array.hpp"
 #include "C3array.hpp"
-#include "syncthreads.hpp"
 
 
 
@@ -79,7 +78,7 @@ auto gemm_nn_vec = [=](
 	};
 	};
 
-	SYNCTHREADS();
+	SYNCTHREADS;
 
         return( info );
 };
