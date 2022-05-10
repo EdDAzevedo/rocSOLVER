@@ -6,6 +6,8 @@
 
 auto geblttrf_npvt_vec = [=]( 
 			      rocblas_int const nvec,
+			      rocblas_int const ldnvec,
+
 		              rocblas_int const nb,
 			      rocblas_int const nblocks,
 			      T *A_, rocblas_int const lda,
@@ -100,7 +102,9 @@ auto geblttrf_npvt_vec = [=](
 !   D(:,1:nb,1:nb,k) = getrf_npvt( D(:,1:nb,1:nb,k) );
 !   ----------------------------------------------
 */
-      rocblas_int const linfo = getrf_npvt_vec( nvec, mm,nn,&(D(iv,1,1,k)), ldd );
+      rocblas_int const linfo = getrf_npvt_vec( nvec,ldnvec,
+		                                mm,nn,
+						&(D(iv,1,1,k)), ldd );
       info = ((linfo != 0) && (info == 0)) ? (k-1)*nb+linfo : info;
       };
 
@@ -142,7 +146,8 @@ auto geblttrf_npvt_vec = [=](
          rocblas_int const nrhs = nb;
          rocblas_int const iv = 1;
 	 rocblas_int const linfo = getrs_npvt_vec( 
-			              nvec, nn,nrhs,
+			              nvec, ldnvec,
+				      nn,nrhs,
 				      &(D(iv,1,1,k)), ldd,
 				      &(C(iv,1,1,k)), ldc );
 	 info = ((linfo != 0) && (info == 0)) ? (k-1)*nb+linfo : info;
@@ -166,7 +171,8 @@ auto geblttrf_npvt_vec = [=](
           rocblas_int const ld2 = ldu;
           rocblas_int const ld3 = ldd;
 
-	  rocblas_int const linfo = gemm_nn_vec( nvec, mm,nn,kk,
+	  rocblas_int const linfo = gemm_nn_vec( nvec, ldnvec,
+			  mm,nn,kk,
 			  alpha, &(A(iv,1,1,k+1)), ld1,
 			         &(U(iv,1,1,k)),   ld2,
 	                  beta,  &(D(iv,1,1,k+1)), ld3 );
@@ -181,7 +187,7 @@ auto geblttrf_npvt_vec = [=](
 !      --------------------------------------------------
 */
 
-	       SYNCTHREADS();
+          SYNCTHREADS();
 
 	  {
           rocblas_int const iv = 1;
@@ -189,7 +195,8 @@ auto geblttrf_npvt_vec = [=](
           rocblas_int const nn = nb;
 
 	  rocblas_int const linfo = getrf_npvt_vec(
-			               nvec,mm,nn,
+			               nvec,ldnvec,
+				       mm,nn,
 				       &(D(iv,1,1,k+1)), ldd );
 	  info = ((linfo != 0) && (info == 0)) ? linfo : info;
 

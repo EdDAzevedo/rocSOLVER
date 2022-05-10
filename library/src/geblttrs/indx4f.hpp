@@ -25,8 +25,7 @@
 		size_t const ln1 = n1;
 		size_t const ln2 = n2;
 		size_t const ln3 = n3;
-		size_t const idx = (i1-1) + (i2-1)*ln1 + (i3-1)*(ln1*ln2) + 
-			           (i4-1)*(ln1*ln2*ln3);
 
+		size_t const idx = (((i4-1)*ln3 + (i3-1))*ln2 + (i2-1))*ln1 + (i1-1);
 		return( idx );
 	};

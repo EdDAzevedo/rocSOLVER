@@ -5,19 +5,22 @@
 */
 
 
-auto getrf_npvt_vec = [=]( rocblas_int const m,
-			   rocblas_int const n,
-			   T *A_, rocblas_int const lda ) -> rocblas_int {
+auto getrf_npvt_vec = [=]
+(
+rocblas_int nvec,
+rocblas_int ldnvec,
+
+rocblas_int const m,
+rocblas_int const n,
+T *A_, 
+rocblas_int const lda 
+) -> rocblas_int {
 /*
 !     ----------------------------------------
 !     Perform LU factorization without pivoting
 !     Matrices L and U over-writes matrix A
 !     ----------------------------------------
 */
-	auto min  = [=](rocblas_int const m, 
-			rocblas_int const n ) -> rocblas_int {
-		return(  (m < n) ? m : n );
-	};
 
 	rocblas_int const ncolA = n;
 #include "indx3f.hpp"
@@ -25,7 +28,7 @@ auto getrf_npvt_vec = [=]( rocblas_int const m,
 #include "syncthreads.hpp"
 
       rocblas_int info = 0;
-      rocblas_int const min_mn = min(m,n);
+      rocblas_int const min_mn = (m < n) ? m : n;
 /*
 ! 
 ! % ----------------------------------------------------------
@@ -44,17 +47,17 @@ auto getrf_npvt_vec = [=]( rocblas_int const m,
 ! end;
 */
 #ifdef USE_CPU
-      rocblas_int const iv_start = 1;
-      rocblas_int const iv_inc = 1;
+      auto const iv_start = 1;
+      auto const iv_inc = 1;
 #else
-      rocblas_int const iv_start = hipThreadId_x;
-      rocblas_int const iv_inc = hipBlockDim_x;
+      auto const iv_start = 1 + hipThreadId_x;
+      auto const iv_inc = hipBlockDim_x;
 #endif
 
       T const one = 1;
 
-      for(rocblas_int j=1; j <= min_mn; j++) {
-	      rocblas_int const jp1 = j + 1;
+      for(auto j=1; j <= min_mn; j++) {
+	      auto const jp1 = j + 1;
 
 	      SYNCTHREADS();
 
@@ -63,7 +66,7 @@ auto getrf_npvt_vec = [=]( rocblas_int const m,
 !        A(1:nvec,jp1:m,j) = A(1:nvec,jp1:m,j) * /Ujj(1:nvec)
 !        ---------------------------------
 */
-	      for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
+	      for(auto iv=iv_start; iv <= nvec; iv += iv_inc) {
 		      T const A_iv_j_j = A(iv,j,j);
 		      bool const is_zero = (A_iv_j_j == 0);
 
@@ -71,15 +74,15 @@ auto getrf_npvt_vec = [=]( rocblas_int const m,
 		      info = (is_zero && (info == 0)) ? j : info;
 
 		      T const inv_Ujj_iv = one/Ujj_iv;
-		      for(rocblas_int ia=jp1; ia <= m; ia++) {
+		      for(auto ia=jp1; ia <= m; ia++) {
 			      A(iv,ia,j) = A(iv,ia,j) * inv_Ujj_iv;
 		      };
 	      };
 
 
-	      for(rocblas_int ja=jp1; ja <= n; ja++) {
-              for(rocblas_int ia=jp1; ia <= m; ia++) {
-                for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
+	      for(auto ja=jp1; ja <= n; ja++) {
+              for(auto ia=jp1; ia <= m; ia++) {
+                for(auto iv=iv_start; iv <= nvec; iv += iv_inc) {
 			A(iv,ia,ja) = A(iv,ia,ja) - A(iv,ia,j)*A(iv,j,ja);
 		};
 	      };
@@ -89,8 +92,7 @@ auto getrf_npvt_vec = [=]( rocblas_int const m,
       }; // for j
 
 
-#ifndef USE_CPU
-      __syncthreads();
-#endif
+      SYNCTHREADS;
+
       return(info);
 };

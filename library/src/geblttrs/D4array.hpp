@@ -2,5 +2,5 @@
 		      rocblas_int const i,
 		      rocblas_int const j,
 		      rocblas_int const k ) -> T& {
-		return(    D_[indx4f(iv,i,j,k,      nvec,ldd,nb,nblocks)] );
+		return(    D_[indx4f(iv,i,j,k,      ldnvec,ldd,nb,nblocks)] );
 	};

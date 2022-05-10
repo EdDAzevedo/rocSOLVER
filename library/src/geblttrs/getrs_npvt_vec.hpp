@@ -3,10 +3,16 @@
 ! Copyright(c) 2019-2022. Advanced Micro Devices, Inc. All rights reserved
 ! -------------------------------------------------------------------
 */
-auto getrs_npvt_vec = [=]( rocblas_int const n,
-		           rocblas_int const nrhs,
-			   T *A_, rocblas_int const lda,
-			   T *B_, rocblas_int const ldb) -> rocblas_int {
+auto getrs_npvt_vec = [=]
+( 
+rocblas_int const nvec,
+rocblas_int const ldnvec,
+
+rocblas_int const n,
+rocblas_int const nrhs,
+T *A_, rocblas_int const lda,
+T *B_, rocblas_int const ldb
+) -> rocblas_int {
 
 /*
 !     ---------------------------------------------------
@@ -28,7 +34,7 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
       rocblas_int const iv_start = 1;
       rocblas_int const iv_inc = 1;
 #else
-      rocblas_int const iv_start = hipThreadIdx_x;
+      rocblas_int const iv_start = 1 + hipThreadIdx_x;
       rocblas_int const iv_inc = hipBlockDim_x;
 #endif
 
@@ -64,11 +70,11 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
 */
       SYNCTHREADS();
 
-      for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
+      for(auto iv=iv_start; iv <= nvec; iv += iv_inc) {
 
-        for(rocblas_int i=1; i <= n; i++) {
-        for(rocblas_int j=1; j <= (i-1); j++) {
-	for(rocblas_int k=1; k <= nrhs; k++) {
+        for(auto i=1; i <= n; i++) {
+        for(auto j=1; j <= (i-1); j++) {
+	for(auto k=1; k <= nrhs; k++) {
 		 B(iv,i,k) = B(iv,i,k) - A(iv,i,j) * B(iv,j,k);
 	         };
 	         };
@@ -102,10 +108,10 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
 */
 
 
-      for(rocblas_int iv=iv_start; iv <= nvec; iv += iv_inc) {
+      for(auto iv=iv_start; iv <= nvec; iv += iv_inc) {
 
-         for(rocblas_int ir=1; ir <= n; ir++) {
-	      rocblas_int const i = n - ir + 1;
+         for(auto ir=1; ir <= n; ir++) {
+	      auto const i = n - ir + 1;
 
 	      T const A_iv_i_i = A(iv,i,i);
 	      bool const is_zero = (A_iv_i_i == 0);
@@ -115,8 +121,8 @@ auto getrs_npvt_vec = [=]( rocblas_int const n,
 
 	      T const inv_Uii_iv = one/Uii_iv;
 
-	      for(rocblas_int k=1; k <= nrhs; k++) {
-	        for(rocblas_int j=(i+1); j <= n; j++) {
+	      for(auto k=1; k <= nrhs; k++) {
+	        for(auto j=(i+1); j <= n; j++) {
 			B(iv,i,k) = B(iv,i,k) - A(iv,i,j)*B(iv,j,k);
 		   };
 	           B(iv,i,k) *= inv_Uii_iv;

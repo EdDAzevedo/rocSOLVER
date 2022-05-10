@@ -1,5 +1,7 @@
 auto gemm_nn_vec = [=](
 		rocblas_int const nvec,
+		rocblas_int const ldnvec,
+
 		rocblas_int const m,
 		rocblas_int const n,
 		rocblas_int const k,
@@ -39,13 +41,13 @@ auto gemm_nn_vec = [=](
 	rocblas_int const iv_start = 1;
 	rocblas_int const iv_inc = 1;
 #else
-	rocblas_int const iv_start = hipThreadIdx_x;
+	rocblas_int const iv_start = 1 + hipThreadIdx_x;
 	rocblas_int const iv_inc = hipBlockDim_x;
 #endif
 
-        for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
-	for(rocblas_int jc=1; jc <= n; jc++) {
-        for(rocblas_int ic=1; ic <= m; ic++) {
+        for(auto iv=iv_start; iv <= iv_end; iv += iv_inc) {
+	for(auto jc=1; jc <= n; jc++) {
+        for(auto ic=1; ic <= m; ic++) {
 
 
 		T cij = 0;
