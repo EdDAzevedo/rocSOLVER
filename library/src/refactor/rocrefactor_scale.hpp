@@ -1,7 +1,8 @@
 #ifndef ROCREFACTOR_SCALE_HPP
 #define ROCREFACTOR_SCALE_HPP
 
-#include "rocblas.hpp"
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime_api.h>
 #include "rocsolver/rocsolver.h"
 
 #ifndef SCALE_MAX_THDS
@@ -9,8 +10,8 @@
 #endif
 
 
-template< typename Iint, typename T>
-ROCSOLVER_KERNEL void __launch_bounds__(SCALE_MAX_THDS)
+template< typename Iint, typename Ilong, typename T>
+__global__ void 
 rocrefactor_scale_kernel( 
 		Iint const nrow,
 		Iint const ncol,
@@ -25,19 +26,28 @@ rocrefactor_scale_kernel(
   /*
     -------------------------------------------------
     Perform row and column scaling of sparse matrix
-    equivalent to
-    diag( drow(1:nrow),0) * A * diag( dcol(1:ncol),0)
+
+    This is equivalent to computing (in-place)
+
+    A = diag( drow(1:nrow),0) * A * diag( dcol(1:ncol),0)
     -------------------------------------------------
   */
+
+  {
+  bool const isok = (nrow >= 1) && (ncol >= 1) && 
+                    (Ap != NULL) && (Ai != NULL) && (Ax != NULL);
+  if (!isok) { return; };
+  };
+
   Iint const irow_start = threadIdx.x + blockIdx.x * blockDim.x;
   Iint const irow_inc = blockDim.x * gridDim.x;
 
   for(Iint irow=irow_start; irow < nrow; irow += irow_inc ) {
-     Iint const kstart = Ap[irow];
-     Iint const kend = Ap[irow+1];
+     Ilong const kstart = Ap[irow];
+     Ilong const kend = Ap[irow+1];
 
      T const drow_i = (drow == NULL) ? 1 : drow[irow];
-     for(Iint k=kstart; k < kend; kstart++) {
+     for(Ilong k=kstart; k < kend; kstart++) {
          Iint const jcol = Ai[k];
 
          T aij = Ax[k];
@@ -68,12 +78,13 @@ void rocrefactor_scale_template(
   Iint const nthreads = SCALE_MAX_THDS;
   Iint const nblocks = (nrow + (nthreads-1))/nthreads;
 
-  ROCSOLVER_LAUNCH_KERNEL(  rocrefactor_scale_kernel<Iint,T>,
+  rocrefactor_scale_kernel<Iint,T><<<
                             dim3(nblocks),
                             dim3(nthreads),
                             0,
-                            stream,
-
+                            stream
+                            >>>
+                            (
                             nrow,
                             ncol,
                             drow,
