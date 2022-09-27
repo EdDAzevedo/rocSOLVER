@@ -53,7 +53,7 @@ rocrefactor_scale_kernel(
          T aij = Ax[k];
          aij = (drow_i == 0) ? 0 : drow_i * aij;
 
-         T dcol_j = (dcol == NULL) ? 1 : dcol[jcol];
+         T const dcol_j = (dcol == NULL) ? 1 : dcol[jcol];
          aij = (dcol_j == 0) ? 0 : aij * dcol_j;
 
          Ax[k] = aij;

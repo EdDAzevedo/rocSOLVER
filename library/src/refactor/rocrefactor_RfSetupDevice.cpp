@@ -1,0 +1,308 @@
+#include "hipsparse_check.h"
+#include "hip_check.h"
+
+extern "C"
+rocsolverStatus_t 
+rocsolverRfSetupDevice( /* Input (in the device memory) */
+     int n,
+     int nnzA,
+     int* csrRowPtrA,
+     int* csrColIndA,
+     double* csrValA,
+     int nnzL,
+     int* csrRowPtrL,
+     int* csrColIndL,
+     double* csrValL,
+     int nnzU,
+     int* csrRowPtrU,
+     int* csrColIndU,
+     double* csrValU,
+     int* P,
+     int* Q,
+
+     /* Output */
+     rocsolverRfHandle_t handle
+     )
+{
+
+    /*
+     ------------
+     Quick return
+     ------------
+     */
+    if ((n <= 0) || (nnzA <= 0) || (nnzL <= 0) || (nnzU <= 0) ) {
+       return( ROCSOLVER_STATUS_SUCCESS );
+       };
+
+   {
+   /*
+    ---------------
+    check arguments
+    ---------------
+    */
+    bool const isok_A = (csrRowPtrA != nullptr) && (csrColIndA != nullptr) && (csrValA != nullptr);
+    bool const isok_L = (csrRowPtrL != nullptr) && (csrColIndL != nullptr) && (csrValL != nullptr);
+    bool const isok_U = (csrRowPtrU != nullptr) && (csrColIndU != nullptr) && (csrValU != nullptr);
+    bool const isok_all = (handle != nullptr) && isok_A && isok_L && isok_U;
+    if (!isok_all) {
+        return( ROCSOLVER_STATUS_INVALID_VALUE );
+        };
+    };
+
+
+    hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle;
+    if (hipsparse_handle) {
+       return( ROCSOLVER_STATUS_NOT_INITIALIZED );
+       };
+
+
+   /*
+    ---------------------------------
+    form sparsity pattern for (L + U)
+    ---------------------------------
+   */
+
+    int *csrRowPtrLU = handle->csrRowPtrLU;
+    int *csrColIndLU = handle->csrColIndLU;
+    int *csrValLU = handle->csrValLU;
+    hipsparseMatDescr_t descrLU = handle->descrLU;
+    int nnz_LU = 0;
+
+    if (csrRowPtrLU != nullptr) {
+       HIP_CHECK( hipFree( csrRowPtrLU ), ROCSOLVER_STATUS_INTERNAL_ERROR );
+       csrRowPtrLU = nullptr;
+       };
+
+    if (csrColIndxLU != nullptr) {
+       HIP_CHECK( hipFree(csrColIndLU ), ROCSOLVER_STATUS_INTERNAL_ERROR );
+       csrColIndxLU = nullptr;
+       };
+
+    if (csrValLU != nullptr) {
+       HIP_CHECK( hipFree( csrValLU ), ROCSOLVER_STATUS_INTERNAL_ERROR );
+       csrValLU = nullptr;
+       };
+
+    if (descrLU != nullptr) {
+        HIPSPARSE_CHECK( hipsparseMatDestroy( descrLU ), ROCSOLVER_STATUS_INTERNAL_ERROR );
+        descrLU = nullptr;
+        };
+
+
+
+
+    hipsparseMatDescr_t descrL;
+    hipsparseMatDescr_t descrU;
+    csrsv2Info_t infoL; 
+    csrsv2Info_t infoU; 
+
+
+
+  {
+  HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatType(descrL, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrL, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatFillMode(descrL, HIPSPARSE_FILL_MODE_LOWER), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatDiagType(descrL, HIPSPARSE_DIAG_TYPE_UNIT), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+
+
+
+  HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatType(descrU, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrU, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatFillMode(descrU, HIPSPARSE_FILL_MODE_UPPER), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseSetMatDiagType(descrU, HIPSPARSE_DIAG_TYPE_NON_UNIT), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  }
+
+
+    HIP_CHECK( hipMalloc( (void **) &csrRowPtrLU, sizeof(int)*(n+1)), ROCSOLVER_STATUS_ALLOC_ERROR );
+    if (csrRowPtrLU == nullptr) {
+       return( ROCSOLVER_STATUS_ALLOC_ERROR );
+       };
+
+
+    
+    {
+    hipsparse_int nrow = n;
+    hipsparse_int ncol = n;
+
+    
+    HIPSPARSE_CHECK( 
+           hipsparseXcsrgeamNnz(
+                  hisparse_handle, nrow, ncol,
+                  descrL, nnzL, csrRowPtrL, csrcolIndL, 
+                  descrU, nnzU, csrRowPtrU, csrcolIndU, 
+                  descrLU, csrRowPtrLU, &nnz_LU ), 
+           ROCSOLVER_STATUS_INTERNAL_ERROR
+           );
+    };
+
+   
+    HIP_CHECK( hipMalloc( (void **) &csrColIndLU, sizeof(int)*nnz_LU ), ROCSOLVER_STATUS_ALLOC_ERROR);
+    if (csrColIndLU == nullptr) {
+       return( ROCSOLVER_STATUS_ALLOC_ERROR );
+       };
+ 
+    HIP_CHECK( hipMalloc( (void **) &csrValLU, sizeof(double)*nnz_LU ), ROCSOLVER_STATUS_ALLOC_ERROR);
+    if (csrValLU == nullptr) {
+       return( ROCSOLVER_STATUS_ALLOC_ERROR );
+       };
+
+    handle->n = n;
+    handle->nnz_LU = nnz_LU;
+    /*
+     ----------
+     Perform LU = L + U
+     ----------
+     */
+    
+    {
+    int nrow = n;
+    int ncol = n;
+    double alpha = 1;
+    double beta = 1;
+    HIPSPARSE_CHECK( hipsparseDcsrgeam(
+                         hipsparse_handle,
+                         nrow,
+                         ncol,
+                         &alpha,
+                         descrL, csrValL, csrRowPtrL, csrColIndL, 
+                         &beta,
+                         descrU, csrValU, csrRowPtrU, csrColIndU,
+                         descrLU, csrValLU, csrRowPtrLU, csrColIndLU ),
+                         ROCSOLVER_STATUS_INTERNAL_ERROR );
+    };
+                           
+   HIPSPARSE_CHECK(hipsparseDestroyMatDescr(descrL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+   HIPSPARSE_CHECK(hipsparseDestroyMatDescr(descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+
+   handle->descrLU = descrLU;
+   handle->csrValLU = csrValLU;
+   handle->csrRowPtrLU = csrRowPtrLU;
+ 
+
+   {
+   /* 
+    -------------------------------------
+    make sure the index values are sorted
+    -------------------------------------
+    */
+
+    hipsparseMatDescr_t descrA = handle->descrLU;
+    size_t pBufferSizeInBytes = 0;
+
+    int nrow = n;
+    int ncol = n;
+    int nnz = nnz_LU;
+
+    int *csrRowPtr = handle->csrRowPtrLU;
+    int *csrColInd = handle->csrColIndLU;
+    double *csrVal = handle->csrValLU;
+
+    HIPSPARSE_CHECK( hipsparseXcsrsort_bufferSizeExt( 
+                      handle->hipsparse_handle,
+                      nrow,
+                      ncol,
+                      nnz,
+                      csrRowPtr,
+                      csrColInd,
+                      &pBufferSizeInBytes
+                      ),
+        ROCSOLVER_STATUS_INTERNAL_ERROR );
+
+
+
+  HIP_CHECK( hipMalloc( &pBuffer, pBufferSizeInBytes ), 
+                        ROCSOLVER_STATUS_ALLOC_ERROR );
+  if (pBuffer == nullptr) {
+    return( ROCSOLVER_STATUS_ALLOC_ERROR );
+    }; 
+
+  /*
+   -------------------------------
+   no need to permute rearrange values in LU
+   -------------------------------
+   */
+  int *perm = nullptr;
+
+
+  HIPSPARSE_CHECK( hipsparseXcsrsort( 
+                     handle->hipsparse_handle,
+                     nrow,
+                     ncol,
+                     nnz,
+                     descrA,
+                     csrRowPtr,
+                     csrColInd,
+                     perm,
+                     pBuffer
+                     ),
+            ROCSOLVER_STATUS_INTERNAL_ERROR );
+                       
+
+   HIP_CHECK( hipFree( pBuffer ), ROCSOLVER_STATUS_ALLOC_ERROR );
+   pBuffer = nullptr;
+   };
+                  
+
+   /*
+    ---------------------------------
+    setup row and column permutations
+    ---------------------------------
+   */
+
+
+
+
+
+
+   if (handle->P_new2old != nullptr) {
+      HIP_CHECK( hipFree( handle->P_new2old ), ROCSOLVER_STATUS_ALLOC_ERROR );
+      handle->P_new2old = nullptr;
+      };
+
+
+   if (handle->Q_new2old != nullptr) {
+      HIP_CHECK( hipFree( handle->Q_new2old ), ROCSOLVER_STATUS_ALLOC_ERROR );
+      handle->Q_new2old = nullptr;
+      };
+
+   if (handle->Q_old2new != nullptr) {
+      HIP_CHECK( hipFree( handle->Q_old2new ), ROCSOLVER_STATUS_ALLOC_ERROR );
+      handle->Q_old2new = nullptr;
+      };
+
+   handle->P_new2old = P;
+   handle->Q_new2old = Q;
+
+   {
+   /*
+    -------------------------
+    Create inverse permutation Q_old2new[]
+
+    inew = Q_new2old[ iold ]
+    Q_old2new[ iold ] = inew;
+    -------------------------
+    */
+    int *Q_old2new = nullptr;
+    HIP_CHECK( hipMalloc(  &(Q_old2new), sizeof(int)*n ), 
+                 ROCSOLVER_STATUS_ALLOC_ERROR );
+
+    hipStream_t streamId;
+    HIPSPARSE_CHECK( hipsparseGetStream(
+                        handle->hipsparse_handle, &streamId ),
+                    ROCSOLVER_STATUS_INTERNAL_ERROR );
+    rocrefactor_ipvec( streamId, n, Q_new2old, Q_old2new );
+    
+    handle->Q_old2new = Q_old2new;
+    }
+   
+
+
+
+     
+return( ROCSOLVER_STATUS_SUCCESS );
+
+}
