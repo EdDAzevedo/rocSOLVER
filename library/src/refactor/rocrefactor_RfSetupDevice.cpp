@@ -1,3 +1,4 @@
+#include "hipsparse.h"
 #include "hipsparse_check.h"
 #include "hip_check.h"
 
@@ -50,6 +51,9 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
     };
 
 
+    int *P_new2old = P;
+    int *Q_new2old = Q;
+
     hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle;
     if (hipsparse_handle) {
        return( ROCSOLVER_STATUS_NOT_INITIALIZED );
@@ -99,25 +103,45 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
 
 
   {
+  /*
+   -------------
+   setup descrL
+   -------------
+  */
   HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrL), ROCSOLVER_STATUS_INTERNAL_ERROR);
   HIPSPARSE_CHECK(hipsparseSetMatType(descrL, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
   HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrL, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatFillMode(descrL, HIPSPARSE_FILL_MODE_LOWER), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatDiagType(descrL, HIPSPARSE_DIAG_TYPE_UNIT), ROCSOLVER_STATUS_INTERNAL_ERROR);
   HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoL), ROCSOLVER_STATUS_INTERNAL_ERROR);
 
 
 
+  /*
+   -------------
+   setup descrU
+   -------------
+  */
   HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
   HIPSPARSE_CHECK(hipsparseSetMatType(descrU, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
   HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrU, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatFillMode(descrU, HIPSPARSE_FILL_MODE_UPPER), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK( hipsparseSetMatDiagType(descrU, HIPSPARSE_DIAG_TYPE_NON_UNIT), ROCSOLVER_STATUS_INTERNAL_ERROR);
   HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+
+
+  /*
+   -------------
+   setup descrLU
+   -------------
+  */
+  HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrLU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatType(descrLU, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrLU, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoL), ROCSOLVER_STATUS_INTERNAL_ERROR);
   }
 
 
-    HIP_CHECK( hipMalloc( (void **) &csrRowPtrLU, sizeof(int)*(n+1)), ROCSOLVER_STATUS_ALLOC_ERROR );
+    HIP_CHECK( 
+           hipMalloc( (void **) &csrRowPtrLU, sizeof(int)*(n+1)), 
+           ROCSOLVER_STATUS_ALLOC_ERROR 
+           );
     if (csrRowPtrLU == nullptr) {
        return( ROCSOLVER_STATUS_ALLOC_ERROR );
        };
@@ -125,27 +149,74 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
 
     
     {
-    hipsparse_int nrow = n;
-    hipsparse_int ncol = n;
+    int nrow = n;
+    int ncol = n;
 
+    double alpha = 1;
+    double beta = 1;
+
+    HIPSPARSE_CHECK(
+        hipsparseSetPointerMode( 
+             hipsparse_handle,
+             HIPSPARSE_POINTER_MODE_HOST
+             ),
+        ROCSOLVER_STATUS_INTERNAL_ERROR
+        );
+
+
+
+    void *pBuffer = nullptr;
+    size_t bufferSizeInBytes = 0;
+
+    HIPSPARSE_CHECK(
+        hipsparsecsrgeam2_bufferSizeExt(
+                hipsparse_handle,
+                nrow,
+                ncol,
+                &alpha,
+                descrL, nnzL, csrValL, csrRowPtrL, csrColIndL,
+                &beta,
+                descrU, nnzU, csrValU, csrRowPtrU, csrColIndU,
+                descrLU, csrValLU, csrRowPtrLU, csrColIndLU,
+                &bufferSizeInBytes
+                ),
+          ROCSOLVER_STATUS_INTERNAL_ERROR
+          );
+                
+    HIP_CHECK( 
+       hipMalloc(  &pBuffer, bufferSizeInBytes ),
+       ROCSOLVER_STATUS_ALLOC_ERROR 
+       );
+   if (pBuffer == nullptr) {
+          return( ROCSOLVER_STATUS_ALLOC_ERROR );
+          };
     
-    HIPSPARSE_CHECK( 
-           hipsparseXcsrgeamNnz(
-                  hisparse_handle, nrow, ncol,
-                  descrL, nnzL, csrRowPtrL, csrcolIndL, 
-                  descrU, nnzU, csrRowPtrU, csrcolIndU, 
-                  descrLU, csrRowPtrLU, &nnz_LU ), 
-           ROCSOLVER_STATUS_INTERNAL_ERROR
-           );
-    };
+
+    HIPSPARSE_CHECK(
+       hipsparseXcsrgeam2Nnz(
+           hipsparse_handle,
+           nrow,
+           ncol,
+           descrL, nnzL, csrRowPtrL, csrColIndL,
+           descrU, nnzU, csrRowPtrU, csrColIndU,
+           descrLU, csrRowPtrLU, 
+           &nnz_LU,
+           pBuffer
+           ),
+        ROCSOLVER_STATUS_INTERNAL_ERROR
+        );
 
    
-    HIP_CHECK( hipMalloc( (void **) &csrColIndLU, sizeof(int)*nnz_LU ), ROCSOLVER_STATUS_ALLOC_ERROR);
+    HIP_CHECK( 
+       hipMalloc( (void **) &csrColIndLU, sizeof(int)*nnz_LU ), 
+       ROCSOLVER_STATUS_ALLOC_ERROR);
     if (csrColIndLU == nullptr) {
        return( ROCSOLVER_STATUS_ALLOC_ERROR );
        };
  
-    HIP_CHECK( hipMalloc( (void **) &csrValLU, sizeof(double)*nnz_LU ), ROCSOLVER_STATUS_ALLOC_ERROR);
+    HIP_CHECK( 
+          hipMalloc( (void **) &csrValLU, sizeof(double)*nnz_LU ), 
+          ROCSOLVER_STATUS_ALLOC_ERROR);
     if (csrValLU == nullptr) {
        return( ROCSOLVER_STATUS_ALLOC_ERROR );
        };
@@ -158,22 +229,27 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
      ----------
      */
     
-    {
-    int nrow = n;
-    int ncol = n;
-    double alpha = 1;
-    double beta = 1;
-    HIPSPARSE_CHECK( hipsparseDcsrgeam(
+    HIPSPARSE_CHECK( hipsparseDcsrgeam2(
                          hipsparse_handle,
                          nrow,
                          ncol,
                          &alpha,
-                         descrL, csrValL, csrRowPtrL, csrColIndL, 
+                         descrL, nnzL, 
+                         csrValL, csrRowPtrL, csrColIndL, 
                          &beta,
-                         descrU, csrValU, csrRowPtrU, csrColIndU,
-                         descrLU, csrValLU, csrRowPtrLU, csrColIndLU ),
+                         descrU, nnzU, 
+                         csrValU, csrRowPtrU, csrColIndU,
+                         descrLU,      
+                         csrValLU, csrRowPtrLU, csrColIndLU,
+                         pBuffer
+                         ),
                          ROCSOLVER_STATUS_INTERNAL_ERROR );
-    };
+
+    HIP_CHECK(
+        hipFree( pBuffer ),
+        ROCSOLVER_STATUS_INTERNAL_ERROR
+        );
+    pBuffer = nullptr;
                            
    HIPSPARSE_CHECK(hipsparseDestroyMatDescr(descrL), ROCSOLVER_STATUS_INTERNAL_ERROR);
    HIPSPARSE_CHECK(hipsparseDestroyMatDescr(descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
@@ -181,70 +257,10 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
    handle->descrLU = descrLU;
    handle->csrValLU = csrValLU;
    handle->csrRowPtrLU = csrRowPtrLU;
+   handle->csrColLU = csrColLU;
+    };
  
 
-   {
-   /* 
-    -------------------------------------
-    make sure the index values are sorted
-    -------------------------------------
-    */
-
-    hipsparseMatDescr_t descrA = handle->descrLU;
-    size_t pBufferSizeInBytes = 0;
-
-    int nrow = n;
-    int ncol = n;
-    int nnz = nnz_LU;
-
-    int *csrRowPtr = handle->csrRowPtrLU;
-    int *csrColInd = handle->csrColIndLU;
-    double *csrVal = handle->csrValLU;
-
-    HIPSPARSE_CHECK( hipsparseXcsrsort_bufferSizeExt( 
-                      handle->hipsparse_handle,
-                      nrow,
-                      ncol,
-                      nnz,
-                      csrRowPtr,
-                      csrColInd,
-                      &pBufferSizeInBytes
-                      ),
-        ROCSOLVER_STATUS_INTERNAL_ERROR );
-
-
-
-  HIP_CHECK( hipMalloc( &pBuffer, pBufferSizeInBytes ), 
-                        ROCSOLVER_STATUS_ALLOC_ERROR );
-  if (pBuffer == nullptr) {
-    return( ROCSOLVER_STATUS_ALLOC_ERROR );
-    }; 
-
-  /*
-   -------------------------------
-   no need to permute rearrange values in LU
-   -------------------------------
-   */
-  int *perm = nullptr;
-
-
-  HIPSPARSE_CHECK( hipsparseXcsrsort( 
-                     handle->hipsparse_handle,
-                     nrow,
-                     ncol,
-                     nnz,
-                     descrA,
-                     csrRowPtr,
-                     csrColInd,
-                     perm,
-                     pBuffer
-                     ),
-            ROCSOLVER_STATUS_INTERNAL_ERROR );
-                       
-
-   HIP_CHECK( hipFree( pBuffer ), ROCSOLVER_STATUS_ALLOC_ERROR );
-   pBuffer = nullptr;
-   };
                   
 
    /*
@@ -274,8 +290,8 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
       handle->Q_old2new = nullptr;
       };
 
-   handle->P_new2old = P;
-   handle->Q_new2old = Q;
+   handle->P_new2old = P_new2old;
+   handle->Q_new2old = Q_new2old;
 
    {
    /*
@@ -289,6 +305,9 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
     int *Q_old2new = nullptr;
     HIP_CHECK( hipMalloc(  &(Q_old2new), sizeof(int)*n ), 
                  ROCSOLVER_STATUS_ALLOC_ERROR );
+    if (Q_old2new == nullptr) {
+       return( ROCSOLVER_STATUS_ALLOC_ERROR );
+       };
 
     hipStream_t streamId;
     HIPSPARSE_CHECK( hipsparseGetStream(
@@ -300,9 +319,26 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
     }
    
 
+ /*
+  -----------------------------
+  copy the values of A into L+U
+  -----------------------------
+  */
+
+ rocsolverStatus_t istat = rocrefactor_RfResetValues( 
+                    n,
+                    nnzA,
+                    csrRowPtrA,
+                    csrColIndA,
+                    csrValA,
+                    P,
+                    Q,
+                    handle
+                    ); 
+
 
 
      
-return( ROCSOLVER_STATUS_SUCCESS );
+return( istat );
 
 }

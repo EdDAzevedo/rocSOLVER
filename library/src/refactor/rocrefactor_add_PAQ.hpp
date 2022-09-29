@@ -101,9 +101,9 @@ __global__ void rocrefactor_add_PAQ_kernel(Iint const nrow,
 
     for(Iint irow = irow_start; irow < nrow; irow += irow_inc)
     {
-        Ilong kstart_LU = LUp[irow];
-        Ilong kend_LU = LUp[irow + 1];
-        Iint  nz_LU = kend_LU - kstart_LU;
+        Ilong const kstart_LU = LUp[irow];
+        Ilong const kend_LU = LUp[irow + 1];
+        Iint  const nz_LU = kend_LU - kstart_LU;
 
         /*
          -------------------
@@ -138,6 +138,9 @@ __global__ void rocrefactor_add_PAQ_kernel(Iint const nrow,
             };
             bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
             assert( is_found );
+            if (!is_found) {
+              return( ROCSOLVER_STATUS_INTERNAL_ERROR );
+              };
 
             k_lu = kstart_LU + ipos;
 

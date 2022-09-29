@@ -38,10 +38,31 @@ rocsolverRfResetValues(
         return( ROCSOLVER_STATUS_INVALID_VALUE );
         };
 
+
+
+  int const * const P_new2old = handle->P_new2old;
+  int const * const Q_new2old = handle->Q_new2old;
+  int const * const Q_old2new = handle->Q_old2new;
+
+  bool const is_ok = (P == P_new2old) && (Q == Q_new2old);
+  assert( is_ok );
+  if (!is_ok) {
+     return( ROCSOLVER_STATUS_INTERNAL_ERROR );
+     };
+
+
+
   hipStream_t stream;
   HIPSPARSE_CHECK( hipsparseGetStream( handle->hipsparse_handle, &stream ) );
 
+
+ 
   if ((P == NULL) && (Q == NULL)) {
+   /*
+    ------------------------------------------
+    No row reordering and No column reordering
+    ------------------------------------------
+    */
 
   int const nrow = n;
   int const ncol = n;
@@ -71,9 +92,8 @@ rocsolverRfResetValues(
   }
  else {
 
-  int const * const P_new2old = P;
-  int const * const Q_new2old = Q;
-  int const * const Q_old2new = handle->Q_old2new;
+  int const nrow = n;
+  int const ncol = n;
 
   int const * const * Ap = csrRowPtrA;
   int const * const * Ai = csrColIndA;
@@ -85,6 +105,7 @@ rocsolverRfResetValues(
    
   rocrefactor_add_PAQ<Iint,Ilong,T>(
                      stream,
+
                      nrow,
                      ncol,
                      P_new2old,

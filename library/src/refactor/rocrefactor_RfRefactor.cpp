@@ -42,7 +42,8 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
         double *pBuffer = nullptr;
         {
         size_t const BufferSizeInBytes = BufferSizeInBytes_int;
-        HIP_CHECK( hipMalloc( (void **) &pBuffer, BufferSizeInBytes ));
+        HIP_CHECK( hipMalloc( (void **) &pBuffer, BufferSizeInBytes ),
+                    ROCSOLVER_STATUS_ALLOC_ERROR);
         };
 
         /*
@@ -94,12 +95,12 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
          */
 	 int pivot = -(n+1);
 
-	 hipsparseStatus_t istat = hipsparseXcsrilu02_zeroPivot(handle,
+	 HIPSPARSE_CHECK( hipsparseXcsrilu02_zeroPivot(handle,
 	                                               info,
-						       &pivot );
+						       &pivot ),
+                 ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-         bool isok = (istat == HIPSPARSE_STATUS_SUCCESS) &&
-	             (pivot == -1);
+         bool isok = (pivot == -1);
 
          if (!isok) {
             return( ROCSOLVER_STATUS_ZERO_PIVOT );
