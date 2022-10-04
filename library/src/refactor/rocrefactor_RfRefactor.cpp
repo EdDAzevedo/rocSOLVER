@@ -14,6 +14,7 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
 
 
    csrilu02Info_t info;
+
    HIPSPARSE_CHECK( hipsparseCreateCsrilu02Info( &info ), 
               ROCSOLVER_STATUS_EXECUTION_FAILED );
 
@@ -21,9 +22,9 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
          int *csrSortedColIndA = handle->csrColIndLU;
          double *csrSortedValA = handle->csrValLU;
 
-         int n = handle->n;
-         int nnz = handle->nnz_LU;
-         hipsparseMatDescr_t descrA = handle->descrLU;
+         int const n = handle->n;
+         int const nnz = handle->nnz_LU;
+         hipsparseMatDescr_t const descrA = handle->descrLU;
           
 
 
@@ -56,7 +57,7 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
 	 hipsparseSolvePolicy_t policy = HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
 
 	 HIPSPARSE_CHECK( hipsparseDcsrilu02_analysis( handle->hipsparse_handle,
-	                                               m,
+	                                               n,
 						       nnz,
 						       descrA,
 						       csrSortedValA,
@@ -68,6 +69,25 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
 						       ),
               ROCSOLVER_STATUS_EXECUTION_FAILED );
 
+
+        {
+        /* 
+          ----------------------------------------------------
+          numerical boost is disabled by default in cusolverRF
+          ----------------------------------------------------
+         */
+        int enable_boost = false;
+        double tol = 0;
+        double boost_val = 0;
+    
+        HIPSPARSE_CHECK( hipsparseDcsrilu02_numericBoost(
+                              handle->hipsparse_handle,
+                              info,
+                              enable_boost,
+                              tol,
+                              boost_val ),
+            ROCSOLVER_STATUS_EXECUTION_FAILED);
+        };
 
 	/*
 	 ---------------------
@@ -109,6 +129,8 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
 
 
 
+	 HIPSPARSE_CHECK( hipsparseDestroyCsrilu02Info( info ),
+                 ROCSOLVER_STATUS_EXECUTION_FAILED );
 
  return( ROCSOLVER_STATUS_SUCCESS );
 }

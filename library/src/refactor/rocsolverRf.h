@@ -3,7 +3,7 @@
 
 #include "rocblas.h"
 #include "rocsolver.h"
-#include "rocrefactor.h"
+#include "rocsolver_refactor.h"
 
 #ifdef __cplusplus
 extern "C" {

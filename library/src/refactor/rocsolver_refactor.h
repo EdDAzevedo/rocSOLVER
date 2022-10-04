@@ -1,5 +1,5 @@
-#ifndef ROCSOLVERRF_H
-#define ROCSOLVERRF_H
+#ifndef ROCSOLVER_REFACTOR_H
+#define ROCSOLVER_REFACTOR_H
 
 #include "hipsparse.h"
 
@@ -7,6 +7,33 @@
 extern "C" {
 #endif
 
+typedef enum{
+    ROCSOLVER_STATUS_SUCCESS=0,
+    ROCSOLVER_STATUS_NOT_INITIALIZED=1,
+    ROCSOLVER_STATUS_ALLOC_FAILED=2,
+    ROCSOLVER_STATUS_INVALID_VALUE=3,
+    ROCSOLVER_STATUS_ARCH_MISMATCH=4,
+    ROCSOLVER_STATUS_MAPPING_ERROR=5,
+    ROCSOLVER_STATUS_EXECUTION_FAILED=6,
+    ROCSOLVER_STATUS_INTERNAL_ERROR=7,
+    ROCSOLVER_STATUS_MATRIX_TYPE_NOT_SUPPORTED=8,
+    ROCSOLVER_STATUS_NOT_SUPPORTED = 9,
+    ROCSOLVER_STATUS_ZERO_PIVOT=10,
+    ROCSOLVER_STATUS_INVALID_LICENSE=11,
+    ROCSOLVER_STATUS_IRS_PARAMS_NOT_INITIALIZED=12,
+    ROCSOLVER_STATUS_IRS_PARAMS_INVALID=13,
+    ROCSOLVER_STATUS_IRS_PARAMS_INVALID_PREC=14,
+    ROCSOLVER_STATUS_IRS_PARAMS_INVALID_REFINE=15,
+    ROCSOLVER_STATUS_IRS_PARAMS_INVALID_MAXITER=16,
+    ROCSOLVER_STATUS_IRS_INTERNAL_ERROR=20,
+    ROCSOLVER_STATUS_IRS_NOT_SUPPORTED=21,
+    ROCSOLVER_STATUS_IRS_OUT_OF_RANGE=22,
+    ROCSOLVER_STATUS_IRS_NRHS_NOT_SUPPORTED_FOR_REFINE_GMRES=23,
+    ROCSOLVER_STATUS_IRS_INFOS_NOT_INITIALIZED=25,
+    ROCSOLVER_STATUS_IRS_INFOS_NOT_DESTROYED=26,
+    ROCSOLVER_STATUS_IRS_MATRIX_SINGULAR=30,
+    ROCSOLVER_STATUS_INVALID_WORKSPACE=31
+} rocsolverStatus_t;
 
 typedef enum { 
     ROCSOLVERRF_RESET_VALUES_FAST_MODE_OFF = 0, //default   
@@ -70,49 +97,49 @@ typedef struct rocsolverRfCommon *rocsolverRfHandle_t;
 
 
 /* ROCSOLVERRF create (allocate memory) and destroy (free memory) in the handle */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfCreate(rocsolverRfHandle_t *handle);
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfDestroy(rocsolverRfHandle_t handle);
+rocsolverStatus_t  rocsolverRfCreate(rocsolverRfHandle_t *handle);
+rocsolverStatus_t  rocsolverRfDestroy(rocsolverRfHandle_t handle);
 
 /* ROCSOLVERRF set and get input format */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfGetMatrixFormat(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfGetMatrixFormat(rocsolverRfHandle_t handle, 
                                                        rocsolverRfMatrixFormat_t *format, 
                                                        rocsolverRfUnitDiagonal_t *diag);
 
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetMatrixFormat(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfSetMatrixFormat(rocsolverRfHandle_t handle, 
                                                        rocsolverRfMatrixFormat_t format, 
                                                        rocsolverRfUnitDiagonal_t diag);
     
 /* ROCSOLVERRF set and get numeric properties */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle, 
                                                             double zero,
                                                             double boost);
 											 
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfGetNumericProperties(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfGetNumericProperties(rocsolverRfHandle_t handle, 
                                                             double* zero,
                                                             double* boost);
 											 
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfGetNumericBoostReport(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfGetNumericBoostReport(rocsolverRfHandle_t handle, 
                                                              rocsolverRfNumericBoostReport_t *report);
 
 /* ROCSOLVERRF choose the triangular solve algorithm */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
+rocsolverStatus_t  rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
                                                rocsolverRfFactorization_t factAlg,
                                                rocsolverRfTriangularSolve_t solveAlg);
 
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfGetAlgs(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfGetAlgs(rocsolverRfHandle_t handle, 
                                                rocsolverRfFactorization_t* factAlg,
                                                rocsolverRfTriangularSolve_t* solveAlg);
 
 /* ROCSOLVERRF set and get fast mode */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfGetResetValuesFastMode(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfGetResetValuesFastMode(rocsolverRfHandle_t handle, 
                                                               rocsolverRfResetValuesFastMode_t *fastMode);
 
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetResetValuesFastMode(rocsolverRfHandle_t handle, 
+rocsolverStatus_t  rocsolverRfSetResetValuesFastMode(rocsolverRfHandle_t handle, 
                                                               rocsolverRfResetValuesFastMode_t fastMode);
 
 /*** Non-Batched Routines ***/
 /* ROCSOLVERRF setup of internal structures from host or device memory */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetupHost(/* Input (in the host memory) */
+rocsolverStatus_t  rocsolverRfSetupHost(/* Input (in the host memory) */
                                                  int n,
                                                  int nnzA,
                                                  int* h_csrRowPtrA,
@@ -131,7 +158,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetupHost(/* Input (in the host memory
                                                  /* Output */
                                                  rocsolverRfHandle_t handle);
     
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetupDevice(/* Input (in the device memory) */
+rocsolverStatus_t  rocsolverRfSetupDevice(/* Input (in the device memory) */
                                                    int n,
                                                    int nnzA,
                                                    int* csrRowPtrA,
@@ -153,7 +180,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfSetupDevice(/* Input (in the device me
 /* ROCSOLVERRF update the matrix values (assuming the reordering, pivoting 
    and consequently the sparsity pattern of L and U did not change),
    and zero out the remaining values. */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfResetValues(/* Input (in the device memory) */
+rocsolverStatus_t  rocsolverRfResetValues(/* Input (in the device memory) */
                                                    int n,
                                                    int nnzA,
                                                    int* csrRowPtrA, 
@@ -165,13 +192,13 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfResetValues(/* Input (in the device me
                                                    rocsolverRfHandle_t handle);
 
 /* ROCSOLVERRF analysis (for parallelism) */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfAnalyze(rocsolverRfHandle_t handle);
+rocsolverStatus_t  rocsolverRfAnalyze(rocsolverRfHandle_t handle);
 
 /* ROCSOLVERRF re-factorization (for parallelism) */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfRefactor(rocsolverRfHandle_t handle);
+rocsolverStatus_t  rocsolverRfRefactor(rocsolverRfHandle_t handle);
 
 /* ROCSOLVERRF extraction: Get L & U packed into a single matrix M */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfAccessBundledFactorsDevice(/* Input */
+rocsolverStatus_t  rocsolverRfAccessBundledFactorsDevice(/* Input */
                                                                   rocsolverRfHandle_t handle,
                                                                   /* Output (in the host memory) */
                                                                   int* nnzM, 
@@ -180,7 +207,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfAccessBundledFactorsDevice(/* Input */
                                                                   int** Mi, 
                                                                   double** Mx);
 
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfExtractBundledFactorsHost(/* Input */
+rocsolverStatus_t  rocsolverRfExtractBundledFactorsHost(/* Input */
                                                                  rocsolverRfHandle_t handle, 
                                                                  /* Output (in the host memory) */
                                                                  int* h_nnzM,
@@ -189,7 +216,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfExtractBundledFactorsHost(/* Input */
                                                                  double** h_Mx);
 
 /* ROCSOLVERRF extraction: Get L & U individually */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfExtractSplitFactorsHost(/* Input */
+rocsolverStatus_t  rocsolverRfExtractSplitFactorsHost(/* Input */
                                                                rocsolverRfHandle_t handle, 
                                                                /* Output (in the host memory) */
                                                                int* h_nnzL, 
@@ -202,7 +229,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfExtractSplitFactorsHost(/* Input */
                                                                double** h_csrValU);
 
 /* ROCSOLVERRF (forward and backward triangular) solves */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfSolve(/* Input (in the device memory) */
+rocsolverStatus_t  rocsolverRfSolve(/* Input (in the device memory) */
                                              rocsolverRfHandle_t handle,
                                              int *P,
                                              int *Q,
@@ -216,7 +243,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfSolve(/* Input (in the device memory) 
 
 /*** Batched Routines ***/
 /* ROCSOLVERRF-batch setup of internal structures from host */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchSetupHost(/* Input (in the host memory)*/
+rocsolverStatus_t  rocsolverRfBatchSetupHost(/* Input (in the host memory)*/
                                                       int batchSize,
                                                       int n,
                                                       int nnzA,
@@ -239,7 +266,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchSetupHost(/* Input (in the host m
 /* ROCSOLVERRF-batch update the matrix values (assuming the reordering, pivoting 
    and consequently the sparsity pattern of L and U did not change),
    and zero out the remaining values. */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchResetValues(/* Input (in the device memory) */
+rocsolverStatus_t  rocsolverRfBatchResetValues(/* Input (in the device memory) */
                                                         int batchSize,
                                                         int n,
                                                         int nnzA,
@@ -252,13 +279,13 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchResetValues(/* Input (in the devi
                                                         rocsolverRfHandle_t handle);
  
 /* ROCSOLVERRF-batch analysis (for parallelism) */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle);
+rocsolverStatus_t  rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle);
 
 /* ROCSOLVERRF-batch re-factorization (for parallelism) */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchRefactor(rocsolverRfHandle_t handle);
+rocsolverStatus_t  rocsolverRfBatchRefactor(rocsolverRfHandle_t handle);
 
 /* ROCSOLVERRF-batch (forward and backward triangular) solves */
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchSolve(/* Input (in the device memory) */
+rocsolverStatus_t  rocsolverRfBatchSolve(/* Input (in the device memory) */
                                                   rocsolverRfHandle_t handle,
                                                   int *P,
                                                   int *Q,
@@ -271,7 +298,7 @@ rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchSolve(/* Input (in the device mem
                                                   int ldxf);
 
 /* ROCSOLVERRF-batch obtain the position of zero pivot */    
-rocsolverStatus_t ROCSOLVERAPI rocsolverRfBatchZeroPivot(/* Input */
+rocsolverStatus_t  rocsolverRfBatchZeroPivot(/* Input */
                                                       rocsolverRfHandle_t handle,
                                                       /* Output (in the host memory) */
                                                       int *position);

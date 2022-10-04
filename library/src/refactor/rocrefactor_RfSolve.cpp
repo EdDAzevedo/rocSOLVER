@@ -38,38 +38,41 @@ rocsolverStatus_t rocrefactor_RfSolve(
     };
 
  bool const isok_arguments = 
-                   (Temp != nullptr) && ( ldt >= n) &&
                    (XF != nullptr) && (ldxf >= n);
  if (!isok_arguments) {
    return( ROCSOLVER_STATUS_INVALID_VALUE );
    };
 
 
+ int * const P_new2old = P;
+ int * const Q_new2old = Q;
+
+ assert( P_new2old == handle->P_new2old );
+ assert( Q_new2old == handle->Q_new2old );
+
+ for(int irhs=0; irhs < nrhs; irhs++) {
+   double * const Rs = nullptr;
+   double * const brhs = &(XF[ ldxf*irhs ]);
+   int * const LUp = handle->csrrowPtrLU;
+   int * const LUi = handle->csrColIndLU;
+   double * const LUx = handle->csrValLU;
+
+   int isok = rf_pqrlusolve( 
+                           handle->hipsparse_handle,
+                           n,
+                           P_new2old,
+                           Q_new2old,
+                           Rs,
+                           Lup,
+                           Lui,
+                           Lux,
+                           brhs
+                           );
+   if (!isok) {
+      return( ROCSOLVER_STATUS_INTERNAL_ERROR );
+   };
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-
+return( ROCSOLVER_STATUS_SUCCESS );
        
 } 
