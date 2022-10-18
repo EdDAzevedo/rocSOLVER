@@ -15,79 +15,7 @@ __global__ void rocrefactor_add_PAQ_kernel(Iint const nrow,
                                            Iint const* const LUi,
                                            T* const LUx)
 {
-    auto search = [](Iint const len, Iint const* const arr, Iint const key) -> Iint {
-        /*
-         ---------------------------------------
-         search array  arr[0], ..., arr[ len-1] 
-         for matching value "key"
-
-         return the index value of matching position
-         ---------------------------------------
-         */
-        Iint constexpr small_len = 8;
-        Iint ipos = len;
-        if((len <= 0) || (arr == NULL))
-        {
-            return (ipos = len);
-        };
-
-        if(len <= small_len)
-        {
-            /*  
-            -----------------
-            use simple linear search  
-            -----------------
-           */
-#pragma unroll
-            for(Iint k = 0; k < len; k++)
-            {
-                bool const is_found = (arr[k] == key);
-                if(is_found)
-                {
-                    ipos = k;
-                    break;
-                };
-            };
-        }
-        else
-        {
-            /*
-          -----------------
-          use binary search
-          -----------------
-          */
-            Iint lo = 0;
-            Iint hi = len;
-
-#pragma unroll
-            for(int i = 0; i < 32; i++)
-            {
-                Iint const len_remain = hi - lo;
-                if(len_remain <= 0) 
-                {
-                    break;
-                };
-
-                Iint mid = (lo + hi) / 2;
-                bool const is_found = (arr[mid] == key);
-                if(is_found)
-                {
-                    ipos = mid;
-                    break;
-                };
-
-                if(arr[mid] < key)
-                {
-                    lo = mid + 1;
-                }
-                else
-                {
-                    hi = mid;
-                };
-            };
-        };
-        return (ipos);
-    };
+#include "rf_search.hpp"
 
     /*
      -------------------------------------------
@@ -134,7 +62,7 @@ __global__ void rocrefactor_add_PAQ_kernel(Iint const nrow,
                 Iint const * const arr = &(LUi[kstart_LU]);
                 Iint const key = jcol;
 
-                ipos = search(len, arr, key);
+                ipos = rf_search(len, arr, key);
             };
             bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
             assert( is_found );

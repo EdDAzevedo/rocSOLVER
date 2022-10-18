@@ -35,79 +35,7 @@ void rocrefactor_aXpbY_kernel(
         };
     }
 
-    auto search = [](Iint const len, Iint const* const arr, Iint const key) -> Iint {
-
-        /*
-         ---------------------------------------
-         search array  arr[0], ..., arr[ len-1] 
-         for matching value "key"
-
-         return the index value of matching position
-         ---------------------------------------
-         */
-        Iint constexpr small_len = 8;
-        Iint ipos = len;
-        if((len <= 0) || (arr == NULL))
-        {
-            return (ipos);
-        };
-
-        if(len <= small_len)
-        {
-          /*  
-            -----------------
-            use simple linear search  
-            -----------------
-           */
-            #pragma unroll
-            for(Iint k = 0; k < len; k++)
-            {
-                bool const is_found = (arr[k] == key);
-                if(is_found)
-                {
-                    ipos = k;
-                    break;
-                };
-            };
-        }
-        else
-        {
-         /*
-          -----------------
-          use binary search
-          -----------------
-          */
-            Iint lo = 0;
-            Iint hi = len;
-
-	    #pragma unroll
-            for(int i = 0; i < 32; i++)
-            {
-                if(lo >= hi)
-                {
-                    break;
-                };
-
-                Iint mid = (lo + hi) / 2;
-                bool const is_found = (arr[mid] == key);
-                if(is_found)
-                {
-                    ipos = mid;
-                    break;
-                };
-
-                if(arr[mid] < key)
-                {
-                    lo = mid + 1;
-                }
-                else
-                {
-                    hi = mid;
-                };
-            };
-        };
-        return (ipos);
-    };
+#include "rf_search.hpp"
 
     Iint const irow_start = threadIdx.x + blockIdx.x * blockDim.x;
     Iint const irow_inc = blockDim.x * gridDim.x;
@@ -156,7 +84,7 @@ void rocrefactor_aXpbY_kernel(
                     Iint const len = (ky_end - ky_start);
                     Iint const* const arr = &(Yp[ky_start]);
 
-                    Iint const ipos = search(len, arr, key);
+                    Iint const ipos = rf_search(len, arr, key);
                     is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
                 };
 
