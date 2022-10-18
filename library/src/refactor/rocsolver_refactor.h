@@ -85,6 +85,15 @@ struct rocsolverRfCommon {
   
   hipsparseMatDescr_t descrL;
   hipsparseMatDescr_t descrU;
+  hipsparseMatDescr_t descrLU;
+
+  int *P_new2old;
+  int *Q_new2old;
+  int *Q_old2new;
+
+
+  int n;
+  int nnz_LU;
   int *csrRowPtrLU;
   int *csrColIndLU;
   double *csrValLU;
@@ -307,6 +316,5 @@ rocsolverStatus_t  rocsolverRfBatchZeroPivot(/* Input */
 }
 #endif 
 
-#endif /* ROCSOLVERRF_H_ */
 
-#endif
+#endif /* ROCSOLVER_REFACTOR_H */
