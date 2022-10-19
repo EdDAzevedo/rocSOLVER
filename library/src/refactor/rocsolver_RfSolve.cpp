@@ -5,7 +5,7 @@
  hipsolverRfRefactor()
  -------------------------------------------------------------
 */
-rocsolverStatus_t rocrefactor_RfSolve(
+rocsolverStatus_t rocsolverRfSolve(
               /* Input (in the device memory) */
               rocsolverRfHandle_t handle,
               int *P,
