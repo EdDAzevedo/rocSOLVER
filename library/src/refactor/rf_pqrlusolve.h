@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "rocsolver.h"
+#include "rocsolver/rocsolver.h"
 
 #include "rf_lusolve.h"
 #include "rf_pvec.h"

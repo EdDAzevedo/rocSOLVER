@@ -1,4 +1,4 @@
-#include "hipsparse.h"
+#include "hipsparse/hipsparse.h"
 #include "hipsparse_check.h"
 #include "hip_check.h"
 

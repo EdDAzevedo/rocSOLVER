@@ -1,7 +1,8 @@
+#pragma once
 #ifndef ROCSOLVER_REFACTOR_H
 #define ROCSOLVER_REFACTOR_H
 
-#include "hipsparse.h"
+#include "hipsparse/hipsparse.h"
 
 #ifdef __cplusplus
 extern "C" {

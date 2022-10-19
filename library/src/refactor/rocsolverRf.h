@@ -1,8 +1,8 @@
 #ifndef ROCSOLVERRF_H
 #define ROCSOLVERRF_H
 
-#include "rocblas.h"
-#include "rocsolver.h"
+#include "rocblas/rocblas.h"
+#include "rocsolver/rocsolver.h"
 #include "rocsolver_refactor.h"
 
 #ifdef __cplusplus
@@ -20,7 +20,7 @@ rocsolverRfResetValues(
            int* P,
            int* Q,
 
-           rocsolverRFHandle_t handle
+           rocsolverRfHandle_t handle
            );
 
 #ifdef __cplusplus
