@@ -30,6 +30,8 @@
 #include <hip/hip_runtime_api.h>
 #include "rocsolver/rocsolver.h"
 
+#include "rocsolver_refactor.h"
+
 #ifndef LASCALE_MAX_THDS
 #define LASCALE_MAX_THDS 256
 #endif

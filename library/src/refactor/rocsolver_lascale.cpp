@@ -26,7 +26,7 @@
 #include "rocsolver_lascale.hpp"
 
 template <typename T>
-rocblas_status rocsolver_lascale_impl(
+rocsolverStatus_t rocsolver_lascale_impl(
 	rocblas_handle handle,
 	const rocblas_int nrow,
 	const rocblas_int ncol,
@@ -50,7 +50,7 @@ rocblas_status rocsolver_lascale_impl(
 	Ai,
 	Ax
         );
-   return( rocblas_status_success );
+   return( ROCSOLVER_STATUS_SUCCESS );
 }
 
 extern "C" {
@@ -129,7 +129,7 @@ rocsolverStatus_t rocsolverZlascale(
 
 
 
-rocsolverStatus_t rocsolverZlascale(
+rocsolverStatus_t rocsolverClascale(
 	rocblas_handle handle,
 	const rocblas_int nrow,
 	const rocblas_int ncol,
