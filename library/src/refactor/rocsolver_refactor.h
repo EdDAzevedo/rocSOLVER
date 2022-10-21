@@ -2,6 +2,9 @@
 #ifndef ROCSOLVER_REFACTOR_H
 #define ROCSOLVER_REFACTOR_H
 
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime_api.h"
+
 #include "hipsparse/hipsparse.h"
 
 #ifdef __cplusplus
