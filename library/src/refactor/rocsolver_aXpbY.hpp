@@ -1,13 +1,13 @@
-#ifndef ROCREFACTOR_AXPBY_HPP
-#define ROCREFACTOR_AXPBY_HPP
+#ifndef ROCSOLVER_AXPBY_HPP
+#define ROCSOLVER_AXPBY_HPP
 
 #ifndef AXPBY_MAX_THDS
 #define AXPBY_MAX_THDS 256
 #endif
 
 template <typename Iint, typename Ilong, typename T>
-__global__ launch_bounds(AXPBY_MAX_THDS)
-void rocrefactor_aXpbY_kernel(           
+__global__ __launch_bounds__(AXPBY_MAX_THDS)
+void rocsolver_aXpbY_kernel(           
                                          Iint const nrow,
                                          Iint const ncol,
                                          T const alpha,
@@ -99,7 +99,7 @@ void rocrefactor_aXpbY_kernel(
 }
 
 template< typename Iint, typename Ilong, typename T>
-void rocrefactor_aXpbY_template( 
+void rocsolver_aXpbY_template( 
                  hipStream_t stream,
                  Iint const nrow,
                  Iint const ncol,
@@ -116,7 +116,7 @@ void rocrefactor_aXpbY_template(
      Iint const nthreads = AXPBY_MAX_THDS;
      Iint const nblocks = (nrow + (nthreads-1))/nthreads;
 
-     rocrefactor_aXpbY_template<Iint,Ilong,T><<< 
+     rocsolver_aXpbY_template<Iint,Ilong,T><<< 
                              dim3(nblocks), 
                              dim3(nthreads),
                              0,

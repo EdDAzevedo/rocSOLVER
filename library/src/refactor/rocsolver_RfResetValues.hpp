@@ -1,9 +1,10 @@
-#ifndef ROCREFACTOR_RFRESETVALUES_HPP
-#define ROCREFACTOR_RFRESETVALUES_HPP
+#ifndef ROCSOLVER_RFRESETVALUES_HPP
+#define ROCSOLVER_RFRESETVALUES_HPP
 
 #include "rocsolverRf.h"
 
-#include "rocrefactor_aXpbY.hpp"
+#include "rocsolver_aXpbY.hpp"
+#include "rocsolver_add_PAQ.hpp"
 
 template< typename Iint, typename Ilong, typename T>
 rocsolverStatus_t 
@@ -75,7 +76,7 @@ rocsolverRfResetValues(
   int const * const Yp = handle->csrRowPtrLU;
   int const * const Yi = handle->csrColIndLU;
   double const * const Yx = handle->csrValLU;
-  rocrefactor_aXpbY<Iint,Ilong,T>(
+  rocsolver_aXpbY<Iint,Ilong,T>(
                      stream,
 
                      nrow,
@@ -103,7 +104,7 @@ rocsolverRfResetValues(
   int const * const LUi = handle->csrColIndLU;
   double const * const LUx = handle->csrValLU;
    
-  rocrefactor_add_PAQ<Iint,Ilong,T>(
+  rocsolver_add_PAQ<Iint,Ilong,T>(
                      stream,
 
                      nrow,

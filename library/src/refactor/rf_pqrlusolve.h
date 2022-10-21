@@ -14,7 +14,6 @@
 #include "rf_applyRs.h"
 #include "rf_mirror_pointer.h"
 
-#include "blas.h"
 
 rocsolverStatus_t rf_pqrlusolve( 
                   hipsparseHandle_t handle,

@@ -5,6 +5,11 @@
  hipsolverRfRefactor()
  -------------------------------------------------------------
 */
+
+#include "rocsolver_RfSolve.hpp"
+#include "assert.h"
+#include "rf_pqrlusolve.h"
+
 rocsolverStatus_t rocsolverRfSolve(
               /* Input (in the device memory) */
               rocsolverRfHandle_t handle,
@@ -37,11 +42,13 @@ rocsolverStatus_t rocsolverRfSolve(
     return( ROCSOLVER_STATUS_SUCCESS );
     };
 
+ {
  bool const isok_arguments = 
                    (XF != nullptr) && (ldxf >= n);
  if (!isok_arguments) {
    return( ROCSOLVER_STATUS_INVALID_VALUE );
    };
+ };
 
 
  int * const P_new2old = P;
@@ -53,7 +60,7 @@ rocsolverStatus_t rocsolverRfSolve(
  for(int irhs=0; irhs < nrhs; irhs++) {
    double * const Rs = nullptr;
    double * const brhs = &(XF[ ldxf*irhs ]);
-   int * const LUp = handle->csrrowPtrLU;
+   int * const LUp = handle->csrRowPtrLU;
    int * const LUi = handle->csrColIndLU;
    double * const LUx = handle->csrValLU;
 
@@ -63,15 +70,15 @@ rocsolverStatus_t rocsolverRfSolve(
                            P_new2old,
                            Q_new2old,
                            Rs,
-                           Lup,
-                           Lui,
-                           Lux,
+                           handle->csrRowPtrLU,
+                           handle->csrColIndLU,
+                           handle->csrValLU,
                            brhs
                            );
    if (!isok) {
       return( ROCSOLVER_STATUS_INTERNAL_ERROR );
    };
-
+  };
 
 return( ROCSOLVER_STATUS_SUCCESS );
        
