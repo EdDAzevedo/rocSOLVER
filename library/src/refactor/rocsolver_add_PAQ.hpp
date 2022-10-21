@@ -1,10 +1,13 @@
-#ifndef ROCREFACTOR_ADD_PAQ_HPP
-#define ROCREFACTOR_ADD_PAQ_HPP
+#ifndef ROCSOLVER_ADD_PAQ_HPP
+#define ROCSOLVER_ADD_PAQ_HPP
 
-#include "assert.h"
+#ifndef ADD_PAQ_MAX_THDS
+#define ADD_PAQ_MAX_THDS 256
+#endif
 
 template <typename Iint, typename Ilong, typename T>
-__global__ void rocrefactor_add_PAQ_kernel(Iint const nrow,
+__global__ __launch_bounds(ADD_PAQ_MAX_THDS) 
+void rocrefactor_add_PAQ_kernel(Iint const nrow,
                                            Iint const ncol,
                                            Iint* const* P_new2old,
                                            Iint* const* Q_old2new,
@@ -65,7 +68,6 @@ __global__ void rocrefactor_add_PAQ_kernel(Iint const nrow,
                 ipos = rf_search(len, arr, key);
             };
             bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
-            assert( is_found );
             if (!is_found) {
               return( ROCSOLVER_STATUS_INTERNAL_ERROR );
               };
