@@ -17,7 +17,7 @@ void rocsolver_aXpbY_kernel(
                                          T const beta,
                                          Iint const* const Yp,
                                          Iint const* const Yi,
-                                         T const Yx)
+                                         T         * const Yx)
 {
 /*
  ------------------------------------------------
@@ -86,12 +86,12 @@ void rocsolver_aXpbY_kernel(
 
                     Iint const ipos = rf_search(len, arr, key);
                     is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
-                };
 
-                if(is_found)
-                {
-                    Ilong const ky = ky_start + ipos;
-                    Y[ky] = alpha * Xx[kx] + beta * Yx[ky];
+                    if(is_found)
+                    {
+                      Ilong const ky = ky_start + ipos;
+                      Yx[ky] = alpha * Xx[kx] + beta * Yx[ky];
+                    };
                 };
             };
         };
@@ -101,6 +101,7 @@ void rocsolver_aXpbY_kernel(
 template< typename Iint, typename Ilong, typename T>
 void rocsolver_aXpbY_template( 
                  hipStream_t stream,
+
                  Iint const nrow,
                  Iint const ncol,
                  T const alpha,
@@ -110,13 +111,13 @@ void rocsolver_aXpbY_template(
                  T const beta,
                  Iint const * const Yp,
                  Iint const * const Yi,
-                 Iint       * const Yx
+                 T          * const Yx
                  )
 {
      Iint const nthreads = AXPBY_MAX_THDS;
      Iint const nblocks = (nrow + (nthreads-1))/nthreads;
 
-     rocsolver_aXpbY_template<Iint,Ilong,T><<< 
+     rocsolver_aXpbY_kernel<Iint,Ilong,T><<< 
                              dim3(nblocks), 
                              dim3(nthreads),
                              0,

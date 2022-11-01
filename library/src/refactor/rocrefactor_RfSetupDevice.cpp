@@ -50,6 +50,8 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
         };
     };
 
+   handle->boost_val = 0;
+   handle->effective_zero = 0;
 
     int *P_new2old = P;
     int *Q_new2old = Q;
@@ -108,10 +110,14 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
    setup descrL
    -------------
   */
-  HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrL), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatType(descrL, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrL, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseCreateMatDescr(&descrL), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseSetMatType(descrL, HIPSPARSE_MATRIX_TYPE_GENERAL), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseSetMatIndexBase(descrL, HIPSPARSE_INDEX_BASE_ZERO), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseCreateCsrsv2Info(&infoL), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
 
 
 
@@ -120,10 +126,14 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
    setup descrU
    -------------
   */
-  HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatType(descrU, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrU, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseCreateMatDescr(&descrU), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseSetMatType(descrU, HIPSPARSE_MATRIX_TYPE_GENERAL), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseSetMatIndexBase(descrU, HIPSPARSE_INDEX_BASE_ZERO), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseCreateCsrsv2Info(&infoU), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
 
 
   /*
@@ -131,10 +141,14 @@ rocsolverRfSetupDevice( /* Input (in the device memory) */
    setup descrLU
    -------------
   */
-  HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrLU), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatType(descrLU, HIPSPARSE_MATRIX_TYPE_GENERAL), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrLU, HIPSPARSE_INDEX_BASE_ZERO), ROCSOLVER_STATUS_INTERNAL_ERROR);
-  HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseCreateMatDescr(&descrLU), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseSetMatType(descrLU, HIPSPARSE_MATRIX_TYPE_GENERAL), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseSetMatIndexBase(descrLU, HIPSPARSE_INDEX_BASE_ZERO), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
+  HIPSPARSE_CHECK( hipsparseCreateCsrsv2Info(&infoL), 
+                   ROCSOLVER_STATUS_INTERNAL_ERROR);
   }
 
 

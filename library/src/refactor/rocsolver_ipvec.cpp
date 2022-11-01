@@ -1,15 +1,15 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 
-#include "rocrefactor_ipvec.h"
+#include "rocsolver_ipvec.h"
 
 
-#ifndef BLOCKSIZE 
-#define BLOCKSIZE 256
+#ifndef IPVEC_BLOCKSIZE 
+#define IPVEC_BLOCKSIZE 256
 #endif
 
-__global__ 
-void rocrefactor_ipvec_kernel( 
+__global__  __launch_bounds__(IPVEC_BLOCKSIZE)
+void rocsolver_ipvec_kernel( 
                      int const n,
                      int const * const Q_new2old, /* input */
                      int       * const Q_old2new /* output */
@@ -17,7 +17,7 @@ void rocrefactor_ipvec_kernel(
 {
 
 
-  int const i_start = blockIdx.x + gridIdx.x * blockDim.x;
+  int const i_start = threadIdx.x + blockIdx.x * blockDim.x;
   int const i_inc = blockDim.x * gridDim.x;
 
   for(int i=i_start; i < n; i += i_inc) {
@@ -29,7 +29,7 @@ void rocrefactor_ipvec_kernel(
 }
 
 extern "C"
-void rocrefactor_ipvec(
+void rocsolver_ipvec(
                 hipStream_t stream,
                 int const n,
                 int const * const Q_new2old,
@@ -39,8 +39,8 @@ void rocrefactor_ipvec(
   if (n <= 0) { return; };
   if ((Q_new2old == NULL) || (Q_old2new == NULL)) { return; };
 
-  int nblocks = (n + (BLOCKSIZE-1))/BLOCKSIZE; 
-  rocrefactor_ipvec<<< dim3(nblocks), dim3(BLOCKSIZE), 0, stream >>>(
+  int const nblocks = (n + (IPVEC_BLOCKSIZE-1))/IPVEC_BLOCKSIZE; 
+  rocsolver_ipvec_kernel<<< dim3(nblocks), dim3(IPVEC_BLOCKSIZE), 0, stream >>>(
                  n,
                  Q_new2old,
                  Q_old2new

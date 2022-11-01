@@ -1,38 +1,49 @@
 #ifndef ROCSOLVER_ADD_PAQ_HPP
 #define ROCSOLVER_ADD_PAQ_HPP
 
+#include <assert.h>
+#include "rocsolver_refactor.h"
+
 #ifndef ADD_PAQ_MAX_THDS
 #define ADD_PAQ_MAX_THDS 256
 #endif
 
+
 template <typename Iint, typename Ilong, typename T>
-__global__ __launch_bounds(ADD_PAQ_MAX_THDS) 
-void rocrefactor_add_PAQ_kernel(Iint const nrow,
+__global__ __launch_bounds__(ADD_PAQ_MAX_THDS) 
+void rocsolver_add_PAQ_kernel(
+                                           Iint const nrow,
                                            Iint const ncol,
-                                           Iint* const* P_new2old,
-                                           Iint* const* Q_old2new,
+                                           Iint const* const P_new2old,
+                                           Iint const* const Q_old2new,
                                            Iint const* const Ap,
                                            Iint const* const Ai,
                                            T const* const Ax,
                                            Iint const* const LUp,
                                            Iint const* const LUi,
-                                           T* const LUx)
+                                           T         * const LUx)
 {
+/*
+ ------------------------
+ inline lambda expression
+ ------------------------
+*/
 #include "rf_search.hpp"
 
     /*
      -------------------------------------------
-     If P, or Q is NULL, then treat as identity permutation
+     If P_new2old, or Q_old2new is NULL, then treat as identity permutation
      -------------------------------------------
      */
-    bool const has_P = (P != NULL);
-    bool const has_Q = (Q != NULL);
-    Iint const irow_start = threadsIdx.x + blockIdx.x * blockDim.x;
+
+    bool const has_P = (P_new2old != nullptr);
+    bool const has_Q = (Q_old2new != nullptr);
+    Iint const irow_start = threadIdx.x + blockIdx.x * blockDim.x;
     Iint const irow_inc = blockDim.x * gridDim.x;
 
     for(Iint irow = irow_start; irow < nrow; irow += irow_inc)
     {
-        Ilong const kstart_LU = LUp[irow];
+        Ilong const kstart_LU = LUp[irow]; 
         Ilong const kend_LU = LUp[irow + 1];
         Iint  const nz_LU = kend_LU - kstart_LU;
 
@@ -41,7 +52,7 @@ void rocrefactor_add_PAQ_kernel(Iint const nrow,
          initialize row to zeros
          -------------------
         */
-        for(Iint k=0; k < nz_LU; k++) {
+        for(Iint k=0; k < nz_LU; k++)  
         {
             Ilong const k_lu = kstart_LU + k;
             LUx[k_lu] = 0;
@@ -52,27 +63,25 @@ void rocrefactor_add_PAQ_kernel(Iint const nrow,
         Ilong const kend_A = Ap[irow_old + 1];
         Iint const nz_A = kend_A - kstart_A;
 
-        for(Iint k=0; k < nz_A; k++) {
+        for(Iint k=0; k < nz_A; k++) 
         {
             Ilong const ka = kstart_A + k;
 
             Iint const jcol_old = Ai[ka];
             Iint const jcol = (has_Q) ? Q_old2new[jcol_old] : jcol_old;
 
+            Iint const len = nz_LU;
             Iint ipos = len;
             {
-                Iint const len = nz_LU;
                 Iint const * const arr = &(LUi[kstart_LU]);
                 Iint const key = jcol;
 
                 ipos = rf_search(len, arr, key);
+                bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
+                assert( is_found );
             };
-            bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
-            if (!is_found) {
-              return( ROCSOLVER_STATUS_INTERNAL_ERROR );
-              };
 
-            k_lu = kstart_LU + ipos;
+            Ilong const k_lu = kstart_LU + ipos;
 
             T const aij = Ax[ka];
             LUx[k_lu] += aij;
@@ -80,4 +89,38 @@ void rocrefactor_add_PAQ_kernel(Iint const nrow,
     };
 }
 
+
+
+template<typename Iint, typename Ilong, typename T>
+rocsolverStatus_t rocsolver_add_PAQ(
+       hipStream_t stream,
+
+       Iint const nrow,
+       Iint const ncol,
+       Iint const * const P_new2old,
+       Iint const * const Q_old2new,
+       Iint const * const Ap,
+       Iint const* const Ai,
+       T const* const Ax,
+       Iint const* const LUp,
+       Iint const* const LUi,
+       T* const LUx)
+{
+   int const nthreads = ADD_PAQ_MAX_THDS;
+   int const nblocks = (nrow + (nthreads-1))/nthreads;
+
+
+   rocsolver_add_PAQ_kernel<Iint,Ilong,T><<< dim3(nthreads), dim3(nblocks), 0, stream >>>(
+                   nrow,
+                   ncol,
+                   P_new2old,
+                   Q_old2new,
+                   Ap,
+                   Ai,
+                   Ax,
+                   LUp,
+                   LUi,
+                   LUx );
+  return( ROCSOLVER_STATUS_SUCCESS );
+}
 #endif

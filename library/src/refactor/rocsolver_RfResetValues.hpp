@@ -3,12 +3,16 @@
 
 #include "rocsolverRf.h"
 
+#include <assert.h>
+#include "hip_check.h"
+#include "hipsparse_check.h"
+
 #include "rocsolver_aXpbY.hpp"
 #include "rocsolver_add_PAQ.hpp"
 
 template< typename Iint, typename Ilong, typename T>
 rocsolverStatus_t 
-rocsolverRfResetValues(
+rocsolver_RfResetValues_template(
                      Iint n,
                      Iint nnzA,
                      Iint* csrRowPtrA,
@@ -26,8 +30,12 @@ rocsolverRfResetValues(
    Quick return
    ------------
    */
+
+  if (handle == nullptr) {
+    return( ROCSOLVER_STATUS_NOT_INITIALIZED );
+    };
   if ((n <= 0) || (nnzA <= 0)) {
-    return( ROCSOLVER_STATUS_SUCCESS );
+    return( ROCSOLVER_STATUS_INVALID_VALUE );
     };
 
   bool const isok =  (csrRowPtrA != NULL) &&
@@ -53,8 +61,12 @@ rocsolverRfResetValues(
 
 
 
-  hipStream_t stream;
-  HIPSPARSE_CHECK( hipsparseGetStream( handle->hipsparse_handle, &stream ) );
+  hipStream_t stream; 
+  HIPSPARSE_CHECK( hipsparseGetStream( 
+                   handle->hipsparse_handle, 
+                   &stream ),
+                   ROCSOLVER_STATUS_EXECUTION_FAILED 
+                );
 
 
  
@@ -75,8 +87,8 @@ rocsolverRfResetValues(
 
   int const * const Yp = handle->csrRowPtrLU;
   int const * const Yi = handle->csrColIndLU;
-  double const * const Yx = handle->csrValLU;
-  rocsolver_aXpbY<Iint,Ilong,T>(
+  double    * const Yx = handle->csrValLU;
+  rocsolver_aXpbY_template<Iint,Ilong,T>(
                      stream,
 
                      nrow,
@@ -96,13 +108,13 @@ rocsolverRfResetValues(
   int const nrow = n;
   int const ncol = n;
 
-  int const * const * Ap = csrRowPtrA;
-  int const * const * Ai = csrColIndA;
+  int const * const   Ap = csrRowPtrA;
+  int const * const   Ai = csrColIndA;
   double const * const Ax = csrValA;
 
   int const * const LUp = handle->csrRowPtrLU;
   int const * const LUi = handle->csrColIndLU;
-  double const * const LUx = handle->csrValLU;
+  double    * const LUx = handle->csrValLU;
    
   rocsolver_add_PAQ<Iint,Ilong,T>(
                      stream,

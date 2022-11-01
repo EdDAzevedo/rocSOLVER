@@ -1,16 +1,23 @@
+#include "hip_check.h"
+#include "hipsparse_check.h"
+
+#include "rocsolver_refactor.h"
 /*
  ---------------------------------------------
  This routine performs the LU re-factorization
  ---------------------------------------------
  */
-rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
+rocsolverStatus_t rocsolverRfRefactor( rocsolverRfHandle_t handle )
 {
 
  if (handle == nullptr) { 
        return( ROCSOLVER_STATUS_NOT_INITIALIZED ); 
        };
 
-
+ if (handle->hipsparse_handle == nullptr) {
+       return( ROCSOLVER_STATUS_NOT_INITIALIZED ); 
+       };
+ 
 
 
    csrilu02Info_t info;
@@ -76,15 +83,15 @@ rocsolverStatus_t rocrefactor_RfRefactor( rocsolverRfHandle_t handle )
           numerical boost is disabled by default in cusolverRF
           ----------------------------------------------------
          */
-        int enable_boost = false;
-        double tol = 0;
-        double boost_val = 0;
+        double effective_zero = handle->effective_zero;
+        double boost_val = handle->boost_val;
+        int enable_boost = (boost_val > 0.0);
     
         HIPSPARSE_CHECK( hipsparseDcsrilu02_numericBoost(
                               handle->hipsparse_handle,
                               info,
                               enable_boost,
-                              tol,
+                              effective_zero,
                               boost_val ),
             ROCSOLVER_STATUS_EXECUTION_FAILED);
         };

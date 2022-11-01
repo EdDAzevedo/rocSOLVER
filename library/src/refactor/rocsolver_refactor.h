@@ -102,6 +102,9 @@ struct rocsolverRfCommon {
   int *csrColIndLU;
   double *csrValLU;
 
+
+  double effective_zero;
+  double boost_val;
   
  };
 typedef struct rocsolverRfCommon *rocsolverRfHandle_t;

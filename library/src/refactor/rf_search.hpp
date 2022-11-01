@@ -40,7 +40,7 @@
          */
         Iint constexpr small_len = 8;
         Iint ipos = len;
-        if((len <= 0) || (arr == NULL))
+        if((len <= 0) || (arr == nullptr))
         {
             return (ipos = len);
         };
@@ -52,7 +52,6 @@
             use simple linear search  
             -----------------
            */
-#pragma unroll
             for(Iint k = 0; k < len; k++)
             {
                 bool const is_found = (arr[k] == key);
@@ -73,7 +72,6 @@
             Iint lo = 0;
             Iint hi = len;
 
-#pragma unroll
             for(int i = 0; i < 32; i++)
             {
                 Iint const len_remain = hi - lo;
