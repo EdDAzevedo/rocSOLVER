@@ -34,14 +34,14 @@ extern "C" {
 
 
 void rfDapplyRs( 
-          hipsparseHandle_t handle,
+          hipStream_t streamId,
           int const n,
           double const * const Rs,
           double *b
           );
 
 void rfSapplyRs( 
-          hipsparseHandle_t handle,
+          hipStream_t streamId,
           int const n,
           float const * const Rs,
           float *b

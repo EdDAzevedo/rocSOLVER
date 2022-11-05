@@ -57,7 +57,7 @@ void rf_applyRs_kernel(
 
 template<typename T>
 void rf_applyRs_template(
-        hipsparseHandle_t handle,
+        hipStream_t streamId,
         int const n,
         T const * const d_Rs,
         T * const d_b
@@ -69,8 +69,6 @@ void rf_applyRs_template(
  unsigned int min_nblocks = (n + (nthreads-1))/nthreads;
  unsigned int nblocks = (min_nblocks <= 0) ? 1 : min_nblocks;
 
-  hipStream_t streamId;
-  HIPSPARSE_CHECK( hipsparseGetStream( handle, &streamId ) );
 
  rf_applyRs_kernel<<< dim3(nblocks), dim3(nthreads), 0, streamId >>>(
              n, 
