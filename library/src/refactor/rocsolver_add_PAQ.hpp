@@ -25,27 +25,25 @@
 #ifndef ROCSOLVER_ADD_PAQ_HPP
 #define ROCSOLVER_ADD_PAQ_HPP
 
-#include <assert.h>
 #include "rocsolver_refactor.h"
+#include <assert.h>
 
 #ifndef ADD_PAQ_MAX_THDS
 #define ADD_PAQ_MAX_THDS 256
 #endif
 
-
 template <typename Iint, typename Ilong, typename T>
-__global__ __launch_bounds__(ADD_PAQ_MAX_THDS) 
-void rocsolver_add_PAQ_kernel(
-                                           Iint const nrow,
-                                           Iint const ncol,
-                                           Iint const* const P_new2old,
-                                           Iint const* const Q_old2new,
-                                           Iint const* const Ap,
-                                           Iint const* const Ai,
-                                           T const* const Ax,
-                                           Iint const* const LUp,
-                                           Iint const* const LUi,
-                                           T         * const LUx)
+__global__
+    __launch_bounds__(ADD_PAQ_MAX_THDS) void rocsolver_add_PAQ_kernel(Iint const nrow,
+                                                                      Iint const ncol,
+                                                                      Iint const* const P_new2old,
+                                                                      Iint const* const Q_old2new,
+                                                                      Iint const* const Ap,
+                                                                      Iint const* const Ai,
+                                                                      T const* const Ax,
+                                                                      Iint const* const LUp,
+                                                                      Iint const* const LUi,
+                                                                      T* const LUx)
 {
 /*
  ------------------------
@@ -67,16 +65,16 @@ void rocsolver_add_PAQ_kernel(
 
     for(Iint irow = irow_start; irow < nrow; irow += irow_inc)
     {
-        Ilong const kstart_LU = LUp[irow]; 
+        Ilong const kstart_LU = LUp[irow];
         Ilong const kend_LU = LUp[irow + 1];
-        Iint  const nz_LU = kend_LU - kstart_LU;
+        Iint const nz_LU = kend_LU - kstart_LU;
 
         /*
          -------------------
          initialize row to zeros
          -------------------
         */
-        for(Iint k=0; k < nz_LU; k++)  
+        for(Iint k = 0; k < nz_LU; k++)
         {
             Ilong const k_lu = kstart_LU + k;
             LUx[k_lu] = 0;
@@ -87,7 +85,7 @@ void rocsolver_add_PAQ_kernel(
         Ilong const kend_A = Ap[irow_old + 1];
         Iint const nz_A = kend_A - kstart_A;
 
-        for(Iint k=0; k < nz_A; k++) 
+        for(Iint k = 0; k < nz_A; k++)
         {
             Ilong const ka = kstart_A + k;
 
@@ -97,12 +95,12 @@ void rocsolver_add_PAQ_kernel(
             Iint const len = nz_LU;
             Iint ipos = len;
             {
-                Iint const * const arr = &(LUi[kstart_LU]);
+                Iint const* const arr = &(LUi[kstart_LU]);
                 Iint const key = jcol;
 
                 ipos = rf_search(len, arr, key);
                 bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
-                assert( is_found );
+                assert(is_found);
             };
 
             Ilong const k_lu = kstart_LU + ipos;
@@ -113,38 +111,25 @@ void rocsolver_add_PAQ_kernel(
     };
 }
 
+template <typename Iint, typename Ilong, typename T>
+rocsolverStatus_t rocsolver_add_PAQ(hipStream_t stream,
 
-
-template<typename Iint, typename Ilong, typename T>
-rocsolverStatus_t rocsolver_add_PAQ(
-       hipStream_t stream,
-
-       Iint const nrow,
-       Iint const ncol,
-       Iint const * const P_new2old,
-       Iint const * const Q_old2new,
-       Iint const * const Ap,
-       Iint const* const Ai,
-       T const* const Ax,
-       Iint const* const LUp,
-       Iint const* const LUi,
-       T* const LUx)
+                                    Iint const nrow,
+                                    Iint const ncol,
+                                    Iint const* const P_new2old,
+                                    Iint const* const Q_old2new,
+                                    Iint const* const Ap,
+                                    Iint const* const Ai,
+                                    T const* const Ax,
+                                    Iint const* const LUp,
+                                    Iint const* const LUi,
+                                    T* const LUx)
 {
-   int const nthreads = ADD_PAQ_MAX_THDS;
-   int const nblocks = (nrow + (nthreads-1))/nthreads;
+    int const nthreads = ADD_PAQ_MAX_THDS;
+    int const nblocks = (nrow + (nthreads - 1)) / nthreads;
 
-
-   rocsolver_add_PAQ_kernel<Iint,Ilong,T><<< dim3(nthreads), dim3(nblocks), 0, stream >>>(
-                   nrow,
-                   ncol,
-                   P_new2old,
-                   Q_old2new,
-                   Ap,
-                   Ai,
-                   Ax,
-                   LUp,
-                   LUi,
-                   LUx );
-  return( ROCSOLVER_STATUS_SUCCESS );
+    rocsolver_add_PAQ_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, stream>>>(
+        nrow, ncol, P_new2old, Q_old2new, Ap, Ai, Ax, LUp, LUi, LUx);
+    return (ROCSOLVER_STATUS_SUCCESS);
 }
 #endif

@@ -25,11 +25,11 @@
 #ifndef HELPER_UTILITY_H
 #define HELPER_UTILITY_H
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIP_PLATFORM_NVIDIA__)
 #else
@@ -43,49 +43,53 @@
 #include "hip_check.h"
 #include "hipsparse_check.h"
 
-static bool is_device_pointer( const void *ptr) 
+static bool is_device_pointer(const void* ptr)
 {
-   hipPointerAttribute_t attributes;
-   hipError_t istat = ( hipPointerGetAttributes( &attributes, ptr ) );
-   if (istat != hipSuccess) { return(false); };
+    hipPointerAttribute_t attributes;
+    hipError_t istat = (hipPointerGetAttributes(&attributes, ptr));
+    if(istat != hipSuccess)
+    {
+        return (false);
+    };
 
-   return( (attributes.memoryType == hipMemoryTypeDevice) ||
-           (attributes.memoryType == hipMemoryTypeArray) );
-}
-   
-static bool is_host_pointer( const void *ptr) 
-{
-   hipPointerAttribute_t attributes;
-   hipError_t istat = ( hipPointerGetAttributes( &attributes, ptr ) );
-   if (istat != hipSuccess) { return(false); };
-
-   return( (attributes.memoryType == hipMemoryTypeHost) );
-
-
+    return ((attributes.memoryType == hipMemoryTypeDevice)
+            || (attributes.memoryType == hipMemoryTypeArray));
 }
 
-
-static bool is_unified_pointer( const void *ptr) 
+static bool is_host_pointer(const void* ptr)
 {
-   hipPointerAttribute_t attributes;
-   hipError_t istat = ( hipPointerGetAttributes( &attributes, ptr ) );
+    hipPointerAttribute_t attributes;
+    hipError_t istat = (hipPointerGetAttributes(&attributes, ptr));
+    if(istat != hipSuccess)
+    {
+        return (false);
+    };
 
-   if (istat != hipSuccess) { return(false); };
-   return( (attributes.memoryType == hipMemoryTypeUnified) );
-
-
+    return ((attributes.memoryType == hipMemoryTypeHost));
 }
 
-
-
-static bool is_manged_pointer( const void *ptr) 
+static bool is_unified_pointer(const void* ptr)
 {
-   hipPointerAttribute_t attributes;
-   hipError_t istat = ( hipPointerGetAttributes( &attributes, ptr ) );
+    hipPointerAttribute_t attributes;
+    hipError_t istat = (hipPointerGetAttributes(&attributes, ptr));
 
-   if (istat != hipSuccess) { return(false); };
-   return( (attributes.isManaged) ); 
+    if(istat != hipSuccess)
+    {
+        return (false);
+    };
+    return ((attributes.memoryType == hipMemoryTypeUnified));
+}
 
+static bool is_manged_pointer(const void* ptr)
+{
+    hipPointerAttribute_t attributes;
+    hipError_t istat = (hipPointerGetAttributes(&attributes, ptr));
+
+    if(istat != hipSuccess)
+    {
+        return (false);
+    };
+    return ((attributes.isManaged));
 }
 
 #endif

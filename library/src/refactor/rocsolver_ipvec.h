@@ -32,16 +32,13 @@
 extern "C" {
 #endif
 
-void rocrefactor_ipvec( 
-                 hipStream_t stream,
-                 int const n,
-                 int const * const Q_new2old,
-                 int       * const Q_old2new
-                 );
+void rocrefactor_ipvec(hipStream_t stream,
+                       int const n,
+                       int const* const Q_new2old,
+                       int* const Q_old2new);
 
 #ifdef __cplusplus
 };
 #endif
-
 
 #endif

@@ -25,50 +25,15 @@
 #include "rf_applyRs.h"
 #include "rf_applyRs.hpp"
 
-
 extern "C" {
 
-
-void rfDapplyRs(
-        hipStream_t streamId,
-        int const n,
-        double const * const d_Rs,
-        double * const d_b
-        )
+void rfDapplyRs(hipStream_t streamId, int const n, double const* const d_Rs, double* const d_b)
 {
-
-
-rf_applyRs_template<double>(
-        streamId,
-        n,
-        d_Rs,
-        d_b
-        );
+    rf_applyRs_template<double>(streamId, n, d_Rs, d_b);
 };
 
-
-
-
-void rfSapplyRs(
-        hipStream_t streamId,
-        int const n,
-        float const * const d_Rs,
-        float * const d_b
-        )
+void rfSapplyRs(hipStream_t streamId, int const n, float const* const d_Rs, float* const d_b)
 {
-
-
-rf_applyRs_template<float>(
-        streamId,
-        n,
-        d_Rs,
-        d_b
-        );
+    rf_applyRs_template<float>(streamId, n, d_Rs, d_b);
 };
-
-
-
-
 }
-
-

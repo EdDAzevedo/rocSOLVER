@@ -28,10 +28,10 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdbool.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "hip_check.h"
 
@@ -39,10 +39,7 @@
 extern "C" {
 #endif
 
-void * rf_mirror_pointer( 
-                        void * const h_ptr, 
-                        size_t const nbytes 
-                        );
+void* rf_mirror_pointer(void* const h_ptr, size_t const nbytes);
 
 #ifdef __cplusplus
 };

@@ -35,7 +35,6 @@
 extern "C" {
 #endif
 
-
 #ifdef __HIP_PLATFORM_AMD__
 
 #define hipsolverRfResetValues rocsolverRfResetValues
@@ -57,12 +56,6 @@ extern "C" {
 #define hipsolverRfHandle_t cusolverRfHandle_t
 
 #endif
-
-
-
-
-
-
 
 #ifdef __cplusplu
 };

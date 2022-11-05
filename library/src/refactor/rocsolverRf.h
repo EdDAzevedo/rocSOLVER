@@ -28,89 +28,61 @@
 #include "rocsolver/rocsolver.h"
 #include "rocsolver_refactor.h"
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
+                                                  rocsolverRfHandle_t handle,
+                                                  /* Output (in the host memory ) */
+                                                  int* nnzM,
+                                                  /* Output (in the device memory) */
+                                                  int** Mp,
+                                                  int** Mi,
+                                                  double** Mx);
 
-rocsolverStatus_t 
-rocsolverRfAccessBundledFactors( /* Input */
-                                 rocsolverRfHandle_t handle,
-                                 /* Output (in the host memory ) */
-                                 int *nnzM,
-                                 /* Output (in the device memory) */
-                                 int** Mp,
-                                 int** Mi,
-                                 double** Mx
-                                 ); 
+rocsolverStatus_t rocsolverRfAnalyze(rocsolverRfHandle_t handle);
 
+rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle);
 
-rocsolverStatus_t 
-rocsolverRfAnalyze( 
-                 rocsolverRfHandle_t handle
-                 ) ;
+rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle);
 
-rocsolverStatus_t 
-rocsolverRfCreate( 
-                 rocsolverRfHandle_t *p_handle 
-                 );
+rocsolverStatus_t rocsolverRfResetValues(int n,
+                                         int nnzA,
+                                         int* csrRowPtrA,
+                                         int* csrColIndA,
+                                         double* csrValA,
+                                         int* P,
+                                         int* Q,
 
+                                         rocsolverRfHandle_t handle);
 
+rocsolverStatus_t rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle,
+                                                  double effective_zero,
+                                                  double boost_val);
 
-rocsolverStatus_t 
-rocsolverRfRefactor( 
-                   rocsolverRfHandle_t handle 
-                   );
+rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
+                                         int n,
+                                         int nnzA,
+                                         int* csrRowPtrA,
+                                         int* csrColIndA,
+                                         double* csrValA,
+                                         int nnzL,
+                                         int* csrRowPtrL,
+                                         int* csrColIndL,
+                                         double* csrValL,
+                                         int nnzU,
+                                         int* csrRowPtrU,
+                                         int* csrColIndU,
+                                         double* csrValU,
+                                         int* P,
+                                         int* Q,
 
-rocsolverStatus_t
-rocsolverRfResetValues(
-           int n,
-           int nnzA,
-           int* csrRowPtrA,
-           int* csrColIndA,
-           double* csrValA,
-           int* P,
-           int* Q,
-
-           rocsolverRfHandle_t handle
-           );
-
-rocsolverStatus_t 
-rocsolverRfSetNumericProperties(
-		  rocsolverRfHandle_t handle,
-		  double effective_zero,
-		  double boost_val
-                  );
-
-
-
-
-rocsolverStatus_t 
-rocsolverRfSetupDevice( /* Input (in the device memory) */
-     int n,
-     int nnzA,
-     int* csrRowPtrA,
-     int* csrColIndA,
-     double* csrValA,
-     int nnzL,
-     int* csrRowPtrL,
-     int* csrColIndL,
-     double* csrValL,
-     int nnzU,
-     int* csrRowPtrU,
-     int* csrColIndU,
-     double* csrValU,
-     int* P,
-     int* Q,
-
-     /* Output */
-     rocsolverRfHandle_t handle
-     );
+                                         /* Output */
+                                         rocsolverRfHandle_t handle);
 
 #ifdef __cplusplus
 };
 #endif
-
 
 #endif

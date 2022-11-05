@@ -31,21 +31,9 @@
 extern "C" {
 #endif
 
+void rfDapplyRs(hipStream_t streamId, int const n, double const* const Rs, double* b);
 
-
-void rfDapplyRs( 
-          hipStream_t streamId,
-          int const n,
-          double const * const Rs,
-          double *b
-          );
-
-void rfSapplyRs( 
-          hipStream_t streamId,
-          int const n,
-          float const * const Rs,
-          float *b
-          );
+void rfSapplyRs(hipStream_t streamId, int const n, float const* const Rs, float* b);
 
 #ifdef __cplusplus
 };

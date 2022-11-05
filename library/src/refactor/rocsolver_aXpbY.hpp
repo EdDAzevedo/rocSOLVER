@@ -30,20 +30,18 @@
 #endif
 
 template <typename Iint, typename Ilong, typename T>
-__global__ __launch_bounds__(AXPBY_MAX_THDS)
-void rocsolver_aXpbY_kernel(           
-                                         Iint const nrow,
-                                         Iint const ncol,
-                                         T const alpha,
-                                         Iint const* const Xp,
-                                         Iint const* const Xi,
-                                         T const* const Xx,
-                                         T const beta,
-                                         Iint const* const Yp,
-                                         Iint const* const Yi,
-                                         T         * const Yx)
+__global__ __launch_bounds__(AXPBY_MAX_THDS) void rocsolver_aXpbY_kernel(Iint const nrow,
+                                                                         Iint const ncol,
+                                                                         T const alpha,
+                                                                         Iint const* const Xp,
+                                                                         Iint const* const Xi,
+                                                                         T const* const Xx,
+                                                                         T const beta,
+                                                                         Iint const* const Yp,
+                                                                         Iint const* const Yi,
+                                                                         T* const Yx)
 {
-/*
+    /*
  ------------------------------------------------
  Perform  Y = alpha * X + beta * Y
  where sparsity pattern of matrix X is a subset of
@@ -81,7 +79,7 @@ void rocsolver_aXpbY_kernel(
 
         if(alpha == 0)
         {
-         /*
+            /*
          -------------------
          just scale matrix Y
          -------------------
@@ -113,8 +111,8 @@ void rocsolver_aXpbY_kernel(
 
                     if(is_found)
                     {
-                      Ilong const ky = ky_start + ipos;
-                      Yx[ky] = alpha * Xx[kx] + beta * Yx[ky];
+                        Ilong const ky = ky_start + ipos;
+                        Yx[ky] = alpha * Xx[kx] + beta * Yx[ky];
                     };
                 };
             };
@@ -122,43 +120,25 @@ void rocsolver_aXpbY_kernel(
     };
 }
 
-template< typename Iint, typename Ilong, typename T>
-void rocsolver_aXpbY_template( 
-                 hipStream_t stream,
+template <typename Iint, typename Ilong, typename T>
+void rocsolver_aXpbY_template(hipStream_t stream,
 
-                 Iint const nrow,
-                 Iint const ncol,
-                 T const alpha,
-                 Iint const * const Xp,
-                 Iint const * const Xi,
-                 T    const * const Xx,
-                 T const beta,
-                 Iint const * const Yp,
-                 Iint const * const Yi,
-                 T          * const Yx
-                 )
+                              Iint const nrow,
+                              Iint const ncol,
+                              T const alpha,
+                              Iint const* const Xp,
+                              Iint const* const Xi,
+                              T const* const Xx,
+                              T const beta,
+                              Iint const* const Yp,
+                              Iint const* const Yi,
+                              T* const Yx)
 {
-     Iint const nthreads = AXPBY_MAX_THDS;
-     Iint const nblocks = (nrow + (nthreads-1))/nthreads;
+    Iint const nthreads = AXPBY_MAX_THDS;
+    Iint const nblocks = (nrow + (nthreads - 1)) / nthreads;
 
-     rocsolver_aXpbY_kernel<Iint,Ilong,T><<< 
-                             dim3(nblocks), 
-                             dim3(nthreads),
-                             0,
-                             stream >>>(
-                                nrow,
-                                ncol,
-                                alpha,
-                                Xp,
-                                Xi,
-                                Xx,
-                                beta,
-                                Yp,
-                                Yi,
-                                Yx
-                                );
+    rocsolver_aXpbY_kernel<Iint, Ilong, T><<<dim3(nblocks), dim3(nthreads), 0, stream>>>(
+        nrow, ncol, alpha, Xp, Xi, Xx, beta, Yp, Yi, Yx);
 }
-           
-               
 
 #endif

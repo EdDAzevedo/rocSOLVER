@@ -26,9 +26,9 @@
 #ifndef ROCSOLVER_LASCALE_HPP
 #define ROCSOLVER_SCALE_HPP
 
+#include "rocsolver/rocsolver.h"
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
-#include "rocsolver/rocsolver.h"
 
 #include "rocsolver_refactor.h"
 
@@ -36,22 +36,16 @@
 #define LASCALE_MAX_THDS 256
 #endif
 
-
-template< typename Iint, typename Ilong, typename T>
-__device__
-void
-rocsolver_scale_device( 
-		Iint const nrow,
-		Iint const ncol,
-		T const * const drow,
-                T const * const dcol,
-                Iint const * const Ap,
-                Iint const * const Ai,
-                T          * const Ax
-                )
+template <typename Iint, typename Ilong, typename T>
+__device__ void rocsolver_scale_device(Iint const nrow,
+                                       Iint const ncol,
+                                       T const* const drow,
+                                       T const* const dcol,
+                                       Iint const* const Ap,
+                                       Iint const* const Ai,
+                                       T* const Ax)
 {
-
-  /*
+    /*
     -------------------------------------------------
     Perform row and column scaling of sparse matrix
 
@@ -61,104 +55,75 @@ rocsolver_scale_device(
     -------------------------------------------------
   */
 
-  {
-  bool const isok = (nrow >= 1) && (ncol >= 1) && 
-                    (Ap != nullptr) && (Ai != nullptr) && (Ax != nullptr);
-  if (!isok) { return; };
-  };
+    {
+        bool const isok
+            = (nrow >= 1) && (ncol >= 1) && (Ap != nullptr) && (Ai != nullptr) && (Ax != nullptr);
+        if(!isok)
+        {
+            return;
+        };
+    };
 
-  Ilong const global_idx = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
-  Iint const wid = (global_idx / warpSize );
-  Iint const lid = (global_idx % warpSize );
+    Ilong const global_idx = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    Iint const wid = (global_idx / warpSize);
+    Iint const lid = (global_idx % warpSize);
 
-  Iint const irow_start = wid;
-  Iint const irow_inc = (hipBlockDim_x * hipGridDim_x )/warpSize;
+    Iint const irow_start = wid;
+    Iint const irow_inc = (hipBlockDim_x * hipGridDim_x) / warpSize;
 
-  for(Iint irow=irow_start; irow < nrow; irow += irow_inc ) {
-     Ilong const kstart = Ap[irow];
-     Ilong const kend = Ap[irow+1];
+    for(Iint irow = irow_start; irow < nrow; irow += irow_inc)
+    {
+        Ilong const kstart = Ap[irow];
+        Ilong const kend = Ap[irow + 1];
 
-     T const drow_i = (drow == nullptr) ? 1 : drow[irow];
-     Iint const nz = (kend - kstart);
+        T const drow_i = (drow == nullptr) ? 1 : drow[irow];
+        Iint const nz = (kend - kstart);
 
-     for(Iint ik=lid; ik < nz; ik += warpSize ) {
-         Ilong const k = kstart + ik;
-         Iint const jcol = Ai[k];
+        for(Iint ik = lid; ik < nz; ik += warpSize)
+        {
+            Ilong const k = kstart + ik;
+            Iint const jcol = Ai[k];
 
-         T aij = Ax[k];
-         aij = (drow_i == 0) ? 0 : drow_i * aij;
+            T aij = Ax[k];
+            aij = (drow_i == 0) ? 0 : drow_i * aij;
 
-         T const dcol_j = (dcol == nullptr) ? 1 : dcol[jcol];
-         aij = (dcol_j == 0) ? 0 : aij * dcol_j;
+            T const dcol_j = (dcol == nullptr) ? 1 : dcol[jcol];
+            aij = (dcol_j == 0) ? 0 : aij * dcol_j;
 
-         Ax[k] = aij;
-         };
-      };
+            Ax[k] = aij;
+        };
+    };
 }
 
-
-
-template< typename Iint, typename Ilong, typename T>
-__global__ void  __launch_bounds__(LASCALE_MAX_THDS)
-rocsolver_scale_kernel( 
-		Iint const nrow,
-		Iint const ncol,
-		T const * const drow,
-                T const * const dcol,
-                Iint const * const Ap,
-                Iint const * const Ai,
-                T          * const Ax
-                )
+template <typename Iint, typename Ilong, typename T>
+__global__ void __launch_bounds__(LASCALE_MAX_THDS) rocsolver_scale_kernel(Iint const nrow,
+                                                                           Iint const ncol,
+                                                                           T const* const drow,
+                                                                           T const* const dcol,
+                                                                           Iint const* const Ap,
+                                                                           Iint const* const Ai,
+                                                                           T* const Ax)
 {
-
-  rocsolver_scale_device<Iint,Ilong,T>(
-	nrow,
-	ncol,
-	drow,
-	dcol,
-	Ap,
-	Ai,
-	Ax
-	);
-
+    rocsolver_scale_device<Iint, Ilong, T>(nrow, ncol, drow, dcol, Ap, Ai, Ax);
 }
-                  
-         
 
-template< typename Iint, typename T>
-void rocsolver_scale_template(
-        hipStream_t const stream,
-        Iint const nrow,
-        Iint const ncol,
-        T const * const drow,
-        T const * const dcol,
-        Iint const * const Ap,
-        Iint const * const Ai,
-        T          * const Ax
-        )
+template <typename Iint, typename T>
+void rocsolver_scale_template(hipStream_t const stream,
+                              Iint const nrow,
+                              Iint const ncol,
+                              T const* const drow,
+                              T const* const dcol,
+                              Iint const* const Ap,
+                              Iint const* const Ai,
+                              T* const Ax)
 {
-  Iint constexpr nthreads = LASCALE_MAX_THDS;
-  Iint constexpr nwaves = LASCALE_MAX_THDS/warpSize;
+    Iint constexpr nthreads = LASCALE_MAX_THDS;
+    Iint constexpr nwaves = LASCALE_MAX_THDS / warpSize;
 
-  Iint const nblocks = (nrow + (nwaves-1))/nwaves;
+    Iint const nblocks = (nrow + (nwaves - 1)) / nwaves;
 
-  rocsolver_scale_kernel<Iint,Iint,T><<<
-                            dim3(nblocks),
-                            dim3(nthreads),
-                            0,
-                            stream
-                            >>>
-                            (
-                            nrow,
-                            ncol,
-                            drow,
-                            dcol,
-                            Ap,
-                            Ai,
-                            Ax
-                          );
-        
-
+    rocsolver_scale_kernel<Iint, Iint, T>
+        <<<dim3(nblocks), dim3(nthreads), 0, stream>>>(nrow, ncol, drow, dcol, Ap, Ai, Ax);
 }
 
 #endif
