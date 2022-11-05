@@ -31,7 +31,7 @@
 #include "cusolverRf.h"
 #endif
 
-#ifdef __cplusplu
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -57,7 +57,7 @@ extern "C" {
 
 #endif
 
-#ifdef __cplusplu
+#ifdef __cplusplus
 };
 #endif
 
