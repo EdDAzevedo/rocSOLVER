@@ -41,7 +41,6 @@ T const zero = 0;
   for( rocblas_int j=1; j <= min_mn; j++) {
    rocblas_int const jp1 = j + 1;
 
-   #pragma omp parallel for SIMD reduction(max:info)
    for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
        bool const is_diag_zero = (std::abs(A(iv,j,j)) == zero );
        T const Ujj_iv = is_diag_zero ? one : A(iv,j,j);
@@ -57,7 +56,6 @@ T const zero = 0;
    for(rocblas_int ja=jp1; ja <= n; ja++) {
    for(rocblas_int ia=jp1; ia <= m; ia++) {
 
-     #pragma omp parallel for SIMD
      for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
         A(iv,ia,ja) = A(iv,ia,ja) - A(iv,ia,j) * A(iv,j,ja);
         };

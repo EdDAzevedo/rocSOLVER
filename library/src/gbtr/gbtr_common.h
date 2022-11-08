@@ -4,10 +4,17 @@
 #include <complex>
 #include <cmath>
 
+#define USE_GPU
 #ifdef USE_GPU
 
 #include <hip/hip_runtime.h>
-#include <rocblas.h>
+#include <hip/hip_runtime_api.h>
+#include "rocblas/rocblas.h"
+
+#include "rocsolver_status.h"
+typedef rocblas_handle rocsolverHandle_t;
+
+
 
 #define GLOBAL_FUNCTION __global__
 #define SYNCTHREADS __syncthreads()
@@ -21,6 +28,7 @@
 typedef void * hipStream_t;
 typedef int rocblas_int;
 typedef long rocblas_long;
+typedef void * rocblas_handle;
 
 typedef std::complex<double> rocblas_double_complex;
 typedef std::complex<float>  rocblas_float_complex;

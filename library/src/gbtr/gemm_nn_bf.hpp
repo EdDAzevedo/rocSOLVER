@@ -51,7 +51,6 @@ rocblas_int const iv_inc = 1;
   for(rocblas_int jc=1; jc <= n; jc++) {
   for(rocblas_int ic=1; ic <= n; ic++) {
 
-    #pragma omp parallel for SIMD
     for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
 
       T cij = zero;
