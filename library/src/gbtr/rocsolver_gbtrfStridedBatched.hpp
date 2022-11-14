@@ -7,19 +7,19 @@
 
 template <typename T>
 GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(int nb,
-                                                      int nblocks,
-                                                      int batchCount,
+                                                       int nblocks,
+                                                       int batchCount,
 
-                                                      T* A_,
-                                                      int lda,
-                                                      rocblas_stride strideA,
-                                                      T* B_,
-                                                      int ldb,
-                                                      rocblas_stride strideB,
-                                                      T* C_,
-                                                      int ldc,
-                                                      rocblas_stride strideC,
-                                                      int* pinfo)
+                                                       T* A_,
+                                                       int lda,
+                                                       rocblas_stride strideA,
+                                                       T* B_,
+                                                       int ldb,
+                                                       rocblas_stride strideB,
+                                                       T* C_,
+                                                       int ldc,
+                                                       rocblas_stride strideC,
+                                                       int* pinfo)
 {
     int SHARED_MEMORY sinfo;
 #ifdef USE_GPU
@@ -46,7 +46,8 @@ GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(int nb,
             int64_t indxC = ((int64_t)strideC) * (i - 1);
 
             int linfo = 0;
-            gbtrf_npvt_device<T>(nb, nblocks, &(A_[indxA]), lda, &(B_[indxB]), ldb, &(C_[indxC]), ldc, &linfo);
+            gbtrf_npvt_device<T>(nb, nblocks, &(A_[indxA]), lda, &(B_[indxB]), ldb, &(C_[indxC]),
+                                 ldc, &linfo);
             info = max(info, linfo);
         };
 
@@ -81,8 +82,8 @@ rocblas_status gbtrf_npvt_strided_batched_template(hipStream_t stream,
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(int)), rocblas_status_internal_error);
 
     int grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
-    hipLaunchKernelGGL((gbtrf_npvt_strided_batched_kernel<T>), dim3(grid_dim),
-                       dim3(GBTR_BLOCK_DIM), 0, stream,
+    hipLaunchKernelGGL((gbtrf_npvt_strided_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM),
+                       0, stream,
 
                        nb, nblocks, batchCount,
 
