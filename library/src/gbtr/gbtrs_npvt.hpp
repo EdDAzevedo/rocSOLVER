@@ -13,7 +13,7 @@
 #include "getrs_npvt.hpp"
 
 template <typename T>
-DEVICE_FUNCTION void gbtrs_npvt(rocblas_int const nb,
+DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
                                 rocblas_int const nblocks,
                                 rocblas_int const nrhs,
                                 T const* const A_,
