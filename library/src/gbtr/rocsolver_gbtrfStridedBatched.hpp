@@ -56,9 +56,10 @@ GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(int nb,
         SYNCTHREADS;
     };
 
-    if (is_root) {
-      atomicMax(pinfo, sinfo);
-      };
+    if(is_root)
+    {
+        atomicMax(pinfo, sinfo);
+    };
 }
 
 template <typename T>
