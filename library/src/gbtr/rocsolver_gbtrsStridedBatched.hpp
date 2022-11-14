@@ -1,6 +1,6 @@
 #pragma once
-#ifndef ROCSOLVER_GTRF_STRIDED_BATCH
-#define ROCSOLVER_GTRF_STRIDED_BATCH
+#ifndef ROCSOLVER_GTRF_STRIDED_BATCHED
+#define ROCSOLVER_GTRF_STRIDED_BATCHED
 
 #include "gbtr_common.h"
 #include "gbtrs_npvt.hpp"
@@ -31,6 +31,7 @@ GLOBAL_FUNCTION void gbtrs_npvt_strided_batched_kernel(int nb,
     int const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
     int const i_start = thread_id;
     int const i_inc = gridDim.x * blockDim.x;
+    bool const is_root = (thread_id == 0);
 
     if(thread_id == 0)
     {
@@ -56,12 +57,13 @@ GLOBAL_FUNCTION void gbtrs_npvt_strided_batched_kernel(int nb,
             info = max(info, linfo);
         };
 
-        SYNCTHREADS;
         atomicMax(&sinfo, info);
         SYNCTHREADS;
     };
 
-    atomicMax(pinfo, sinfo);
+    if (is_root) {
+      atomicMax(pinfo, sinfo);
+      };
 }
 
 template <typename T>
