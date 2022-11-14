@@ -9,31 +9,27 @@
 
 #include "gbtr_common.h"
 
-template< typename T>
-DEVICE_FUNCTION void
-getrs_npvt_device
-(
-rocblas_int const n,
-rocblas_int const nrhs,
-T const * const A_,
-rocblas_int const lda,
-T *B_,
-rocblas_int const ldb,
-rocblas_int *pinfo
-)
+template <typename T>
+DEVICE_FUNCTION void getrs_npvt_device(rocblas_int const n,
+                                       rocblas_int const nrhs,
+                                       T const* const A_,
+                                       rocblas_int const lda,
+                                       T* B_,
+                                       rocblas_int const ldb,
+                                       rocblas_int* pinfo)
 {
-#define A(ia,ja) A_[ indx2f(ia,ja,lda) ]
-#define B(ib,jb) B_[ indx2f(ib,jb,ldb) ]
+#define A(ia, ja) A_[indx2f(ia, ja, lda)]
+#define B(ib, jb) B_[indx2f(ib, jb, ldb)]
 
-T const zero = 0;
-T const one = 1;
-rocblas_int info = 0;
-/*
+    T const zero = 0;
+    T const one = 1;
+    rocblas_int info = 0;
+    /*
 !     ---------------------------------------------------
 !     Perform forward and backward solve without pivoting
 !     ---------------------------------------------------
 */
-/*
+    /*
 ! 
 ! % ------------------------
 ! % L * (U * X) = B
@@ -42,8 +38,7 @@ rocblas_int info = 0;
 ! % ------------------------
 */
 
-
-/*
+    /*
 ! 
 ! 
 ! % ------------------------------
@@ -53,7 +48,7 @@ rocblas_int info = 0;
 ! % ------------------------------
 */
 
-/*
+    /*
 ! 
 ! for i=1:n,
 !   for j=1:(i-1),
@@ -62,16 +57,18 @@ rocblas_int info = 0;
 ! end;
 */
 
-  for(rocblas_int i=1; i <= n; i++) {
-  for(rocblas_int j=1; j <= (i-1); j++) {
-    for(rocblas_int k=1; k <= nrhs; k++) {
-      B(i,k) = B(i,k) - A(i,j) * B(j,k);
-      };
-   };
-   };
+    for(rocblas_int i = 1; i <= n; i++)
+    {
+        for(rocblas_int j = 1; j <= (i - 1); j++)
+        {
+            for(rocblas_int k = 1; k <= nrhs; k++)
+            {
+                B(i, k) = B(i, k) - A(i, j) * B(j, k);
+            };
+        };
+    };
 
-
-/*
+    /*
 ! 
 ! % ------------------------------
 ! % [U11 U12 U13 ] [ X1 ] = [ Y1 ]
@@ -89,34 +86,35 @@ rocblas_int info = 0;
 ! 
 */
 
-   for(rocblas_int ir=1; ir <= n; ir++) {
-     rocblas_int const i = n - ir + 1;
+    for(rocblas_int ir = 1; ir <= n; ir++)
+    {
+        rocblas_int const i = n - ir + 1;
 
-     for(rocblas_int j=(i+1); j <= n; j++) {
-       for(rocblas_int k=1; k <= nrhs; k++) {
-          B(i,k) = B(i,k) - A(i,j) * B(j,k);
-	  };
-       };
+        for(rocblas_int j = (i + 1); j <= n; j++)
+        {
+            for(rocblas_int k = 1; k <= nrhs; k++)
+            {
+                B(i, k) = B(i, k) - A(i, j) * B(j, k);
+            };
+        };
 
-      bool const is_diag_zero = (A(i,i) == zero);
-      T const inv_Uii = (is_diag_zero) ? one : one/A(i,i);
-      info = is_diag_zero && (info == 0) ?  i : info;
+        bool const is_diag_zero = (A(i, i) == zero);
+        T const inv_Uii = (is_diag_zero) ? one : one / A(i, i);
+        info = is_diag_zero && (info == 0) ? i : info;
 
-      for(rocblas_int k=1; k <= nrhs; k++) {
-          B(i,k) *=  inv_Uii;
-	  };
-
-      };
-
-
-  if (info != 0) {
-    *pinfo = info;
+        for(rocblas_int k = 1; k <= nrhs; k++)
+        {
+            B(i, k) *= inv_Uii;
+        };
     };
 
+    if(info != 0)
+    {
+        *pinfo = info;
+    };
 };
 
 #undef A
 #undef B
 
 #endif
-

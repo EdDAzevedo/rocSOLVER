@@ -39,6 +39,4 @@ typedef enum
 };
 #endif
 
-
-
 #endif

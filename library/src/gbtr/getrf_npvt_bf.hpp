@@ -8,67 +8,66 @@
 
 #include "gbtr_common.h"
 
-template< typename T>
-DEVICE_FUNCTION void
-getrf_npvt_bf_device
-( 
-rocblas_int const batchCount,
-rocblas_int const m,
-rocblas_int const n,
-T *A_,
-rocblas_int const lda,
-rocblas_int *pinfo
-)
+template <typename T>
+DEVICE_FUNCTION void getrf_npvt_bf_device(rocblas_int const batchCount,
+                                          rocblas_int const m,
+                                          rocblas_int const n,
+                                          T* A_,
+                                          rocblas_int const lda,
+                                          rocblas_int* pinfo)
 {
-rocblas_int const min_mn = (m < n) ? m : n;
-T const one = 1;
-rocblas_int info = 0;
+    rocblas_int const min_mn = (m < n) ? m : n;
+    T const one = 1;
+    rocblas_int info = 0;
 
 #ifdef USE_GPU
-rocblas_int const iv_start = ( blockIdx.x * blockDim.x + threadIdx.x) + 1;
-rocblas_int const iv_end = batchCount;
-rocblas_int const iv_inc = (gridDim.x * blockDim.x);
+    rocblas_int const iv_start = (blockIdx.x * blockDim.x + threadIdx.x) + 1;
+    rocblas_int const iv_end = batchCount;
+    rocblas_int const iv_inc = (gridDim.x * blockDim.x);
 #else
-rocblas_int const iv_start = 1;
-rocblas_int const iv_end = batchCount;
-rocblas_int const iv_inc = 1;
+    rocblas_int const iv_start = 1;
+    rocblas_int const iv_end = batchCount;
+    rocblas_int const iv_inc = 1;
 #endif
 
-#define A(iv,i,j) A_[ indx3f( iv,i,j, batchCount,lda) ]
+#define A(iv, i, j) A_[indx3f(iv, i, j, batchCount, lda)]
 
-T const zero = 0;
+    T const zero = 0;
 
-  for( rocblas_int j=1; j <= min_mn; j++) {
-   rocblas_int const jp1 = j + 1;
+    for(rocblas_int j = 1; j <= min_mn; j++)
+    {
+        rocblas_int const jp1 = j + 1;
 
-   for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
-       bool const is_diag_zero = (std::abs(A(iv,j,j)) == zero );
-       T const Ujj_iv = is_diag_zero ? one : A(iv,j,j);
-       info = is_diag_zero && (info == 0) ? j : info;
-  
-       for(rocblas_int ia=jp1; ia <= m; ia++) {
-             A(iv,ia,j) = A(iv,ia,j) / Ujj_iv;
-             };
-       };
+        for(rocblas_int iv = iv_start; iv <= iv_end; iv += iv_inc)
+        {
+            bool const is_diag_zero = (std::abs(A(iv, j, j)) == zero);
+            T const Ujj_iv = is_diag_zero ? one : A(iv, j, j);
+            info = is_diag_zero && (info == 0) ? j : info;
 
-    SYNCTHREADS;
-
-   for(rocblas_int ja=jp1; ja <= n; ja++) {
-   for(rocblas_int ia=jp1; ia <= m; ia++) {
-
-     for(rocblas_int iv=iv_start; iv <= iv_end; iv += iv_inc) {
-        A(iv,ia,ja) = A(iv,ia,ja) - A(iv,ia,j) * A(iv,j,ja);
+            for(rocblas_int ia = jp1; ia <= m; ia++)
+            {
+                A(iv, ia, j) = A(iv, ia, j) / Ujj_iv;
+            };
         };
 
-      };
-      };
+        SYNCTHREADS;
 
-      SYNCTHREADS;
-  };
+        for(rocblas_int ja = jp1; ja <= n; ja++)
+        {
+            for(rocblas_int ia = jp1; ia <= m; ia++)
+            {
+                for(rocblas_int iv = iv_start; iv <= iv_end; iv += iv_inc)
+                {
+                    A(iv, ia, ja) = A(iv, ia, ja) - A(iv, ia, j) * A(iv, j, ja);
+                };
+            };
+        };
 
-*pinfo = info;
+        SYNCTHREADS;
+    };
+
+    *pinfo = info;
 }
 #undef A
-
 
 #endif

@@ -9,32 +9,25 @@
 
 #include "gbtr_common.h"
 
-template< typename T>
-DEVICE_FUNCTION void
-getrf_npvt_device
-(
-rocblas_int const m,
-rocblas_int const n,
-T *A_,
-rocblas_int const lda,
-rocblas_int *pinfo
-)
+template <typename T>
+DEVICE_FUNCTION void getrf_npvt_device(rocblas_int const m,
+                                       rocblas_int const n,
+                                       T* A_,
+                                       rocblas_int const lda,
+                                       rocblas_int* pinfo)
 {
-
-
-#define A(ia,ja)  A_[ indx2f(ia,ja,lda) ]
-/*
+#define A(ia, ja) A_[indx2f(ia, ja, lda)]
+    /*
 !     ----------------------------------------
 !     Perform LU factorization without pivoting
 !     Matrices L and U over-writes matrix A
 !     ----------------------------------------
 */
 
+    rocblas_int const min_mn = (m < n) ? m : n;
+    rocblas_int info = 0;
 
-   rocblas_int const min_mn = (m < n) ? m : n;
-   rocblas_int info = 0;
-
-/*
+    /*
 ! 
 ! % ----------------------------------------------------------
 ! % note in actual code, L and U over-writes original matrix A
@@ -52,42 +45,43 @@ rocblas_int *pinfo
 ! end;
 */
 
-      T const zero = 0;
-      T const one = 1;
+    T const zero = 0;
+    T const one = 1;
 
-      for(rocblas_int j=1; j <= min_mn; j++) {
+    for(rocblas_int j = 1; j <= min_mn; j++)
+    {
         rocblas_int const jp1 = j + 1;
-	bool const is_diag_zero = (A(j,j) == zero);
+        bool const is_diag_zero = (A(j, j) == zero);
 
-        T const inv_Ujj = (is_diag_zero) ? one : one/ A(j,j);
-	info = (is_diag_zero) && (info == 0) ? j : info;
+        T const inv_Ujj = (is_diag_zero) ? one : one / A(j, j);
+        info = (is_diag_zero) && (info == 0) ? j : info;
 
-
-
-/*
+        /*
 !        ---------------------------------
 !        A(jp1:m,j) = A(jp1:m,j) * inv_Ujj
 !        ---------------------------------
 */
-	for( rocblas_int ia=jp1; ia <= m; ia++) {
-	  A(ia,j)  *= inv_Ujj;
-	  };
+        for(rocblas_int ia = jp1; ia <= m; ia++)
+        {
+            A(ia, j) *= inv_Ujj;
+        };
 
+        for(rocblas_int ja = jp1; ja <= n; ja++)
+        {
+            for(rocblas_int ia = jp1; ia <= m; ia++)
+            {
+                A(ia, ja) = A(ia, ja) - A(ia, j) * A(j, ja);
+            };
+        };
+    };
 
-        for( rocblas_int ja=jp1; ja <= n; ja++) {
-	for( rocblas_int ia=jp1; ia <= m; ia++) {
-	  A(ia,ja) = A(ia,ja) - A(ia,j) * A(j,ja);
-	  };
-	  };
+    if(info != 0)
+    {
+        *pinfo = info;
+    };
 
-      };
-
-      if (info != 0) {
-         *pinfo = info;
-	 };
-
-      return;
-}; 
+    return;
+};
 
 #undef A
 #endif
