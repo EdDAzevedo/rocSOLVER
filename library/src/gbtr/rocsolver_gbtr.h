@@ -70,5 +70,17 @@ rocsolverStatus_t rocsolverSgbtrsInterleavedBatch(
 
 
 
+rocsolverStatus_rocsolverDgbtrfStridedBatch( 
+                     rocsolverHandle_t handle,
+                     int nb,
+                     int nblocks,
+                     double* A_, int lda, int strideA,
+                     double* B_, int ldb, int strideB,
+                     double* C_, int ldc, int strideC,
+                     int batchCount
+                     );
+
+
+
 };
 #endif

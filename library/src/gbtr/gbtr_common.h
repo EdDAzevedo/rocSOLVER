@@ -12,11 +12,17 @@
 #include "rocblas/rocblas.h"
 
 #include "rocsolver_status.h"
+#include "hip_check.h"
+
 typedef rocblas_handle rocsolverHandle_t;
 
+#ifndef GBTR_BLOCK_DIM
+#define GBTR_BLOCK_DIM 256
+#endif
 
 
-#define GLOBAL_FUNCTION __global__
+
+#define GLOBAL_FUNCTION __global__ __launch_bounds__( GBTR_BLOCK_DIM )
 #define SYNCTHREADS __syncthreads()
 #define SHARED_MEMORY __shared__
 #define DEVICE_FUNCTION __device__
