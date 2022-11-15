@@ -13,16 +13,16 @@
 #include "getrf_npvt.hpp"
 #include "getrs_npvt.hpp"
 
-template <typename T>
-DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
-                                       rocblas_int const nblocks,
+template <typename T, typename I>
+DEVICE_FUNCTION void gbtrf_npvt_device(I const nb,
+                                       I const nblocks,
                                        T* A_,
-                                       rocblas_int const lda,
+                                       I const lda,
                                        T* B_,
-                                       rocblas_int const ldb,
+                                       I const ldb,
                                        T* C_,
-                                       rocblas_int const ldc,
-                                       rocblas_int* pinfo)
+                                       I const ldc,
+                                       I* pinfo)
 {
     /*
 ! ------------------------------------------------------
@@ -39,7 +39,7 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 #define B(ib, jb, iblock) B_[indx3f(ib, jb, iblock, ldb, nb)]
 #define C(ic, jc, iblock) C_[indx3f(ic, jc, iblock, ldc, nb)]
 
-    rocblas_int info = 0;
+    I info = 0;
     T const one = 1;
 
 /*
@@ -51,8 +51,8 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 */
 #define D(i, j, k) B(i, j, k)
 #define U(i, j, k) C(i, j, k)
-    rocblas_int const ldu = ldc;
-    rocblas_int const ldd = ldb;
+    I const ldu = ldc;
+    I const ldd = ldb;
     /*
 ! 
 ! % B1 = D1
@@ -91,10 +91,10 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 !   ----------------------------------------------
 */
     {
-        rocblas_int const k = 1;
-        rocblas_int const mm = nb;
-        rocblas_int const nn = nb;
-        rocblas_int linfo = 0;
+        I const k = 1;
+        I const mm = nb;
+        I const nn = nb;
+        I linfo = 0;
 
         getrf_npvt_device(mm, nn, &(D(1, 1, k)), ldd, &linfo);
         info = (info == 0) && (linfo != 0) ? (k - 1) * nb + linfo : info;
@@ -122,7 +122,7 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 ! end;
 */
 
-    for(rocblas_int k = 1; k <= (nblocks - 1); k++)
+    for(I k = 1; k <= (nblocks - 1); k++)
     {
         /*
 !     --------------------------------------------------------------     
@@ -130,9 +130,9 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 !     --------------------------------------------------------------     
 */
         {
-            rocblas_int nn = nb;
-            rocblas_int nrhs = nb;
-            rocblas_int linfo = 0;
+            I nn = nb;
+            I nrhs = nb;
+            I linfo = 0;
 
             getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ldd, &(C(1, 1, k)), ldc, &linfo);
 
@@ -145,14 +145,14 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 !    ------------------------------------------------------------------------
 */
         {
-            rocblas_int const mm = nb;
-            rocblas_int const nn = nb;
-            rocblas_int const kk = nb;
+            I const mm = nb;
+            I const nn = nb;
+            I const kk = nb;
             T const alpha = -one;
             T const beta = one;
-            rocblas_int const ld1 = lda;
-            rocblas_int const ld2 = ldu;
-            rocblas_int const ld3 = ldd;
+            I const ld1 = lda;
+            I const ld2 = ldu;
+            I const ld3 = ldd;
             gemm_nn_device(mm, nn, kk, alpha, &(A(1, 1, k + 1)), ld1, &(U(1, 1, k)), ld2, beta,
                            &(D(1, 1, k + 1)), ld3);
         };
@@ -163,9 +163,9 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 !      --------------------------------------------------
 */
         {
-            rocblas_int const mm = nb;
-            rocblas_int const nn = nb;
-            rocblas_int linfo = 0;
+            I const mm = nb;
+            I const nn = nb;
+            I linfo = 0;
             getrf_npvt_device(mm, nn, &(D(1, 1, k + 1)), ldd, &linfo);
             info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
         };
