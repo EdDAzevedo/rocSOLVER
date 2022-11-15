@@ -24,103 +24,58 @@
  * ************************************************************************ */
 #include "rocsolver_gbtrsBatched.hpp"
 
-extern "C" {
 
-rocblas_status rocsolverDgbtrsBatched(rocblas_handle handle,
-                                      int nb,
-                                      int nblocks,
-                                      int nrhs,
-                                      double* A_array[],
-                                      int lda,
-                                      double* B_array[],
-                                      int ldb,
-                                      double* C_array[],
-                                      int ldc,
-                                      double* brhs_,
-                                      int ldbrhs,
-                                      int batchCount)
+template< typename T, typename I>
+rocblas_status rocsolver_gbtrsBatched_impl(rocblas_handle handle,
+                                      I nb,
+                                      I nblocks,
+                                      I nrhs,
+                                      T* A_array[],
+                                      I lda,
+                                      T* B_array[],
+                                      I ldb,
+                                      T* C_array[],
+                                      I ldc,
+                                      T* brhs_,
+                                      I ldbrhs,
+                                      I batchCount)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    int host_info = 0;
-    gbtrs_npvt_batched_template<double>(stream, nb, nblocks, nrhs, batchCount, A_array, lda,
+    I host_info = 0;
+    gbtrs_npvt_batched_template<T,I>(stream, nb, nblocks, nrhs, batchCount, A_array, lda,
                                         B_array, ldb, C_array, ldc, brhs_, ldbrhs, &host_info);
 
     return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 };
 
-rocblas_status rocsolverSgbtrsBatched(rocblas_handle handle,
-                                      int nb,
-                                      int nblocks,
-                                      int nrhs,
-                                      float* A_array[],
-                                      int lda,
-                                      float* B_array[],
-                                      int ldb,
-                                      float* C_array[],
-                                      int ldc,
-                                      float* brhs_,
-                                      int ldbrhs,
-                                      int batchCount)
+extern "C" {
+
+
+rocblas_status rocsolver_dgbtrsBatched(rocblas_handle handle,
+                                      rocblas_int nb,
+                                      rocblas_int nblocks,
+                                      rocblas_int nrhs,
+                                      double* A_array[],
+                                      rocblas_int lda,
+                                      double* B_array[],
+                                      rocblas_int ldb,
+                                      double* C_array[],
+                                      rocblas_int ldc,
+                                      double* brhs_,
+                                      rocblas_int ldbrhs,
+                                      rocblas_int batchCount)
 {
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
-
-    int host_info = 0;
-    gbtrs_npvt_batched_template<float>(stream, nb, nblocks, nrhs, batchCount, A_array, lda, B_array,
-                                       ldb, C_array, ldc, brhs_, ldbrhs, &host_info);
-
-    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
+ return( 
+   rocsolver_gbtrsBatched_impl<double,rocblas_int>(
+                 handle, nb, nblocks, nrhs,
+                 A_array, lda, 
+                 B_array, ldb,
+                 C_array, ldc,
+                 brhs_, ldbrhs,
+                 batchCount )
+       );
 };
 
-rocblas_status rocsolverCgbtrsBatched(rocblas_handle handle,
-                                      int nb,
-                                      int nblocks,
-                                      int nrhs,
-                                      rocblas_float_complex* A_array[],
-                                      int lda,
-                                      rocblas_float_complex* B_array[],
-                                      int ldb,
-                                      rocblas_float_complex* C_array[],
-                                      int ldc,
-                                      rocblas_float_complex* brhs_,
-                                      int ldbrhs,
-                                      int batchCount)
-{
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
-
-    int host_info = 0;
-    gbtrs_npvt_batched_template<rocblas_float_complex>(stream, nb, nblocks, nrhs, batchCount,
-                                                       A_array, lda, B_array, ldb, C_array, ldc,
-                                                       brhs_, ldbrhs, &host_info);
-
-    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
-};
-
-rocblas_status rocsolverZgbtrsBatched(rocblas_handle handle,
-                                      int nb,
-                                      int nblocks,
-                                      int nrhs,
-                                      rocblas_double_complex* A_array[],
-                                      int lda,
-                                      rocblas_double_complex* B_array[],
-                                      int ldb,
-                                      rocblas_double_complex* C_array[],
-                                      int ldc,
-                                      rocblas_double_complex* brhs_,
-                                      int ldbrhs,
-                                      int batchCount)
-{
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
-
-    int host_info = 0;
-    gbtrs_npvt_batched_template<rocblas_double_complex>(stream, nb, nblocks, nrhs, batchCount,
-                                                        A_array, lda, B_array, ldb, C_array, ldc,
-                                                        brhs_, ldbrhs, &host_info);
-
-    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
-};
 }

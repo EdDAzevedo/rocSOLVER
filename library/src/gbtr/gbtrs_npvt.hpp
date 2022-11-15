@@ -12,19 +12,19 @@
 #include "gemm_nn.hpp"
 #include "getrs_npvt.hpp"
 
-template <typename T>
-DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
-                                       rocblas_int const nblocks,
-                                       rocblas_int const nrhs,
+template <typename T, typename I>
+DEVICE_FUNCTION void gbtrs_npvt_device(I const nb,
+                                       I const nblocks,
+                                       I const nrhs,
                                        T const* const A_,
-                                       rocblas_int const lda,
+                                       I const lda,
                                        T const* const D_,
-                                       rocblas_int const ldd,
+                                       I const ldd,
                                        T const* const U_,
-                                       rocblas_int const ldu,
+                                       I const ldu,
                                        T* brhs_,
-                                       rocblas_int const ldbrhs,
-                                       rocblas_int* pinfo)
+                                       I const ldbrhs,
+                                       I* pinfo)
 {
     /*
 ! % ------------------------------------------------
@@ -51,10 +51,10 @@ DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
 #define x(i, j, k) brhs(i, j, k)
 #define y(i, j, k) brhs(i, j, k)
 
-    rocblas_int info = 0;
+    I info = 0;
 
-    rocblas_int const ldx = ldbrhs;
-    rocblas_int const ldy = ldbrhs;
+    I const ldx = ldbrhs;
+    I const ldy = ldbrhs;
 
     T const one = 1;
     /*
@@ -91,7 +91,7 @@ DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
 ! end;
 */
 
-    for(rocblas_int k = 1; k <= nblocks; k++)
+    for(I k = 1; k <= nblocks; k++)
     {
         if((k - 1) >= 1)
         {
@@ -101,16 +101,16 @@ DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
 !         ----------------------------------------------------
 */
             {
-                rocblas_int const mm = nb;
-                rocblas_int const nn = nrhs;
-                rocblas_int const kk = nb;
+                I const mm = nb;
+                I const nn = nrhs;
+                I const kk = nb;
 
                 T const alpha = -one;
                 T const beta = one;
 
-                rocblas_int const ld1 = lda;
-                rocblas_int const ld2 = ldy * nblocks;
-                rocblas_int const ld3 = ldy * nblocks;
+                I const ld1 = lda;
+                I const ld2 = ldy * nblocks;
+                I const ld3 = ldy * nblocks;
 
                 gemm_nn_device(mm, nn, kk, alpha, &(A(1, 1, k)), ld1, &(y(1, k - 1, 1)), ld2, beta,
                                &(y(1, k, 1)), ld3);
@@ -123,10 +123,10 @@ DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
 !      ----------------------------------------------------
 */
         {
-            rocblas_int const nn = nb;
-            rocblas_int const ld1 = ldd;
-            rocblas_int const ld2 = ldbrhs * nblocks;
-            rocblas_int linfo = 0;
+            I const nn = nb;
+            I const ld1 = ldd;
+            I const ld2 = ldbrhs * nblocks;
+            I linfo = 0;
 
             getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ld1, &(y(1, k, 1)), ld2, &linfo);
             info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
@@ -163,9 +163,9 @@ DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
 ! 
 */
 
-    for(rocblas_int kr = 1; kr <= nblocks; kr++)
+    for(I kr = 1; kr <= nblocks; kr++)
     {
-        rocblas_int const k = nblocks - kr + 1;
+        I const k = nblocks - kr + 1;
         if((k + 1) <= nblocks)
         {
             /*
@@ -173,16 +173,16 @@ DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
 !     y(1:nb,k,:) = y(1:nb,k,:) - U(1:nb,1:nb,k) * x(1:nb,k+1,:);
 !     ----------------------------------------------------------
 */
-            rocblas_int const mm = nb;
-            rocblas_int const nn = nrhs;
-            rocblas_int const kk = nb;
+            I const mm = nb;
+            I const nn = nrhs;
+            I const kk = nb;
 
             T const alpha = -one;
             T const beta = one;
 
-            rocblas_int const ld1 = ldu;
-            rocblas_int const ld2 = ldx * nblocks;
-            rocblas_int const ld3 = ldy * nblocks;
+            I const ld1 = ldu;
+            I const ld2 = ldx * nblocks;
+            I const ld3 = ldy * nblocks;
 
             gemm_nn_device(mm, nn, kk, alpha, &(U(1, 1, k)), ld1, &(x(1, k + 1, 1)), ld2, beta,
                            &(y(1, k, 1)), ld3);
