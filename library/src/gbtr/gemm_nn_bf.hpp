@@ -43,7 +43,7 @@ DEVICE_FUNCTION void gemm_nn_bf_device(rocblas_int const batchCount,
 
     for(rocblas_int jc = 1; jc <= n; jc++)
     {
-        for(rocblas_int ic = 1; ic <= n; ic++)
+        for(rocblas_int ic = 1; ic <= m; ic++)
         {
             for(rocblas_int iv = iv_start; iv <= iv_end; iv += iv_inc)
             {
