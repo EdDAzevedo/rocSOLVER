@@ -9,21 +9,21 @@
 
 #include "gbtr_common.h"
 
-template <typename T>
-DEVICE_FUNCTION void getrs_npvt_device(rocblas_int const n,
-                                       rocblas_int const nrhs,
+template <typename T, typename I>
+DEVICE_FUNCTION void getrs_npvt_device(I const n,
+                                       I const nrhs,
                                        T const* const A_,
-                                       rocblas_int const lda,
+                                       I const lda,
                                        T* B_,
-                                       rocblas_int const ldb,
-                                       rocblas_int* pinfo)
+                                       I const ldb,
+                                       I* pinfo)
 {
 #define A(ia, ja) A_[indx2f(ia, ja, lda)]
 #define B(ib, jb) B_[indx2f(ib, jb, ldb)]
 
     T const zero = 0;
     T const one = 1;
-    rocblas_int info = 0;
+    I info = 0;
     /*
 !     ---------------------------------------------------
 !     Perform forward and backward solve without pivoting
@@ -57,11 +57,11 @@ DEVICE_FUNCTION void getrs_npvt_device(rocblas_int const n,
 ! end;
 */
 
-    for(rocblas_int i = 1; i <= n; i++)
+    for(I i = 1; i <= n; i++)
     {
-        for(rocblas_int j = 1; j <= (i - 1); j++)
+        for(I j = 1; j <= (i - 1); j++)
         {
-            for(rocblas_int k = 1; k <= nrhs; k++)
+            for(I k = 1; k <= nrhs; k++)
             {
                 B(i, k) = B(i, k) - A(i, j) * B(j, k);
             };
@@ -86,13 +86,13 @@ DEVICE_FUNCTION void getrs_npvt_device(rocblas_int const n,
 ! 
 */
 
-    for(rocblas_int ir = 1; ir <= n; ir++)
+    for(I ir = 1; ir <= n; ir++)
     {
-        rocblas_int const i = n - ir + 1;
+        I const i = n - ir + 1;
 
-        for(rocblas_int j = (i + 1); j <= n; j++)
+        for(I j = (i + 1); j <= n; j++)
         {
-            for(rocblas_int k = 1; k <= nrhs; k++)
+            for(I k = 1; k <= nrhs; k++)
             {
                 B(i, k) = B(i, k) - A(i, j) * B(j, k);
             };
@@ -102,7 +102,7 @@ DEVICE_FUNCTION void getrs_npvt_device(rocblas_int const n,
         T const inv_Uii = (is_diag_zero) ? one : one / A(i, i);
         info = is_diag_zero && (info == 0) ? i : info;
 
-        for(rocblas_int k = 1; k <= nrhs; k++)
+        for(I k = 1; k <= nrhs; k++)
         {
             B(i, k) *= inv_Uii;
         };
