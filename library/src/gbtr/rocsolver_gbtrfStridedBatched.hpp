@@ -29,27 +29,27 @@
 #include "gbtr_common.h"
 #include "gbtrf_npvt.hpp"
 
-template <typename T>
-GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(int nb,
-                                                       int nblocks,
-                                                       int batchCount,
+template <typename T, typename I, typename Istride >
+GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(I nb,
+                                                       I nblocks,
+                                                       I batchCount,
 
                                                        T* A_,
-                                                       int lda,
-                                                       rocblas_stride strideA,
+                                                       I lda,
+                                                       Istride strideA,
                                                        T* B_,
-                                                       int ldb,
-                                                       rocblas_stride strideB,
+                                                       I ldb,
+                                                       Istride strideB,
                                                        T* C_,
-                                                       int ldc,
-                                                       rocblas_stride strideC,
-                                                       int* pinfo)
+                                                       I ldc,
+                                                       Istride strideC,
+                                                       I* pinfo)
 {
     int SHARED_MEMORY sinfo;
 #ifdef USE_GPU
-    int const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-    int const i_start = thread_id;
-    int const i_inc = gridDim.x * blockDim.x;
+    auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
+    auto const i_start = thread_id;
+    auto const i_inc = gridDim.x * blockDim.x;
     bool const is_root = (thread_id == 0);
 
     if(is_root)
@@ -57,20 +57,20 @@ GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(int nb,
         sinfo = 0;
     };
 #else
-    int const i_start = 0;
-    int const i_inc = 1;
+    I const i_start = 0;
+    I const i_inc = 1;
     sinfo = 0;
 #endif
 
     {
-        int info = 0;
-        for(int i = i_start; i < batchCount; i += i_inc)
+        I info = 0;
+        for(I i = i_start; i < batchCount; i += i_inc)
         {
             int64_t indxA = ((int64_t)strideA) * (i - 1);
             int64_t indxB = ((int64_t)strideB) * (i - 1);
             int64_t indxC = ((int64_t)strideC) * (i - 1);
 
-            int linfo = 0;
+            I linfo = 0;
             gbtrf_npvt_device<T>(nb, nblocks, &(A_[indxA]), lda, &(B_[indxB]), ldb, &(C_[indxC]),
                                  ldc, &linfo);
             info = max(info, linfo);
@@ -86,30 +86,30 @@ GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(int nb,
     };
 }
 
-template <typename T>
+template <typename T, typename I, typename Istride>
 rocblas_status gbtrf_npvt_strided_batched_template(hipStream_t stream,
-                                                   int nb,
-                                                   int nblocks,
-                                                   int batchCount,
+                                                   I nb,
+                                                   I nblocks,
+                                                   I batchCount,
 
                                                    T* A_,
-                                                   int lda,
-                                                   rocblas_stride strideA,
+                                                   I lda,
+                                                   Istride strideA,
                                                    T* B_,
-                                                   int ldb,
-                                                   rocblas_stride strideB,
+                                                   I ldb,
+                                                   Istride strideB,
                                                    T* C_,
-                                                   int ldc,
-                                                   rocblas_stride strideC,
-                                                   int* phost_info)
+                                                   I ldc,
+                                                   Istride strideC,
+                                                   I* phost_info)
 {
     *phost_info = 0;
-    int* pdevice_info;
-    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(int)), rocblas_status_memory_error);
-    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(int)), rocblas_status_internal_error);
+    I* pdevice_info;
+    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
+    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
-    int grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
-    hipLaunchKernelGGL((gbtrf_npvt_strided_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM),
+    I grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
+    hipLaunchKernelGGL((gbtrf_npvt_strided_batched_kernel<T,I,Istride>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM),
                        0, stream,
 
                        nb, nblocks, batchCount,
@@ -118,7 +118,7 @@ rocblas_status gbtrf_npvt_strided_batched_template(hipStream_t stream,
 
                        pdevice_info);
 
-    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(int)), rocblas_status_internal_error);
+    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(I)), rocblas_status_internal_error);
     HIP_CHECK(hipFree(pdevice_info), rocblas_status_memory_error);
     return (rocblas_status_success);
 }

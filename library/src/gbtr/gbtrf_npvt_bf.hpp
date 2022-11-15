@@ -23,23 +23,23 @@
 #include "getrf_npvt_bf.hpp"
 #include "getrs_npvt_bf.hpp"
 
-template <typename T>
-GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
-                                          rocblas_int const nblocks,
-                                          rocblas_int const batchCount,
+template <typename T, typename I>
+GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(I const nb,
+                                          I const nblocks,
+                                          I const batchCount,
                                           T* A_,
-                                          rocblas_int const lda,
+                                          I const lda,
                                           T* B_,
-                                          rocblas_int const ldb,
+                                          I const ldb,
                                           T* C_,
-                                          rocblas_int const ldc,
-                                          rocblas_int* pinfo)
+                                          I const ldc,
+                                          I* pinfo)
 {
 #define A(iv, ia, ja, k) A_[indx4f(iv, ia, ja, k, batchCount, lda, nb)]
 #define B(iv, ib, jb, k) B_[indx4f(iv, ib, jb, k, batchCount, ldb, nb)]
 #define C(iv, ic, jc, k) C_[indx4f(iv, ic, jc, k, batchCount, ldc, nb)]
 
-    rocblas_int info = 0;
+    I info = 0;
 
     /*
 !     --------------------------
@@ -51,8 +51,8 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
 
 #define D(iv, i, j, k) B(iv, i, j, k)
 #define U(iv, i, j, k) C(iv, i, j, k)
-    rocblas_int const ldu = ldc;
-    rocblas_int const ldd = ldb;
+    I const ldu = ldc;
+    I const ldd = ldb;
     /*
 ! 
 ! % B1 = D1
@@ -83,17 +83,17 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
 */
 
     {
-        rocblas_int const iv = 1;
-        rocblas_int const k = 1;
-        rocblas_int const mm = nb;
-        rocblas_int const nn = nb;
+        I const iv = 1;
+        I const k = 1;
+        I const mm = nb;
+        I const nn = nb;
         T* Ap = &(D(iv, 1, 1, k));
         /*
 !   ----------------------------------------------
 !   D(:,1:nb,1:nb,k) = getrf_npvt( D(:,1:nb,1:nb,k) );
 !   ----------------------------------------------
 */
-        rocblas_int linfo = 0;
+        I linfo = 0;
         getrf_npvt_bf_device<T>(batchCount, mm, nn, Ap, ldd, &linfo);
         SYNCTHREADS;
         info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
@@ -123,7 +123,7 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
 ! end;
 */
 
-    for(rocblas_int k = 1; k <= (nblocks - 1); k++)
+    for(I k = 1; k <= (nblocks - 1); k++)
     {
         /*
 !     --------------------------------------------------------------     
@@ -131,11 +131,11 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
 !     --------------------------------------------------------------     
 */
         {
-            rocblas_int const nn = nb;
-            rocblas_int const nrhs = nb;
-            rocblas_int const iv = 1;
+            I const nn = nb;
+            I const nrhs = nb;
+            I const iv = 1;
 
-            rocblas_int linfo = 0;
+            I linfo = 0;
 
             T const* const Ap = &(D(iv, 1, 1, k));
             T* Bp = &(C(iv, 1, 1, k));
@@ -151,15 +151,15 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
 !    ------------------------------------------------------------------------
 */
         {
-            rocblas_int const iv = 1;
-            rocblas_int const mm = nb;
-            rocblas_int const nn = nb;
-            rocblas_int const kk = nb;
+            I const iv = 1;
+            I const mm = nb;
+            I const nn = nb;
+            I const kk = nb;
             T const alpha = -1;
             T const beta = 1;
-            rocblas_int const ld1 = lda;
-            rocblas_int const ld2 = ldu;
-            rocblas_int const ld3 = ldd;
+            I const ld1 = lda;
+            I const ld2 = ldu;
+            I const ld3 = ldd;
 
             T const* const Ap = &(A(iv, 1, 1, k + 1));
             T const* const Bp = &(U(iv, 1, 1, k));
@@ -175,12 +175,12 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
 */
 
         {
-            rocblas_int const iv = 1;
-            rocblas_int const mm = nb;
-            rocblas_int const nn = nb;
+            I const iv = 1;
+            I const mm = nb;
+            I const nn = nb;
             T* Ap = &(D(iv, 1, 1, k + 1));
 
-            rocblas_int linfo = 0;
+            I linfo = 0;
             getrf_npvt_bf_device<T>(batchCount, mm, nn, Ap, ldd, &linfo);
 
             SYNCTHREADS;
@@ -202,29 +202,29 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(rocblas_int const nb,
 #undef B
 #undef C
 
-template <typename T>
+template <typename T, typename I>
 void gbtrf_npvt_bf_template(hipStream_t stream,
 
-                            rocblas_int const nb,
-                            rocblas_int const nblocks,
-                            rocblas_int const batchCount,
+                            I const nb,
+                            I const nblocks,
+                            I const batchCount,
                             T* A_,
-                            rocblas_int const lda,
+                            I const lda,
                             T* B_,
-                            rocblas_int const ldb,
+                            I const ldb,
                             T* C_,
-                            rocblas_int const ldc,
-                            rocblas_int* pinfo)
+                            I const ldc,
+                            I* pinfo)
 {
 #ifdef USE_GPU
-    int block_dim = 64;
-    int grid_dim = (batchCount + (block_dim - 1)) / block_dim;
-    hipLaunchKernelGGL((gbtrf_npvt_bf_kernel<T>), dim3(grid_dim), dim3(block_dim), 0, stream,
+    auto const  block_dim = GBTR_BLOCK_DIM;
+    auto const  grid_dim = (batchCount + (block_dim - 1)) / block_dim;
+    hipLaunchKernelGGL((gbtrf_npvt_bf_kernel<T,I>), dim3(grid_dim), dim3(block_dim), 0, stream,
 
                        nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
 #else
 
-    gbtrf_npvt_bf_kernel<T>(nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
+    gbtrf_npvt_bf_kernel<T,I>(nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
 
 #endif
 }

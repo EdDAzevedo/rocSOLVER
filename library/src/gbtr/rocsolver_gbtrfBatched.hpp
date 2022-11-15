@@ -95,8 +95,8 @@ rocblas_status gbtrf_npvt_batched_template(hipStream_t stream,
 {
     *phost_info = 0;
     I* pdevice_info;
-    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(int)), rocblas_status_memory_error);
-    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(int)), rocblas_status_internal_error);
+    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
+    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
     auto grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
     hipLaunchKernelGGL((gbtrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM), 0,
@@ -108,7 +108,7 @@ rocblas_status gbtrf_npvt_batched_template(hipStream_t stream,
 
                        pdevice_info);
 
-    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(int)), rocblas_status_internal_error);
+    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(I)), rocblas_status_internal_error);
     HIP_CHECK(hipFree(pdevice_info), rocblas_status_memory_error);
     return (rocblas_status_success);
 }
