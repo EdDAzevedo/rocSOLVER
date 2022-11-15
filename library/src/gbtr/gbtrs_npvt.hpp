@@ -14,17 +14,17 @@
 
 template <typename T>
 DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
-                                rocblas_int const nblocks,
-                                rocblas_int const nrhs,
-                                T const* const A_,
-                                rocblas_int const lda,
-                                T const* const D_,
-                                rocblas_int const ldd,
-                                T const* const U_,
-                                rocblas_int const ldu,
-                                T* brhs_,
-                                rocblas_int const ldbrhs,
-                                rocblas_int* pinfo)
+                                       rocblas_int const nblocks,
+                                       rocblas_int const nrhs,
+                                       T const* const A_,
+                                       rocblas_int const lda,
+                                       T const* const D_,
+                                       rocblas_int const ldd,
+                                       T const* const U_,
+                                       rocblas_int const ldu,
+                                       T* brhs_,
+                                       rocblas_int const ldbrhs,
+                                       rocblas_int* pinfo)
 {
     /*
 ! % ------------------------------------------------

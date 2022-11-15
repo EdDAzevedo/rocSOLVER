@@ -1,3 +1,4 @@
+
 #ifndef GBTR_COMMON_H
 #define GBTR_COMMON_H
 
