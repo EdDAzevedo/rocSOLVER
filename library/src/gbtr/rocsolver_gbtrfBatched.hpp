@@ -29,24 +29,24 @@
 #include "gbtr_common.h"
 #include "gbtrf_npvt.hpp"
 
-template <typename T>
-GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(int nb,
-                                               int nblocks,
-                                               int batchCount,
+template <typename T, typename I>
+GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(I nb,
+                                               I nblocks,
+                                               I batchCount,
 
                                                T* A_array[],
-                                               int lda,
+                                               I lda,
                                                T* B_array[],
-                                               int ldb,
+                                               I ldb,
                                                T* C_array[],
-                                               int ldc,
-                                               int* pinfo)
+                                               I ldc,
+                                               I* pinfo)
 {
     int SHARED_MEMORY sinfo;
 #ifdef USE_GPU
-    int const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-    int const i_start = thread_id;
-    int const i_inc = gridDim.x * blockDim.x;
+    auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
+    auto const i_start = thread_id;
+    auto const i_inc = gridDim.x * blockDim.x;
 
     bool const is_root = (thread_id == 0);
     if(is_root)
@@ -54,17 +54,17 @@ GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(int nb,
         sinfo = 0;
     };
 #else
-    int const i_start = 0;
-    int const i_inc = 1;
+    auto const i_start = 0;
+    auto const i_inc = 1;
     sinfo = 0;
 #endif
 
     {
-        int info = 0;
-        for(int i = i_start; i < batchCount; i += i_inc)
+        I info = 0;
+        for(I i = i_start; i < batchCount; i += i_inc)
         {
             int linfo = 0;
-            gbtrf_npvt_device<T>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i], ldc,
+            gbtrf_npvt_device<T,I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i], ldc,
                                  &linfo);
             info = max(info, linfo);
         };
@@ -79,26 +79,26 @@ GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(int nb,
     };
 }
 
-template <typename T>
+template <typename T, typename I>
 rocblas_status gbtrf_npvt_batched_template(hipStream_t stream,
-                                           int nb,
-                                           int nblocks,
-                                           int batchCount,
+                                           I nb,
+                                           I nblocks,
+                                           I batchCount,
 
                                            T* A_array[],
-                                           int lda,
+                                           I lda,
                                            T* B_array[],
-                                           int ldb,
+                                           I ldb,
                                            T* C_array[],
-                                           int ldc,
-                                           int* phost_info)
+                                           I ldc,
+                                           I* phost_info)
 {
     *phost_info = 0;
-    int* pdevice_info;
+    I* pdevice_info;
     HIP_CHECK(hipMalloc(&pdevice_info, sizeof(int)), rocblas_status_memory_error);
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(int)), rocblas_status_internal_error);
 
-    int grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
+    auto grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
     hipLaunchKernelGGL((gbtrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM), 0,
                        stream,
 
