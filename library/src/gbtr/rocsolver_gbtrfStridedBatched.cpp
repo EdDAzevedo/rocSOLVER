@@ -41,7 +41,7 @@ rocblas_status rocsolverDgbtrfStridedBatched(rocblas_handle handle,
                                              int batchCount)
 {
     hipStream_t stream;
-    rocblas_handle blas_handle(handle);
+    rocblas_get_stream(handle, &stream);
 
     int host_info = 0;
     gbtrf_npvt_strided_batched_template<double>(stream, nb, nblocks, batchCount, A_, lda, strideA,

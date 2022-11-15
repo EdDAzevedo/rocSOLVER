@@ -41,7 +41,7 @@ rocblas_status rocsolverDgbtrsBatched(rocblas_handle handle,
                                       int batchCount)
 {
     hipStream_t stream;
-    rocblas_handle blas_handle(handle);
+    rocblas_get_stream(handle, &stream);
 
     int host_info = 0;
     gbtrs_npvt_batched_template<double>(stream, nb, nblocks, nrhs, batchCount, A_array, lda,
