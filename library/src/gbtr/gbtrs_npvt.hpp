@@ -57,7 +57,6 @@ DEVICE_FUNCTION void gbtrs_npvt_device(rocblas_int const nb,
     rocblas_int const ldy = ldbrhs;
 
     T const one = 1;
-    T const zero = 0;
     /*
 ! 
 ! % forward solve

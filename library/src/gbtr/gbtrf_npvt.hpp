@@ -41,7 +41,6 @@ DEVICE_FUNCTION void gbtrf_npvt_device(rocblas_int const nb,
 
     rocblas_int info = 0;
     T const one = 1;
-    T const zero = 0;
 
 /*
 !     --------------------------

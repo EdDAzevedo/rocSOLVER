@@ -65,7 +65,7 @@ rocblas_status rocsolverSgbtrsBatched(rocblas_handle handle,
                                       int batchCount)
 {
     hipStream_t stream;
-    rocblas_handle blas_handle(handle);
+    rocblas_get_stream( handle, &stream );
 
     int host_info = 0;
     gbtrs_npvt_batched_template<float>(stream, nb, nblocks, nrhs, batchCount, A_array, lda, B_array,
@@ -89,7 +89,7 @@ rocblas_status rocsolverCgbtrsBatched(rocblas_handle handle,
                                       int batchCount)
 {
     hipStream_t stream;
-    rocblas_handle blas_handle(handle);
+    rocblas_get_stream( handle, &stream );
 
     int host_info = 0;
     gbtrs_npvt_batched_template<rocblas_float_complex>(stream, nb, nblocks, nrhs, batchCount,
@@ -114,7 +114,7 @@ rocblas_status rocsolverZgbtrsBatched(rocblas_handle handle,
                                       int batchCount)
 {
     hipStream_t stream;
-    rocblas_handle blas_handle(handle);
+    rocblas_get_stream( handle, &stream );
 
     int host_info = 0;
     gbtrs_npvt_batched_template<rocblas_double_complex>(stream, nb, nblocks, nrhs, batchCount,
