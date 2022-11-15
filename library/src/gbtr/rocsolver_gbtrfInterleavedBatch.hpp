@@ -45,7 +45,7 @@ rocblas_status rocsolver_gbtrfInterleavedBatch_template(rocblas_handle handle,
     rocblas_get_stream(handle, &stream);
 
     I info = 0;
-    gbtrf_npvt_bf_template<T,I>(stream, nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, &info);
+    gbtrf_npvt_bf_template<T, I>(stream, nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, &info);
 
     return ((info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 }

@@ -24,137 +24,103 @@
  * ************************************************************************ */
 #include "rocsolver_gbtrfStridedBatched.hpp"
 
-
-
-template<typename T, typename I, typename Istride>
+template <typename T, typename I, typename Istride>
 rocblas_status rocsolver_gbtrfStridedBatched_impl(rocblas_handle handle,
-                                             I nb,
-                                             I nblocks,
-                                             T* A_,
-                                             I lda,
-                                             Istride strideA,
-                                             T* B_,
-                                             I ldb,
-                                             Istride strideB,
-                                             T* C_,
-                                             I ldc,
-                                             Istride strideC,
-                                             I batchCount)
+                                                  I nb,
+                                                  I nblocks,
+                                                  T* A_,
+                                                  I lda,
+                                                  Istride strideA,
+                                                  T* B_,
+                                                  I ldb,
+                                                  Istride strideB,
+                                                  T* C_,
+                                                  I ldc,
+                                                  Istride strideC,
+                                                  I batchCount)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
     I host_info = 0;
-    gbtrf_npvt_strided_batched_template<T,I,Istride>(stream, nb, nblocks, batchCount, 
-                                                A_, lda, strideA,
-                                                B_, ldb, strideB, 
-                                                C_, ldc, strideC, &host_info);
+    gbtrf_npvt_strided_batched_template<T, I, Istride>(stream, nb, nblocks, batchCount, A_, lda,
+                                                       strideA, B_, ldb, strideB, C_, ldc, strideC,
+                                                       &host_info);
 
     return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 };
 
 extern "C" {
 
-
 rocblas_status rocsolver_dgbtrfStridedBatched(rocblas_handle handle,
-                                             rocblas_int nb,
-                                             rocblas_int nblocks,
-                                             double* A_,
-                                             rocblas_int lda,
-                                             rocblas_stride strideA,
-                                             double* B_,
-                                             rocblas_int ldb,
-                                             rocblas_stride strideB,
-                                             double* C_,
-                                             rocblas_int ldc,
-                                             rocblas_stride strideC,
-                                             rocblas_int batchCount)
+                                              rocblas_int nb,
+                                              rocblas_int nblocks,
+                                              double* A_,
+                                              rocblas_int lda,
+                                              rocblas_stride strideA,
+                                              double* B_,
+                                              rocblas_int ldb,
+                                              rocblas_stride strideB,
+                                              double* C_,
+                                              rocblas_int ldc,
+                                              rocblas_stride strideC,
+                                              rocblas_int batchCount)
 {
-  return(
-    rocsolver_gbtrfStridedBatched_impl<double,rocblas_int,rocblas_stride>(
-                                     handle, nb, nblocks,
-                                     A_, lda, strideA,
-                                     B_, ldb, strideB,
-                                     C_, ldc, strideC,
-                                     batchCount )
-       );
+    return (rocsolver_gbtrfStridedBatched_impl<double, rocblas_int, rocblas_stride>(
+        handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, batchCount));
 };
-
-
 
 rocblas_status rocsolver_sgbtrfStridedBatched(rocblas_handle handle,
-                                             rocblas_int nb,
-                                             rocblas_int nblocks,
-                                             float* A_,
-                                             rocblas_int lda,
-                                             rocblas_stride strideA,
-                                             float* B_,
-                                             rocblas_int ldb,
-                                             rocblas_stride strideB,
-                                             float* C_,
-                                             rocblas_int ldc,
-                                             rocblas_stride strideC,
-                                             rocblas_int batchCount)
+                                              rocblas_int nb,
+                                              rocblas_int nblocks,
+                                              float* A_,
+                                              rocblas_int lda,
+                                              rocblas_stride strideA,
+                                              float* B_,
+                                              rocblas_int ldb,
+                                              rocblas_stride strideB,
+                                              float* C_,
+                                              rocblas_int ldc,
+                                              rocblas_stride strideC,
+                                              rocblas_int batchCount)
 {
-  return(
-    rocsolver_gbtrfStridedBatched_impl<float,rocblas_int,rocblas_stride>(
-                                     handle, nb, nblocks,
-                                     A_, lda, strideA,
-                                     B_, ldb, strideB,
-                                     C_, ldc, strideC,
-                                     batchCount )
-       );
+    return (rocsolver_gbtrfStridedBatched_impl<float, rocblas_int, rocblas_stride>(
+        handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, batchCount));
 };
-
 
 rocblas_status rocsolver_zgbtrfStridedBatched(rocblas_handle handle,
-                                             rocblas_int nb,
-                                             rocblas_int nblocks,
-                                             rocblas_double_complex* A_,
-                                             rocblas_int lda,
-                                             rocblas_stride strideA,
-                                             rocblas_double_complex* B_,
-                                             rocblas_int ldb,
-                                             rocblas_stride strideB,
-                                             rocblas_double_complex* C_,
-                                             rocblas_int ldc,
-                                             rocblas_stride strideC,
-                                             rocblas_int batchCount)
+                                              rocblas_int nb,
+                                              rocblas_int nblocks,
+                                              rocblas_double_complex* A_,
+                                              rocblas_int lda,
+                                              rocblas_stride strideA,
+                                              rocblas_double_complex* B_,
+                                              rocblas_int ldb,
+                                              rocblas_stride strideB,
+                                              rocblas_double_complex* C_,
+                                              rocblas_int ldc,
+                                              rocblas_stride strideC,
+                                              rocblas_int batchCount)
 {
-  return(
-    rocsolver_gbtrfStridedBatched_impl<rocblas_double_complex,rocblas_int,rocblas_stride>(
-                                     handle, nb, nblocks,
-                                     A_, lda, strideA,
-                                     B_, ldb, strideB,
-                                     C_, ldc, strideC,
-                                     batchCount )
-       );
+    return (rocsolver_gbtrfStridedBatched_impl<rocblas_double_complex, rocblas_int, rocblas_stride>(
+        handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, batchCount));
 };
-
-
 
 rocblas_status rocsolver_cgbtrfStridedBatched(rocblas_handle handle,
-                                             rocblas_int nb,
-                                             rocblas_int nblocks,
-                                             rocblas_float_complex* A_,
-                                             rocblas_int lda,
-                                             rocblas_stride strideA,
-                                             rocblas_float_complex* B_,
-                                             rocblas_int ldb,
-                                             rocblas_stride strideB,
-                                             rocblas_float_complex* C_,
-                                             rocblas_int ldc,
-                                             rocblas_stride strideC,
-                                             rocblas_int batchCount)
+                                              rocblas_int nb,
+                                              rocblas_int nblocks,
+                                              rocblas_float_complex* A_,
+                                              rocblas_int lda,
+                                              rocblas_stride strideA,
+                                              rocblas_float_complex* B_,
+                                              rocblas_int ldb,
+                                              rocblas_stride strideB,
+                                              rocblas_float_complex* C_,
+                                              rocblas_int ldc,
+                                              rocblas_stride strideC,
+                                              rocblas_int batchCount)
 {
-  return(
-    rocsolver_gbtrfStridedBatched_impl<rocblas_float_complex,rocblas_int,rocblas_stride>(
-                                     handle, nb, nblocks,
-                                     A_, lda, strideA,
-                                     B_, ldb, strideB,
-                                     C_, ldc, strideC,
-                                     batchCount )
-       );
+    return (rocsolver_gbtrfStridedBatched_impl<rocblas_float_complex, rocblas_int, rocblas_stride>(
+        handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, batchCount));
 };
-
 }

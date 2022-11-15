@@ -29,7 +29,7 @@
 #include "gbtr_common.h"
 #include "gbtrf_npvt.hpp"
 
-template <typename T, typename I, typename Istride >
+template <typename T, typename I, typename Istride>
 GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(I nb,
                                                        I nblocks,
                                                        I batchCount,
@@ -45,7 +45,7 @@ GLOBAL_FUNCTION void gbtrf_npvt_strided_batched_kernel(I nb,
                                                        Istride strideC,
                                                        I* pinfo)
 {
-    int SHARED_MEMORY sinfo;
+    I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
     auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
     auto const i_start = thread_id;
@@ -109,8 +109,8 @@ rocblas_status gbtrf_npvt_strided_batched_template(hipStream_t stream,
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
     I grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
-    hipLaunchKernelGGL((gbtrf_npvt_strided_batched_kernel<T,I,Istride>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM),
-                       0, stream,
+    hipLaunchKernelGGL((gbtrf_npvt_strided_batched_kernel<T, I, Istride>), dim3(grid_dim),
+                       dim3(GBTR_BLOCK_DIM), 0, stream,
 
                        nb, nblocks, batchCount,
 

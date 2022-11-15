@@ -217,14 +217,14 @@ void gbtrf_npvt_bf_template(hipStream_t stream,
                             I* pinfo)
 {
 #ifdef USE_GPU
-    auto const  block_dim = GBTR_BLOCK_DIM;
-    auto const  grid_dim = (batchCount + (block_dim - 1)) / block_dim;
-    hipLaunchKernelGGL((gbtrf_npvt_bf_kernel<T,I>), dim3(grid_dim), dim3(block_dim), 0, stream,
+    auto const block_dim = GBTR_BLOCK_DIM;
+    auto const grid_dim = (batchCount + (block_dim - 1)) / block_dim;
+    hipLaunchKernelGGL((gbtrf_npvt_bf_kernel<T, I>), dim3(grid_dim), dim3(block_dim), 0, stream,
 
                        nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
 #else
 
-    gbtrf_npvt_bf_kernel<T,I>(nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
+    gbtrf_npvt_bf_kernel<T, I>(nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
 
 #endif
 }

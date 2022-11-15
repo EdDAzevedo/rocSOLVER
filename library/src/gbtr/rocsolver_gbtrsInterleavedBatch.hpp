@@ -29,25 +29,25 @@
 #include "gbtr_common.h"
 #include "gbtrs_npvt_bf.hpp"
 
-template <typename T>
+template <typename T, typename I>
 rocblas_status rocsolver_gbtrsInterleavedBatch_template(rocblas_handle handle,
-                                                        int nb,
-                                                        int nblocks,
-                                                        int nrhs,
+                                                        I nb,
+                                                        I nblocks,
+                                                        I nrhs,
                                                         const T* A_,
-                                                        int lda,
+                                                        I lda,
                                                         const T* B_,
-                                                        int ldb,
+                                                        I ldb,
                                                         const T* C_,
-                                                        int ldc,
+                                                        I ldc,
                                                         T* brhs_,
-                                                        int ldbrhs,
-                                                        int batchCount)
+                                                        I ldbrhs,
+                                                        I batchCount)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    int info = 0;
+    I info = 0;
 
     gbtrs_npvt_bf_template<T>(stream, nb, nblocks, batchCount, nrhs, A_, lda, B_, ldb, C_, ldc,
                               brhs_, ldbrhs, &info);

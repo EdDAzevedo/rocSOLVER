@@ -9,12 +9,8 @@
 #include "gbtr_common.h"
 
 template <typename T, typename I>
-DEVICE_FUNCTION void getrf_npvt_bf_device(I const batchCount,
-                                          I const m,
-                                          I const n,
-                                          T* A_,
-                                          I const lda,
-                                          I* pinfo)
+DEVICE_FUNCTION void
+    getrf_npvt_bf_device(I const batchCount, I const m, I const n, T* A_, I const lda, I* pinfo)
 {
     I const min_mn = (m < n) ? m : n;
     T const one = 1;

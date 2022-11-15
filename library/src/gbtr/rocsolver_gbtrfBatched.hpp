@@ -42,7 +42,7 @@ GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(I nb,
                                                I ldc,
                                                I* pinfo)
 {
-    int SHARED_MEMORY sinfo;
+    I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
     auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
     auto const i_start = thread_id;
@@ -63,9 +63,9 @@ GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(I nb,
         I info = 0;
         for(I i = i_start; i < batchCount; i += i_inc)
         {
-            int linfo = 0;
-            gbtrf_npvt_device<T,I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i], ldc,
-                                 &linfo);
+            I linfo = 0;
+            gbtrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i], ldc,
+                                    &linfo);
             info = max(info, linfo);
         };
 

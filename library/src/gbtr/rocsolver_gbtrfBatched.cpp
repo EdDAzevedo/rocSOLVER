@@ -24,119 +24,87 @@
  * ************************************************************************ */
 #include "rocsolver_gbtrfBatched.hpp"
 
-template<typename T, typename I>
-rocblas_status rocsolver_gbtrfBatched_impl(
-	rocblas_handle handle,
-	I nb,
-	I nblocks,
-	T* A_array[],
-	I lda,
-	T* B_array[],
-	I ldb,
-	T* C_array[],
-	I ldc,
-	I batchCount
-	) 
+template <typename T, typename I>
+rocblas_status rocsolver_gbtrfBatched_impl(rocblas_handle handle,
+                                           I nb,
+                                           I nblocks,
+                                           T* A_array[],
+                                           I lda,
+                                           T* B_array[],
+                                           I ldb,
+                                           T* C_array[],
+                                           I ldc,
+                                           I batchCount)
 {
-  
-  hipStream_t stream;
-  rocblas_get_stream( handle, &stream );
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
 
-  I host_info = 0;
-  gbtrf_npvt_batched_template<T,I>(stream, nb, nblocks, batchCount, A_array, lda, B_array, ldb,
-                                        C_array, ldc, &host_info);
+    I host_info = 0;
+    gbtrf_npvt_batched_template<T, I>(stream, nb, nblocks, batchCount, A_array, lda, B_array, ldb,
+                                      C_array, ldc, &host_info);
 
     return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 }
 
-
 extern "C" {
 
 rocblas_status rocsolver_dgbtrfBatched(rocblas_handle handle,
-                                      rocblas_int nb,
-                                      rocblas_int nblocks,
-                                      double* A_array[],
-                                      rocblas_int lda,
-                                      double* B_array[],
-                                      rocblas_int ldb,
-                                      double* C_array[],
-                                      rocblas_int ldc,
-                                      rocblas_int batchCount)
+                                       rocblas_int nb,
+                                       rocblas_int nblocks,
+                                       double* A_array[],
+                                       rocblas_int lda,
+                                       double* B_array[],
+                                       rocblas_int ldb,
+                                       double* C_array[],
+                                       rocblas_int ldc,
+                                       rocblas_int batchCount)
 {
-
- return( rocsolver_gbtrfBatched_impl<double,rocblas_int>(
-                            handle, nb, nblocks,
-                            A_array, lda,
-                            B_array, ldb,
-                            C_array, ldc,
-                            batchCount ) );
+    return (rocsolver_gbtrfBatched_impl<double, rocblas_int>(
+        handle, nb, nblocks, A_array, lda, B_array, ldb, C_array, ldc, batchCount));
 };
-
-
-
 
 rocblas_status rocsolver_sgbtrfBatched(rocblas_handle handle,
-                                      rocblas_int nb,
-                                      rocblas_int nblocks,
-                                      float* A_array[],
-                                      rocblas_int lda,
-                                      float* B_array[],
-                                      rocblas_int ldb,
-                                      float* C_array[],
-                                      rocblas_int ldc,
-                                      rocblas_int batchCount)
+                                       rocblas_int nb,
+                                       rocblas_int nblocks,
+                                       float* A_array[],
+                                       rocblas_int lda,
+                                       float* B_array[],
+                                       rocblas_int ldb,
+                                       float* C_array[],
+                                       rocblas_int ldc,
+                                       rocblas_int batchCount)
 {
-
- return( rocsolver_gbtrfBatched_impl<float,rocblas_int>(
-                            handle, nb, nblocks,
-                            A_array, lda,
-                            B_array, ldb,
-                            C_array, ldc,
-                            batchCount ) );
+    return (rocsolver_gbtrfBatched_impl<float, rocblas_int>(handle, nb, nblocks, A_array, lda,
+                                                            B_array, ldb, C_array, ldc, batchCount));
 };
-
-
 
 rocblas_status rocsolver_zgbtrfBatched(rocblas_handle handle,
-                                      rocblas_int nb,
-                                      rocblas_int nblocks,
-                                      rocblas_double_complex* A_array[],
-                                      rocblas_int lda,
-                                      rocblas_double_complex* B_array[],
-                                      rocblas_int ldb,
-                                      rocblas_double_complex* C_array[],
-                                      rocblas_int ldc,
-                                      rocblas_int batchCount)
+                                       rocblas_int nb,
+                                       rocblas_int nblocks,
+                                       rocblas_double_complex* A_array[],
+                                       rocblas_int lda,
+                                       rocblas_double_complex* B_array[],
+                                       rocblas_int ldb,
+                                       rocblas_double_complex* C_array[],
+                                       rocblas_int ldc,
+                                       rocblas_int batchCount)
 {
-
- return( rocsolver_gbtrfBatched_impl<rocblas_double_complex,rocblas_int>(
-                            handle, nb, nblocks,
-                            A_array, lda,
-                            B_array, ldb,
-                            C_array, ldc,
-                            batchCount ) );
+    return (rocsolver_gbtrfBatched_impl<rocblas_double_complex, rocblas_int>(
+        handle, nb, nblocks, A_array, lda, B_array, ldb, C_array, ldc, batchCount));
 };
-
-
 
 rocblas_status rocsolver_cgbtrfBatched(rocblas_handle handle,
-                                      rocblas_int nb,
-                                      rocblas_int nblocks,
-                                      rocblas_float_complex* A_array[],
-                                      rocblas_int lda,
-                                      rocblas_float_complex* B_array[],
-                                      rocblas_int ldb,
-                                      rocblas_float_complex* C_array[],
-                                      rocblas_int ldc,
-                                      rocblas_int batchCount)
+                                       rocblas_int nb,
+                                       rocblas_int nblocks,
+                                       rocblas_float_complex* A_array[],
+                                       rocblas_int lda,
+                                       rocblas_float_complex* B_array[],
+                                       rocblas_int ldb,
+                                       rocblas_float_complex* C_array[],
+                                       rocblas_int ldc,
+                                       rocblas_int batchCount)
 {
-
- return( rocsolver_gbtrfBatched_impl<rocblas_float_complex,rocblas_int>(
-                            handle, nb, nblocks,
-                            A_array, lda,
-                            B_array, ldb,
-                            C_array, ldc,
-                            batchCount ) );
+    return (rocsolver_gbtrfBatched_impl<rocblas_float_complex, rocblas_int>(
+        handle, nb, nblocks, A_array, lda, B_array, ldb, C_array, ldc, batchCount));
 };
-
 }

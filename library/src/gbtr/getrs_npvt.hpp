@@ -10,13 +10,8 @@
 #include "gbtr_common.h"
 
 template <typename T, typename I>
-DEVICE_FUNCTION void getrs_npvt_device(I const n,
-                                       I const nrhs,
-                                       T const* const A_,
-                                       I const lda,
-                                       T* B_,
-                                       I const ldb,
-                                       I* pinfo)
+DEVICE_FUNCTION void
+    getrs_npvt_device(I const n, I const nrhs, T const* const A_, I const lda, T* B_, I const ldb, I* pinfo)
 {
 #define A(ia, ja) A_[indx2f(ia, ja, lda)]
 #define B(ib, jb) B_[indx2f(ib, jb, ldb)]

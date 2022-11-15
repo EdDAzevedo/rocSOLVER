@@ -69,8 +69,8 @@ GLOBAL_FUNCTION void gbtrs_npvt_batched_kernel(I nb,
         for(I i = i_start; i < batchCount; i += i_inc)
         {
             I linfo = 0;
-            gbtrs_npvt_device<T,I>(nb, nblocks, nrhs, A_array[i], lda, B_array[i], ldb, C_array[i],
-                                 ldc, brhs_, ldbrhs, &linfo);
+            gbtrs_npvt_device<T, I>(nb, nblocks, nrhs, A_array[i], lda, B_array[i], ldb, C_array[i],
+                                    ldc, brhs_, ldbrhs, &linfo);
             info = max(info, linfo);
         };
 

@@ -118,7 +118,7 @@ rocblas_status gbtrs_npvt_strided_batched_template(hipStream_t stream,
     HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
-    auto const  grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
+    auto const grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
     hipLaunchKernelGGL((gbtrs_npvt_strided_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM),
                        0, stream,
 

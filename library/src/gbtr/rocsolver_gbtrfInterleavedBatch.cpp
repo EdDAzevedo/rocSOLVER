@@ -27,81 +27,62 @@
 extern "C" {
 
 rocblas_status rocsolver_dgbtrfInterleavedBatch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               double* A_,
-                                               rocblas_int lda,
-                                               double* B_,
-                                               rocblas_int ldb,
-                                               double* C_,
-                                               rocblas_int ldc,
-                                               rocblas_int batchCount)
+                                                rocblas_int nb,
+                                                rocblas_int nblocks,
+                                                double* A_,
+                                                rocblas_int lda,
+                                                double* B_,
+                                                rocblas_int ldb,
+                                                double* C_,
+                                                rocblas_int ldc,
+                                                rocblas_int batchCount)
 {
-    return (rocsolver_gbtrfInterleavedBatch_template<double,rocblas_int>(
-                             handle, nb, nblocks, 
-                             A_, lda, B_, ldb, C_, ldc, 
-                             batchCount)
-          );
+    return (rocsolver_gbtrfInterleavedBatch_template<double, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
 };
-
-
 
 rocblas_status rocsolver_sgbtrfInterleavedBatch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               float* A_,
-                                               rocblas_int lda,
-                                               float* B_,
-                                               rocblas_int ldb,
-                                               float* C_,
-                                               rocblas_int ldc,
-                                               rocblas_int batchCount)
+                                                rocblas_int nb,
+                                                rocblas_int nblocks,
+                                                float* A_,
+                                                rocblas_int lda,
+                                                float* B_,
+                                                rocblas_int ldb,
+                                                float* C_,
+                                                rocblas_int ldc,
+                                                rocblas_int batchCount)
 {
-    return (rocsolver_gbtrfInterleavedBatch_template<float,rocblas_int>(
-                             handle, nb, nblocks, 
-                             A_, lda, B_, ldb, C_, ldc, 
-                             batchCount)
-          );
+    return (rocsolver_gbtrfInterleavedBatch_template<float, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
 };
-
-
 
 rocblas_status rocsolver_zgbtrfInterleavedBatch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               rocblas_double_complex* A_,
-                                               rocblas_int lda,
-                                               rocblas_double_complex* B_,
-                                               rocblas_int ldb,
-                                               rocblas_double_complex* C_,
-                                               rocblas_int ldc,
-                                               rocblas_int batchCount)
+                                                rocblas_int nb,
+                                                rocblas_int nblocks,
+                                                rocblas_double_complex* A_,
+                                                rocblas_int lda,
+                                                rocblas_double_complex* B_,
+                                                rocblas_int ldb,
+                                                rocblas_double_complex* C_,
+                                                rocblas_int ldc,
+                                                rocblas_int batchCount)
 {
-    return (rocsolver_gbtrfInterleavedBatch_template<rocblas_double_complex,rocblas_int>(
-                             handle, nb, nblocks, 
-                             A_, lda, B_, ldb, C_, ldc, 
-                             batchCount)
-          );
+    return (rocsolver_gbtrfInterleavedBatch_template<rocblas_double_complex, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
 };
-
-
 
 rocblas_status rocsolver_cgbtrfInterleavedBatch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               rocblas_float_complex* A_,
-                                               rocblas_int lda,
-                                               rocblas_float_complex* B_,
-                                               rocblas_int ldb,
-                                               rocblas_float_complex* C_,
-                                               rocblas_int ldc,
-                                               rocblas_int batchCount)
+                                                rocblas_int nb,
+                                                rocblas_int nblocks,
+                                                rocblas_float_complex* A_,
+                                                rocblas_int lda,
+                                                rocblas_float_complex* B_,
+                                                rocblas_int ldb,
+                                                rocblas_float_complex* C_,
+                                                rocblas_int ldc,
+                                                rocblas_int batchCount)
 {
-    return (rocsolver_gbtrfInterleavedBatch_template<rocblas_float_complex,rocblas_int>(
-                             handle, nb, nblocks, 
-                             A_, lda, B_, ldb, C_, ldc, 
-                             batchCount)
-          );
+    return (rocsolver_gbtrfInterleavedBatch_template<rocblas_float_complex, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
 };
-
 }
