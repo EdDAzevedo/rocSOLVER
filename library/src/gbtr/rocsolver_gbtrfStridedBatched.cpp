@@ -65,7 +65,7 @@ rocblas_status rocsolverSgbtrfStridedBatched(rocblas_handle handle,
                                              int batchCount)
 {
     hipStream_t stream;
-    rocblas_get_stream( handle, &stream );
+    rocblas_get_stream(handle, &stream);
 
     int host_info = 0;
     gbtrf_npvt_strided_batched_template<float>(stream, nb, nblocks, batchCount, A_, lda, strideA,
@@ -89,7 +89,7 @@ rocblas_status rocsolverCgbtrfStridedBatched(rocblas_handle handle,
                                              int batchCount)
 {
     hipStream_t stream;
-    rocblas_get_stream( handle, &stream );
+    rocblas_get_stream(handle, &stream);
 
     int host_info = 0;
     gbtrf_npvt_strided_batched_template<rocblas_float_complex>(stream, nb, nblocks, batchCount, A_,
@@ -114,7 +114,7 @@ rocblas_status rocsolverZgbtrfStridedBatched(rocblas_handle handle,
                                              int batchCount)
 {
     hipStream_t stream;
-    rocblas_get_stream( handle, &stream );
+    rocblas_get_stream(handle, &stream);
 
     int host_info = 0;
     gbtrf_npvt_strided_batched_template<rocblas_double_complex>(stream, nb, nblocks, batchCount, A_,
