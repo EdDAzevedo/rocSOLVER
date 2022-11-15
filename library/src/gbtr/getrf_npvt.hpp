@@ -9,12 +9,12 @@
 
 #include "gbtr_common.h"
 
-template <typename T>
-DEVICE_FUNCTION void getrf_npvt_device(rocblas_int const m,
-                                       rocblas_int const n,
+template <typename T, typename I>
+DEVICE_FUNCTION void getrf_npvt_device(I const m,
+                                       I const n,
                                        T* A_,
-                                       rocblas_int const lda,
-                                       rocblas_int* pinfo)
+                                       I const lda,
+                                       I* pinfo)
 {
 #define A(ia, ja) A_[indx2f(ia, ja, lda)]
     /*
@@ -24,8 +24,8 @@ DEVICE_FUNCTION void getrf_npvt_device(rocblas_int const m,
 !     ----------------------------------------
 */
 
-    rocblas_int const min_mn = (m < n) ? m : n;
-    rocblas_int info = 0;
+    I const min_mn = (m < n) ? m : n;
+    I info = 0;
 
     /*
 ! 
@@ -48,9 +48,9 @@ DEVICE_FUNCTION void getrf_npvt_device(rocblas_int const m,
     T const zero = 0;
     T const one = 1;
 
-    for(rocblas_int j = 1; j <= min_mn; j++)
+    for(I j = 1; j <= min_mn; j++)
     {
-        rocblas_int const jp1 = j + 1;
+        I const jp1 = j + 1;
         bool const is_diag_zero = (A(j, j) == zero);
 
         T const inv_Ujj = (is_diag_zero) ? one : one / A(j, j);
@@ -61,14 +61,14 @@ DEVICE_FUNCTION void getrf_npvt_device(rocblas_int const m,
 !        A(jp1:m,j) = A(jp1:m,j) * inv_Ujj
 !        ---------------------------------
 */
-        for(rocblas_int ia = jp1; ia <= m; ia++)
+        for(I ia = jp1; ia <= m; ia++)
         {
             A(ia, j) *= inv_Ujj;
         };
 
-        for(rocblas_int ja = jp1; ja <= n; ja++)
+        for(I ja = jp1; ja <= n; ja++)
         {
-            for(rocblas_int ia = jp1; ia <= m; ia++)
+            for(I ia = jp1; ia <= m; ia++)
             {
                 A(ia, ja) = A(ia, ja) - A(ia, j) * A(j, ja);
             };
