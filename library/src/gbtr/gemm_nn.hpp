@@ -7,7 +7,7 @@
 #ifndef GEMM_NN_HPP
 #define GEMM_NN_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 #include "gemm_nn_fixed.hpp"
 
 template <typename T, typename I>

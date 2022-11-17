@@ -7,7 +7,7 @@
 #ifndef GEMM_NN_FIXED_HPP
 #define GEMM_NN_FIXED_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 
 template <typename T, int const M, int const N>
 DEVICE_FUNCTION void gemm_nn_fixed_device(rocblas_int const k,

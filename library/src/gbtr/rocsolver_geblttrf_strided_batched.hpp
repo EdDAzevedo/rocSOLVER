@@ -26,7 +26,7 @@
 #ifndef ROCSOLVER_GTRF_STRIDED_BATCHED
 #define ROCSOLVER_GTRF_STRIDED_BATCHED
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 #include "gbtrf_npvt.hpp"
 
 template <typename T, typename I, typename Istride>

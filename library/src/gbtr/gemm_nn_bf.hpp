@@ -7,7 +7,7 @@
 #ifndef GEMM_NN_BF_HPP
 #define GEMM_NN_BF_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 
 template <typename T>
 DEVICE_FUNCTION void gemm_nn_bf_device(rocblas_int const batchCount,

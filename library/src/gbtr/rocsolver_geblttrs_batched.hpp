@@ -26,7 +26,7 @@
 #ifndef ROCSOLVER_GBTRS_BATCHED
 #define ROCSOLVER_GBTRS_BATCHED
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 #include "gbtrs_npvt.hpp"
 
 template <typename T, typename I>

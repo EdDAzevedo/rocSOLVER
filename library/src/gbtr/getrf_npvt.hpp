@@ -7,7 +7,7 @@
 #ifndef GETRF_NPVT_HPP
 #define GETRF_NPVT_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 
 template <typename T, typename I>
 DEVICE_FUNCTION void getrf_npvt_device(I const m, I const n, T* A_, I const lda, I* pinfo)

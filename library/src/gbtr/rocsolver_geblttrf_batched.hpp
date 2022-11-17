@@ -23,14 +23,14 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GTRF_BATCHED
-#define ROCSOLVER_GTRF_BATCHED
+#ifndef ROCSOLVER_GEBLTTRF_BATCHED
+#define ROCSOLVER_GEBLTTRF_BATCHED
 
-#include "gbtr_common.h"
-#include "gbtrf_npvt.hpp"
+#include "geblt_common.h"
+#include "geblttrf_npvt.hpp"
 
 template <typename T, typename I>
-GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(I nb,
+GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
                                                I nblocks,
                                                I batchCount,
 
@@ -64,7 +64,7 @@ GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(I nb,
         for(I i = i_start; i < batchCount; i += i_inc)
         {
             I linfo = 0;
-            gbtrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i], ldc,
+            geblttrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i], ldc,
                                     &linfo);
             info = max(info, linfo);
         };
@@ -80,7 +80,7 @@ GLOBAL_FUNCTION void gbtrf_npvt_batched_kernel(I nb,
 }
 
 template <typename T, typename I>
-rocblas_status gbtrf_npvt_batched_template(hipStream_t stream,
+rocblas_status geblttrf_npvt_batched_template(hipStream_t stream,
                                            I nb,
                                            I nblocks,
                                            I batchCount,
@@ -99,7 +99,7 @@ rocblas_status gbtrf_npvt_batched_template(hipStream_t stream,
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
     auto grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
-    hipLaunchKernelGGL((gbtrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM), 0,
+    hipLaunchKernelGGL((geblttrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM), 0,
                        stream,
 
                        nb, nblocks, batchCount,

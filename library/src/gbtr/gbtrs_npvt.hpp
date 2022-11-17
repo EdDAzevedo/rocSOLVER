@@ -7,7 +7,7 @@
 #ifndef GBTRS_NPVT_HPP
 #define GBTRS_NPVT_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 
 #include "gemm_nn.hpp"
 #include "getrs_npvt.hpp"

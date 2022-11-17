@@ -6,7 +6,7 @@
 #ifndef GETRS_NPVT_BF_HPP
 #define GETRS_NPVT_BF_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 
 template <typename T>
 DEVICE_FUNCTION void getrs_npvt_bf(rocblas_int const batchCount,

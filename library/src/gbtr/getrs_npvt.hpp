@@ -7,7 +7,7 @@
 #ifndef GETRS_NPVT_HPP
 #define GETRS_NPVT_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 
 template <typename T, typename I>
 DEVICE_FUNCTION void

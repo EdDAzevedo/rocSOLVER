@@ -7,7 +7,7 @@
 #ifndef GBTRF_NPVT_BF_HPP
 #define GBTRF_NPVT_BF_HPP
 
-#include "gbtr_common.h"
+#include "geblt_common.h"
 
 /*
 ! ------------------------------------------------------
