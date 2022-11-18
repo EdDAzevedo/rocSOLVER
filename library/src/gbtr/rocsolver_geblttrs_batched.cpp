@@ -22,10 +22,10 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "rocsolver_gbtrsBatched.hpp"
+#include "rocsolver_geblttrsBatched.hpp"
 
 template <typename T, typename I>
-rocblas_status rocsolver_gbtrsBatched_impl(rocblas_handle handle,
+rocblas_status rocsolver_geblttrsBatched_impl(rocblas_handle handle,
                                            I nb,
                                            I nblocks,
                                            I nrhs,
@@ -43,7 +43,7 @@ rocblas_status rocsolver_gbtrsBatched_impl(rocblas_handle handle,
     rocblas_get_stream(handle, &stream);
 
     I host_info = 0;
-    gbtrs_npvt_batched_template<T, I>(stream, nb, nblocks, nrhs, batchCount, A_array, lda, B_array,
+    geblttrs_npvt_batched_template<T, I>(stream, nb, nblocks, nrhs, batchCount, A_array, lda, B_array,
                                       ldb, C_array, ldc, brhs_, ldbrhs, &host_info);
 
     return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
@@ -51,7 +51,7 @@ rocblas_status rocsolver_gbtrsBatched_impl(rocblas_handle handle,
 
 extern "C" {
 
-rocblas_status rocsolver_dgbtrsBatched(rocblas_handle handle,
+rocblas_status rocsolver_dgeblttrsBatched(rocblas_handle handle,
                                        rocblas_int nb,
                                        rocblas_int nblocks,
                                        rocblas_int nrhs,
@@ -65,7 +65,7 @@ rocblas_status rocsolver_dgbtrsBatched(rocblas_handle handle,
                                        rocblas_int ldbrhs,
                                        rocblas_int batchCount)
 {
-    return (rocsolver_gbtrsBatched_impl<double, rocblas_int>(handle, nb, nblocks, nrhs, A_array,
+    return (rocsolver_geblttrsBatched_impl<double, rocblas_int>(handle, nb, nblocks, nrhs, A_array,
                                                              lda, B_array, ldb, C_array, ldc, brhs_,
                                                              ldbrhs, batchCount));
 };

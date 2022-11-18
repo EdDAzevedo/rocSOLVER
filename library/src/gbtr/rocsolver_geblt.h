@@ -23,12 +23,12 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GBTR_H
-#define ROCSOLVER_GBTR_H
+#ifndef ROCSOLVER_GEBLT_H
+#define ROCSOLVER_GEBLT_H
 
 extern "C" {
 
-rocblas_status rocsolverDgbtrfInterleavedBatch(rocblas_handle handle,
+rocblas_status rocsolverDgeblttrfInterleavedBatch(rocblas_handle handle,
                                                int nb,
                                                int nblocks,
                                                const double* A_,
@@ -39,7 +39,7 @@ rocblas_status rocsolverDgbtrfInterleavedBatch(rocblas_handle handle,
                                                int ldc,
                                                int batchCount);
 
-rocblas_status rocsolverSgbtrfInterleavedBatch(rocblas_handle handle,
+rocblas_status rocsolverSgeblttrfInterleavedBatch(rocblas_handle handle,
                                                int nb,
                                                int nblocks,
                                                const float* A_,
@@ -50,7 +50,7 @@ rocblas_status rocsolverSgbtrfInterleavedBatch(rocblas_handle handle,
                                                int ldc,
                                                int batchCount);
 
-rocblas_status rocsolverDgbtrsInterleavedBatch(rocsolverHandlt_t handle,
+rocblas_status rocsolverDgeblttrsInterleavedBatch(rocsolverHandlt_t handle,
                                                int nb,
                                                int nblocks,
                                                const double* A_,
@@ -63,7 +63,7 @@ rocblas_status rocsolverDgbtrsInterleavedBatch(rocsolverHandlt_t handle,
                                                int ldbrhs,
                                                int batchCount);
 
-rocblas_status rocsolverSgbtrsInterleavedBatch(rocsolverHandlt_t handle,
+rocblas_status rocsolverSgeblttrsInterleavedBatch(rocsolverHandlt_t handle,
                                                int nb,
                                                int nblocks,
                                                const float* A_,
@@ -76,7 +76,7 @@ rocblas_status rocsolverSgbtrsInterleavedBatch(rocsolverHandlt_t handle,
                                                int ldbrhs,
                                                int batchCount);
 
-rocblas_status rocsolverDgbtrfStridedBatch(rocblas_handle handle,
+rocblas_status rocsolverDgeblttrfStridedBatch(rocblas_handle handle,
                                            int nb,
                                            int nblocks,
                                            double* A_,

@@ -14,7 +14,7 @@
 #include "getrs_npvt.hpp"
 
 template <typename T, typename I>
-DEVICE_FUNCTION void gbtrf_npvt_device(I const nb,
+DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
                                        I const nblocks,
                                        T* A_,
                                        I const lda,

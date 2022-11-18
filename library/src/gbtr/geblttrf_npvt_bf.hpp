@@ -24,7 +24,7 @@
 #include "getrs_npvt_bf.hpp"
 
 template <typename T, typename I>
-GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(I const nb,
+GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
                                           I const nblocks,
                                           I const batchCount,
                                           T* A_,
@@ -203,7 +203,7 @@ GLOBAL_FUNCTION void gbtrf_npvt_bf_kernel(I const nb,
 #undef C
 
 template <typename T, typename I>
-void gbtrf_npvt_bf_template(hipStream_t stream,
+void geblttrf_npvt_bf_template(hipStream_t stream,
 
                             I const nb,
                             I const nblocks,
@@ -217,14 +217,14 @@ void gbtrf_npvt_bf_template(hipStream_t stream,
                             I* pinfo)
 {
 #ifdef USE_GPU
-    auto const block_dim = GBTR_BLOCK_DIM;
+    auto const block_dim = GEBLT_BLOCK_DIM;
     auto const grid_dim = (batchCount + (block_dim - 1)) / block_dim;
-    hipLaunchKernelGGL((gbtrf_npvt_bf_kernel<T, I>), dim3(grid_dim), dim3(block_dim), 0, stream,
+    hipLaunchKernelGGL((geblttrf_npvt_bf_kernel<T, I>), dim3(grid_dim), dim3(block_dim), 0, stream,
 
                        nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
 #else
 
-    gbtrf_npvt_bf_kernel<T, I>(nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
+    geblttrf_npvt_bf_kernel<T, I>(nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
 
 #endif
 }

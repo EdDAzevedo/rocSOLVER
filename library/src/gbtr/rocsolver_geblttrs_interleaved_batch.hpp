@@ -27,10 +27,10 @@
 #define ROCSOLVER_GBTRS_INTERLEAVED_BATCH
 
 #include "geblt_common.h"
-#include "gbtrs_npvt_bf.hpp"
+#include "geblttrs_npvt_bf.hpp"
 
 template <typename T, typename I>
-rocblas_status rocsolver_gbtrsInterleavedBatch_template(rocblas_handle handle,
+rocblas_status rocsolver_geblttrs_interleaved_batch_template(rocblas_handle handle,
                                                         I nb,
                                                         I nblocks,
                                                         I nrhs,
@@ -49,7 +49,7 @@ rocblas_status rocsolver_gbtrsInterleavedBatch_template(rocblas_handle handle,
 
     I info = 0;
 
-    gbtrs_npvt_bf_template<T>(stream, nb, nblocks, batchCount, nrhs, A_, lda, B_, ldb, C_, ldc,
+    geblttrs_npvt_bf_template<T>(stream, nb, nblocks, batchCount, nrhs, A_, lda, B_, ldb, C_, ldc,
                               brhs_, ldbrhs, &info);
 
     return ((info == 0) ? rocblas_status_success : rocblas_status_internal_error);

@@ -27,10 +27,10 @@
 #define ROCSOLVER_GTRF_STRIDED_BATCHED
 
 #include "geblt_common.h"
-#include "gbtrs_npvt.hpp"
+#include "geblttrs_npvt.hpp"
 
 template <typename T, typename I, typename Istride>
-GLOBAL_FUNCTION void gbtrs_npvt_strided_batched_kernel(I nb,
+GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
                                                        I nblocks,
                                                        I nrhs,
                                                        I batchCount,
@@ -76,7 +76,7 @@ GLOBAL_FUNCTION void gbtrs_npvt_strided_batched_kernel(I nb,
             int64_t indxC = ((int64_t)strideC) * (i - 1);
 
             I linfo = 0;
-            gbtrs_npvt_device<T>(nb, nblocks, nrhs, &(A_[indxA]), lda, &(B_[indxB]), ldb,
+            geblttrs_npvt_device<T>(nb, nblocks, nrhs, &(A_[indxA]), lda, &(B_[indxB]), ldb,
                                  &(C_[indxC]), ldc, brhs_, ldbrhs, &linfo);
             info = max(info, linfo);
         };
@@ -92,7 +92,7 @@ GLOBAL_FUNCTION void gbtrs_npvt_strided_batched_kernel(I nb,
 }
 
 template <typename T, typename I, typename Istride>
-rocblas_status gbtrs_npvt_strided_batched_template(hipStream_t stream,
+rocblas_status geblttrs_npvt_strided_batched_template(hipStream_t stream,
                                                    I nb,
                                                    I nblocks,
                                                    I nrhs,
@@ -118,8 +118,8 @@ rocblas_status gbtrs_npvt_strided_batched_template(hipStream_t stream,
     HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
-    auto const grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
-    hipLaunchKernelGGL((gbtrs_npvt_strided_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM),
+    auto const grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
+    hipLaunchKernelGGL((geblttrs_npvt_strided_batched_kernel<T>), dim3(grid_dim), dim3(GEBLT_BLOCK_DIM),
                        0, stream,
 
                        nb, nblocks, nrhs, batchCount,

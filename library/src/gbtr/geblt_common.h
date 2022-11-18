@@ -1,6 +1,6 @@
 
-#ifndef GBTR_COMMON_H
-#define GBTR_COMMON_H
+#ifndef GEBLT_COMMON_H
+#define GEBLT_COMMON_H
 
 #include <cmath>
 #include <complex>
@@ -16,11 +16,11 @@
 // #include "rocsolver_status.h"
 // typedef rocblas_handle rocsolverHandle_t;
 
-#ifndef GBTR_BLOCK_DIM
-#define GBTR_BLOCK_DIM 256
+#ifndef GEBLT_BLOCK_DIM
+#define GEBLT_BLOCK_DIM 256
 #endif
 
-#define GLOBAL_FUNCTION __global__ __launch_bounds__(GBTR_BLOCK_DIM)
+#define GLOBAL_FUNCTION __global__ __launch_bounds__(GEBLT_BLOCK_DIM)
 #define SYNCTHREADS __syncthreads()
 #define SHARED_MEMORY __shared__
 #define DEVICE_FUNCTION __device__

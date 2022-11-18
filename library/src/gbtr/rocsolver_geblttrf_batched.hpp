@@ -98,8 +98,8 @@ rocblas_status geblttrf_npvt_batched_template(hipStream_t stream,
     HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
-    auto grid_dim = (batchCount + (GBTR_BLOCK_DIM - 1)) / GBTR_BLOCK_DIM;
-    hipLaunchKernelGGL((geblttrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GBTR_BLOCK_DIM), 0,
+    auto grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
+    hipLaunchKernelGGL((geblttrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GEBLT_BLOCK_DIM), 0,
                        stream,
 
                        nb, nblocks, batchCount,
