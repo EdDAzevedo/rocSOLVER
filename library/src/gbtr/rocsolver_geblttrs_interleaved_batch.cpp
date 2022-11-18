@@ -27,72 +27,72 @@
 extern "C" {
 
 rocblas_status rocsolverDgeblttrs_interleaved_batch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               rocblas_int nrhs,
-                                               const double* A_,
-                                               rocblas_int lda,
-                                               const double* B_,
-                                               rocblas_int ldb,
-                                               const double* C_,
-                                               rocblas_int ldc,
-                                               double* brhs_,
-                                               rocblas_int ldbrhs,
-                                               rocblas_int batchCount)
+                                                    rocblas_int nb,
+                                                    rocblas_int nblocks,
+                                                    rocblas_int nrhs,
+                                                    const double* A_,
+                                                    rocblas_int lda,
+                                                    const double* B_,
+                                                    rocblas_int ldb,
+                                                    const double* C_,
+                                                    rocblas_int ldc,
+                                                    double* brhs_,
+                                                    rocblas_int ldbrhs,
+                                                    rocblas_int batchCount)
 {
     return (rocsolver_geblttrs_interleaved_batch_template<double, rocblas_int>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, brhs_, ldbrhs, batchCount));
 };
 
 rocblas_status rocsolverSgeblttrs_interleaved_batch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               rocblas_int nrhs,
-                                               const float* A_,
-                                               rocblas_int lda,
-                                               const float* B_,
-                                               rocblas_int ldb,
-                                               const float* C_,
-                                               rocblas_int ldc,
-                                               float* brhs_,
-                                               rocblas_int ldbrhs,
-                                               rocblas_int batchCount)
+                                                    rocblas_int nb,
+                                                    rocblas_int nblocks,
+                                                    rocblas_int nrhs,
+                                                    const float* A_,
+                                                    rocblas_int lda,
+                                                    const float* B_,
+                                                    rocblas_int ldb,
+                                                    const float* C_,
+                                                    rocblas_int ldc,
+                                                    float* brhs_,
+                                                    rocblas_int ldbrhs,
+                                                    rocblas_int batchCount)
 {
     return (rocsolver_geblttrs_interleaved_batch_template<float, rocblas_int>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, brhs_, ldbrhs, batchCount));
 };
 
 rocblas_status rocsolverCgeblttrs_interleaved_batch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               rocblas_int nrhs,
-                                               const rocblas_float_complex* A_,
-                                               rocblas_int lda,
-                                               const rocblas_float_complex* B_,
-                                               rocblas_int ldb,
-                                               const rocblas_float_complex* C_,
-                                               rocblas_int ldc,
-                                               rocblas_float_complex* brhs_,
-                                               rocblas_int ldbrhs,
-                                               rocblas_int batchCount)
+                                                    rocblas_int nb,
+                                                    rocblas_int nblocks,
+                                                    rocblas_int nrhs,
+                                                    const rocblas_float_complex* A_,
+                                                    rocblas_int lda,
+                                                    const rocblas_float_complex* B_,
+                                                    rocblas_int ldb,
+                                                    const rocblas_float_complex* C_,
+                                                    rocblas_int ldc,
+                                                    rocblas_float_complex* brhs_,
+                                                    rocblas_int ldbrhs,
+                                                    rocblas_int batchCount)
 {
     return (rocsolver_geblttrs_interleaved_batch_template<rocblas_float_complex>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, brhs_, ldbrhs, batchCount));
 };
 
 rocblas_status rocsolverZgeblttrs_interleaved_batch(rocblas_handle handle,
-                                               rocblas_int nb,
-                                               rocblas_int nblocks,
-                                               rocblas_int nrhs,
-                                               const rocblas_double_complex* A_,
-                                               rocblas_int lda,
-                                               const rocblas_double_complex* B_,
-                                               rocblas_int ldb,
-                                               const rocblas_double_complex* C_,
-                                               rocblas_int ldc,
-                                               rocblas_double_complex* brhs_,
-                                               rocblas_int ldbrhs,
-                                               rocblas_int batchCount)
+                                                    rocblas_int nb,
+                                                    rocblas_int nblocks,
+                                                    rocblas_int nrhs,
+                                                    const rocblas_double_complex* A_,
+                                                    rocblas_int lda,
+                                                    const rocblas_double_complex* B_,
+                                                    rocblas_int ldb,
+                                                    const rocblas_double_complex* C_,
+                                                    rocblas_int ldc,
+                                                    rocblas_double_complex* brhs_,
+                                                    rocblas_int ldbrhs,
+                                                    rocblas_int batchCount)
 {
     return (rocsolver_geblttrs_interleaved_batch_template<rocblas_double_complex, rocblas_int>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, brhs_, ldbrhs, batchCount));

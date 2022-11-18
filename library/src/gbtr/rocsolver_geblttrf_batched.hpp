@@ -31,16 +31,16 @@
 
 template <typename T, typename I>
 GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
-                                               I nblocks,
-                                               I batchCount,
+                                                  I nblocks,
+                                                  I batchCount,
 
-                                               T* A_array[],
-                                               I lda,
-                                               T* B_array[],
-                                               I ldb,
-                                               T* C_array[],
-                                               I ldc,
-                                               I* pinfo)
+                                                  T* A_array[],
+                                                  I lda,
+                                                  T* B_array[],
+                                                  I ldb,
+                                                  T* C_array[],
+                                                  I ldc,
+                                                  I* pinfo)
 {
     I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
@@ -64,8 +64,8 @@ GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
         for(I i = i_start; i < batchCount; i += i_inc)
         {
             I linfo = 0;
-            geblttrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i], ldc,
-                                    &linfo);
+            geblttrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i],
+                                       ldc, &linfo);
             info = max(info, linfo);
         };
 
@@ -81,17 +81,17 @@ GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
 
 template <typename T, typename I>
 rocblas_status geblttrf_npvt_batched_template(hipStream_t stream,
-                                           I nb,
-                                           I nblocks,
-                                           I batchCount,
+                                              I nb,
+                                              I nblocks,
+                                              I batchCount,
 
-                                           T* A_array[],
-                                           I lda,
-                                           T* B_array[],
-                                           I ldb,
-                                           T* C_array[],
-                                           I ldc,
-                                           I* phost_info)
+                                              T* A_array[],
+                                              I lda,
+                                              T* B_array[],
+                                              I ldb,
+                                              T* C_array[],
+                                              I ldc,
+                                              I* phost_info)
 {
     *phost_info = 0;
     I* pdevice_info;

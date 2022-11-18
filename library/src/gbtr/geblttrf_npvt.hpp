@@ -15,14 +15,14 @@
 
 template <typename T, typename I>
 DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
-                                       I const nblocks,
-                                       T* A_,
-                                       I const lda,
-                                       T* B_,
-                                       I const ldb,
-                                       T* C_,
-                                       I const ldc,
-                                       I* pinfo)
+                                          I const nblocks,
+                                          T* A_,
+                                          I const lda,
+                                          T* B_,
+                                          I const ldb,
+                                          T* C_,
+                                          I const ldc,
+                                          I* pinfo)
 {
     /*
 ! ------------------------------------------------------

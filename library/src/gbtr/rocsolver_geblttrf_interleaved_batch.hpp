@@ -31,21 +31,22 @@
 
 template <typename T, typename I>
 rocblas_status rocsolver_geblttrf_interleaved_batch_template(rocblas_handle handle,
-                                                        I nb,
-                                                        I nblocks,
-                                                        T* A_,
-                                                        I lda,
-                                                        T* B_,
-                                                        I ldb,
-                                                        T* C_,
-                                                        I ldc,
-                                                        I batchCount)
+                                                             I nb,
+                                                             I nblocks,
+                                                             T* A_,
+                                                             I lda,
+                                                             T* B_,
+                                                             I ldb,
+                                                             T* C_,
+                                                             I ldc,
+                                                             I batchCount)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
     I info = 0;
-    geblttrf_npvt_bf_template<T, I>(stream, nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, &info);
+    geblttrf_npvt_bf_template<T, I>(stream, nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc,
+                                    &info);
 
     return ((info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 }

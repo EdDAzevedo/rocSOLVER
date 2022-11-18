@@ -25,15 +25,15 @@
 
 template <typename T, typename I>
 GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
-                                          I const nblocks,
-                                          I const batchCount,
-                                          T* A_,
-                                          I const lda,
-                                          T* B_,
-                                          I const ldb,
-                                          T* C_,
-                                          I const ldc,
-                                          I* pinfo)
+                                             I const nblocks,
+                                             I const batchCount,
+                                             T* A_,
+                                             I const lda,
+                                             T* B_,
+                                             I const ldb,
+                                             T* C_,
+                                             I const ldc,
+                                             I* pinfo)
 {
 #define A(iv, ia, ja, k) A_[indx4f(iv, ia, ja, k, batchCount, lda, nb)]
 #define B(iv, ib, jb, k) B_[indx4f(iv, ib, jb, k, batchCount, ldb, nb)]
@@ -205,16 +205,16 @@ GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
 template <typename T, typename I>
 void geblttrf_npvt_bf_template(hipStream_t stream,
 
-                            I const nb,
-                            I const nblocks,
-                            I const batchCount,
-                            T* A_,
-                            I const lda,
-                            T* B_,
-                            I const ldb,
-                            T* C_,
-                            I const ldc,
-                            I* pinfo)
+                               I const nb,
+                               I const nblocks,
+                               I const batchCount,
+                               T* A_,
+                               I const lda,
+                               T* B_,
+                               I const ldb,
+                               T* C_,
+                               I const ldc,
+                               I* pinfo)
 {
 #ifdef USE_GPU
     auto const block_dim = GEBLT_BLOCK_DIM;

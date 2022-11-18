@@ -31,18 +31,18 @@
 
 template <typename T, typename I>
 rocblas_status rocsolver_geblttrs_interleaved_batch_template(rocblas_handle handle,
-                                                        I nb,
-                                                        I nblocks,
-                                                        I nrhs,
-                                                        const T* A_,
-                                                        I lda,
-                                                        const T* B_,
-                                                        I ldb,
-                                                        const T* C_,
-                                                        I ldc,
-                                                        T* brhs_,
-                                                        I ldbrhs,
-                                                        I batchCount)
+                                                             I nb,
+                                                             I nblocks,
+                                                             I nrhs,
+                                                             const T* A_,
+                                                             I lda,
+                                                             const T* B_,
+                                                             I ldb,
+                                                             const T* C_,
+                                                             I ldc,
+                                                             T* brhs_,
+                                                             I ldbrhs,
+                                                             I batchCount)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
@@ -50,7 +50,7 @@ rocblas_status rocsolver_geblttrs_interleaved_batch_template(rocblas_handle hand
     I info = 0;
 
     geblttrs_npvt_bf_template<T>(stream, nb, nblocks, batchCount, nrhs, A_, lda, B_, ldb, C_, ldc,
-                              brhs_, ldbrhs, &info);
+                                 brhs_, ldbrhs, &info);
 
     return ((info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 }

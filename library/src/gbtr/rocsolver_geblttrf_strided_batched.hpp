@@ -31,19 +31,19 @@
 
 template <typename T, typename I, typename Istride>
 GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
-                                                       I nblocks,
-                                                       I batchCount,
+                                                          I nblocks,
+                                                          I batchCount,
 
-                                                       T* A_,
-                                                       I lda,
-                                                       Istride strideA,
-                                                       T* B_,
-                                                       I ldb,
-                                                       Istride strideB,
-                                                       T* C_,
-                                                       I ldc,
-                                                       Istride strideC,
-                                                       I* pinfo)
+                                                          T* A_,
+                                                          I lda,
+                                                          Istride strideA,
+                                                          T* B_,
+                                                          I ldb,
+                                                          Istride strideB,
+                                                          T* C_,
+                                                          I ldc,
+                                                          Istride strideC,
+                                                          I* pinfo)
 {
     I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
@@ -72,7 +72,7 @@ GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
 
             I linfo = 0;
             geblttrf_npvt_device<T>(nb, nblocks, &(A_[indxA]), lda, &(B_[indxB]), ldb, &(C_[indxC]),
-                                 ldc, &linfo);
+                                    ldc, &linfo);
             info = max(info, linfo);
         };
 
@@ -88,20 +88,20 @@ GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
 
 template <typename T, typename I, typename Istride>
 rocblas_status geblttrf_npvt_strided_batched_template(hipStream_t stream,
-                                                   I nb,
-                                                   I nblocks,
-                                                   I batchCount,
+                                                      I nb,
+                                                      I nblocks,
+                                                      I batchCount,
 
-                                                   T* A_,
-                                                   I lda,
-                                                   Istride strideA,
-                                                   T* B_,
-                                                   I ldb,
-                                                   Istride strideB,
-                                                   T* C_,
-                                                   I ldc,
-                                                   Istride strideC,
-                                                   I* phost_info)
+                                                      T* A_,
+                                                      I lda,
+                                                      Istride strideA,
+                                                      T* B_,
+                                                      I ldb,
+                                                      Istride strideB,
+                                                      T* C_,
+                                                      I ldc,
+                                                      Istride strideC,
+                                                      I* phost_info)
 {
     *phost_info = 0;
     I* pdevice_info;

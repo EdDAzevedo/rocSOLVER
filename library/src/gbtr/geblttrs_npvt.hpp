@@ -14,17 +14,17 @@
 
 template <typename T, typename I>
 DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
-                                       I const nblocks,
-                                       I const nrhs,
-                                       T const* const A_,
-                                       I const lda,
-                                       T const* const D_,
-                                       I const ldd,
-                                       T const* const U_,
-                                       I const ldu,
-                                       T* brhs_,
-                                       I const ldbrhs,
-                                       I* pinfo)
+                                          I const nblocks,
+                                          I const nrhs,
+                                          T const* const A_,
+                                          I const lda,
+                                          T const* const D_,
+                                          I const ldd,
+                                          T const* const U_,
+                                          I const ldu,
+                                          T* brhs_,
+                                          I const ldbrhs,
+                                          I* pinfo)
 {
     /*
 ! % ------------------------------------------------

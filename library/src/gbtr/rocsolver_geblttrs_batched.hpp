@@ -31,21 +31,21 @@
 
 template <typename T, typename I>
 GLOBAL_FUNCTION void geblttrs_npvt_batched_kernel(I nb,
-                                               I nblocks,
-                                               I nrhs,
-                                               I batchCount,
+                                                  I nblocks,
+                                                  I nrhs,
+                                                  I batchCount,
 
-                                               T* A_array[],
-                                               I lda,
-                                               T* B_array[],
-                                               I ldb,
-                                               T* C_array[],
-                                               I ldc,
+                                                  T* A_array[],
+                                                  I lda,
+                                                  T* B_array[],
+                                                  I ldb,
+                                                  T* C_array[],
+                                                  I ldc,
 
-                                               T* brhs_,
-                                               I ldbrhs,
+                                                  T* brhs_,
+                                                  I ldbrhs,
 
-                                               I* pinfo)
+                                                  I* pinfo)
 {
     I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
@@ -69,8 +69,8 @@ GLOBAL_FUNCTION void geblttrs_npvt_batched_kernel(I nb,
         for(I i = i_start; i < batchCount; i += i_inc)
         {
             I linfo = 0;
-            geblttrs_npvt_device<T, I>(nb, nblocks, nrhs, A_array[i], lda, B_array[i], ldb, C_array[i],
-                                    ldc, brhs_, ldbrhs, &linfo);
+            geblttrs_npvt_device<T, I>(nb, nblocks, nrhs, A_array[i], lda, B_array[i], ldb,
+                                       C_array[i], ldc, brhs_, ldbrhs, &linfo);
             info = max(info, linfo);
         };
 
@@ -86,22 +86,22 @@ GLOBAL_FUNCTION void geblttrs_npvt_batched_kernel(I nb,
 
 template <typename T, typename I>
 rocblas_status geblttrs_npvt_batched_template(hipStream_t stream,
-                                           I nb,
-                                           I nblocks,
-                                           I nrhs,
-                                           I batchCount,
+                                              I nb,
+                                              I nblocks,
+                                              I nrhs,
+                                              I batchCount,
 
-                                           T* A_array[],
-                                           I lda,
-                                           T* B_array[],
-                                           I ldb,
-                                           T* C_array[],
-                                           I ldc,
+                                              T* A_array[],
+                                              I lda,
+                                              T* B_array[],
+                                              I ldb,
+                                              T* C_array[],
+                                              I ldc,
 
-                                           T* brhs_,
-                                           I ldbrhs,
+                                              T* brhs_,
+                                              I ldbrhs,
 
-                                           I* phost_info)
+                                              I* phost_info)
 {
     *phost_info = 0;
     I* pdevice_info;

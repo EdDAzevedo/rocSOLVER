@@ -31,24 +31,24 @@
 
 template <typename T, typename I, typename Istride>
 GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
-                                                       I nblocks,
-                                                       I nrhs,
-                                                       I batchCount,
+                                                          I nblocks,
+                                                          I nrhs,
+                                                          I batchCount,
 
-                                                       T* A_,
-                                                       I lda,
-                                                       Istride strideA,
-                                                       T* B_,
-                                                       I ldb,
-                                                       Istride strideB,
-                                                       T* C_,
-                                                       I ldc,
-                                                       Istride strideC,
+                                                          T* A_,
+                                                          I lda,
+                                                          Istride strideA,
+                                                          T* B_,
+                                                          I ldb,
+                                                          Istride strideB,
+                                                          T* C_,
+                                                          I ldc,
+                                                          Istride strideC,
 
-                                                       T* brhs_,
-                                                       I ldbrhs,
+                                                          T* brhs_,
+                                                          I ldbrhs,
 
-                                                       I* pinfo)
+                                                          I* pinfo)
 {
     I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
@@ -77,7 +77,7 @@ GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
 
             I linfo = 0;
             geblttrs_npvt_device<T>(nb, nblocks, nrhs, &(A_[indxA]), lda, &(B_[indxB]), ldb,
-                                 &(C_[indxC]), ldc, brhs_, ldbrhs, &linfo);
+                                    &(C_[indxC]), ldc, brhs_, ldbrhs, &linfo);
             info = max(info, linfo);
         };
 
@@ -93,25 +93,25 @@ GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
 
 template <typename T, typename I, typename Istride>
 rocblas_status geblttrs_npvt_strided_batched_template(hipStream_t stream,
-                                                   I nb,
-                                                   I nblocks,
-                                                   I nrhs,
-                                                   I batchCount,
+                                                      I nb,
+                                                      I nblocks,
+                                                      I nrhs,
+                                                      I batchCount,
 
-                                                   T* A_,
-                                                   I lda,
-                                                   Istride strideA,
-                                                   T* B_,
-                                                   I ldb,
-                                                   Istride strideB,
-                                                   T* C_,
-                                                   I ldc,
-                                                   Istride strideC,
+                                                      T* A_,
+                                                      I lda,
+                                                      Istride strideA,
+                                                      T* B_,
+                                                      I ldb,
+                                                      Istride strideB,
+                                                      T* C_,
+                                                      I ldc,
+                                                      Istride strideC,
 
-                                                   T* brhs_,
-                                                   I ldbrhs,
+                                                      T* brhs_,
+                                                      I ldbrhs,
 
-                                                   I* phost_info)
+                                                      I* phost_info)
 {
     *phost_info = 0;
     I* pdevice_info;
@@ -119,8 +119,8 @@ rocblas_status geblttrs_npvt_strided_batched_template(hipStream_t stream,
     HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
     auto const grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
-    hipLaunchKernelGGL((geblttrs_npvt_strided_batched_kernel<T>), dim3(grid_dim), dim3(GEBLT_BLOCK_DIM),
-                       0, stream,
+    hipLaunchKernelGGL((geblttrs_npvt_strided_batched_kernel<T>), dim3(grid_dim),
+                       dim3(GEBLT_BLOCK_DIM), 0, stream,
 
                        nb, nblocks, nrhs, batchCount,
 

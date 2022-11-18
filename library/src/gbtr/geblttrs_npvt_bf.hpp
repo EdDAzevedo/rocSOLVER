@@ -31,18 +31,18 @@
 
 template <typename T>
 GLOBAL_FUNCTION void geblttrs_npvt_bf_kernel(rocblas_int const nb,
-                                          rocblas_int const nblocks,
-                                          rocblas_int const batchCount,
-                                          rocblas_int const nrhs,
-                                          T const* const A_,
-                                          rocblas_int const lda,
-                                          T const* const D_,
-                                          rocblas_int const ldd,
-                                          T const* const U_,
-                                          rocblas_int const ldu,
-                                          T* brhs_,
-                                          rocblas_int const ldbrhs,
-                                          rocblas_int* pinfo)
+                                             rocblas_int const nblocks,
+                                             rocblas_int const batchCount,
+                                             rocblas_int const nrhs,
+                                             T const* const A_,
+                                             rocblas_int const lda,
+                                             T const* const D_,
+                                             rocblas_int const ldd,
+                                             T const* const U_,
+                                             rocblas_int const ldu,
+                                             T* brhs_,
+                                             rocblas_int const ldbrhs,
+                                             rocblas_int* pinfo)
 {
 #define A(iv, ia, ja, iblock) A_[indx4f(iv, ia, ja, iblock, batchCount, lda, nb)]
 #define D(iv, id, jd, iblock) D_[indx4f(iv, id, jd, iblock, batchCount, ldd, nb)]
@@ -207,19 +207,19 @@ GLOBAL_FUNCTION void geblttrs_npvt_bf_kernel(rocblas_int const nb,
 template <typename T>
 void geblttrs_npvt_bf_template(hipStream_t stream,
 
-                            rocblas_int const nb,
-                            rocblas_int const nblocks,
-                            rocblas_int const batchCount,
-                            rocblas_int const nrhs,
-                            T const* const A_,
-                            rocblas_int const lda,
-                            T const* const D_,
-                            rocblas_int const ldd,
-                            T const* const U_,
-                            rocblas_int const ldu,
-                            T* brhs_,
-                            rocblas_int const ldbrhs,
-                            rocblas_int* pinfo)
+                               rocblas_int const nb,
+                               rocblas_int const nblocks,
+                               rocblas_int const batchCount,
+                               rocblas_int const nrhs,
+                               T const* const A_,
+                               rocblas_int const lda,
+                               T const* const D_,
+                               rocblas_int const ldd,
+                               T const* const U_,
+                               rocblas_int const ldu,
+                               T* brhs_,
+                               rocblas_int const ldbrhs,
+                               rocblas_int* pinfo)
 {
 #ifdef USE_GPU
     int block_dim = 64;
@@ -230,8 +230,8 @@ void geblttrs_npvt_bf_template(hipStream_t stream,
                        pinfo);
 
 #else
-    geblttrs_npvt_bf_kernel<T>(nb, nblocks, batchCount, nrhs, A_, lda, D_, ldd, U_, ldu, brhs_, ldbrhs,
-                            pinfo);
+    geblttrs_npvt_bf_kernel<T>(nb, nblocks, batchCount, nrhs, A_, lda, D_, ldd, U_, ldu, brhs_,
+                               ldbrhs, pinfo);
 
 #endif
 }
