@@ -39,6 +39,35 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
                                                        Istride strideC,
                                                        I batchCount)
 {
+    /* 
+    ---------------
+    check arguments
+    ---------------
+    */
+    if(handle == nullptr)
+    {
+        return (rocblas_status_invalid_handle);
+    };
+
+    // no work
+    if((nb == 0) || (nblocks == 0) || (batchCount == 0))
+    {
+        return (rocblas_status_success;)
+    };
+
+    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr))
+    {
+        return (rocblas_status_invalid_pointer);
+    };
+    {
+        bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (strideA >= 1)
+            && (strideB >= 1) && (strideC >= 1) && (lda >= nb) && (ldb >= nb) && (ldc >= nb);
+        if(!isok)
+        {
+            return (rocblas_status_invalid_size);
+        };
+    };
+
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 

@@ -39,6 +39,36 @@ rocblas_status rocsolver_geblttrs_batched_impl(rocblas_handle handle,
                                                I ldbrhs,
                                                I batchCount)
 {
+    /* 
+    ---------------
+    check arguments
+    ---------------
+    */
+    if(handle == nullptr)
+    {
+        return (rocblas_status_invalid_handle);
+    };
+
+    // no work
+    if((nb == 0) || (nblocks == 0) || (batchCount == 0) || (nrhs == 0))
+    {
+        return (rocblas_status_success;)
+    };
+
+    if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr) || (brhs_ == nullptr))
+    {
+        return (rocblas_status_invalid_pointer);
+    };
+
+    {
+        bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (lda >= nb)
+            && (ldb >= nb) && (ldc >= nb) && (ldbrhs >= (nb * nblocks));
+        if(!isok)
+        {
+            return (rocblas_status_invalid_size);
+        };
+    };
+
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
