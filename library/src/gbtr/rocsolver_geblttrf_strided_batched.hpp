@@ -1,126 +1,261 @@
-
-/*! \file */
 /* ************************************************************************
- * Copyright (C) 2020-2022 Advanced Micro Devices, Inc. All rights Reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- *
+ * Copyright (c) 2022 Advanced Micro Devices, Inc.
  * ************************************************************************ */
-#pragma once
-#ifndef ROCSOLVER_GTRF_STRIDED_BATCHED
-#define ROCSOLVER_GTRF_STRIDED_BATCHED
 
-#include "geblt_common.h"
-#include "geblttrf_npvt.hpp"
+#include "roclapack_getrf.hpp"
 
-template <typename T, typename I, typename Istride>
-GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
-                                                          I nblocks,
-                                                          I batchCount,
+#include "rocsolver_getrf_npvt_strided_batched.hpp"
+#include "rocsolver_getrs_npvt_strided_batched.hpp"
+#include "rocsolver_gemm_strided_batched.hpp"
 
-                                                          T* A_,
-                                                          I lda,
-                                                          Istride strideA,
-                                                          T* B_,
-                                                          I ldb,
-                                                          Istride strideB,
-                                                          T* C_,
-                                                          I ldc,
-                                                          Istride strideC,
-                                                          I* pinfo)
+
+/*
+! ------------------------------------------------------
+!     Perform LU factorization without pivoting
+!     of block tridiagonal matrix
+! % [B1, C1, 0      ]   [ D1         ]   [ I  U1       ]
+! % [A2, B2, C2     ] = [ A2 D2      ] * [    I  U2    ]
+! % [    A3, B3, C3 ]   [    A3 D3   ]   [       I  U3 ]
+! % [        A4, B4 ]   [       A4 D4]   [          I4 ]
+! ------------------------------------------------------
+*/
+
+template<typename T >
+rocblas_status rocsolver_geblttrf_strided_batched_large_impl(
+	rocblas_handle handle,
+	const rocblas_int nb,
+	const rocblas_int nblocks,
+        T* A_, 
+        const rocblas_int lda,
+        const rocblas_stride strideA,
+        T* B_,
+        const rocblas_int ldb,
+        const rocblas_stride strideB,
+        T* C_,
+        const rocblas_int ldc,
+        const rocblas_stride strideC,
+        rocblas_int info_array[], // array of batch_count integers on GPU
+        const rocblas_int batch_count )
 {
-    I SHARED_MEMORY sinfo;
-#ifdef USE_GPU
-    auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-    auto const i_start = thread_id;
-    auto const i_inc = gridDim.x * blockDim.x;
-    bool const is_root = (thread_id == 0);
 
-    if(is_root)
+/*
+ -----------------
+ arrays dimensioned as 
+
+ A(lda,nb,nblocks, batch_count)
+ B(ldb,nb,nblocks, batch_count)
+ C(ldc,nb,nblocks, batch_count)
+ -----------------
+*/
+
+/*
+ i1 + i2*n1 + i3*(n1*n2) + i4*(n1*n2*n3)
+ or
+ ((i4*n3 + i3)*n2 + i2)*n1 + i1
+ */
+#define indx4(i1,i2,i3,i4, n1,n2,n3,n4) \
+    ((((i4)*(n3)+(i3))*(n2)+(i2))*(n1)+(i1))
+ 
+#define indx4f(i1,i2,i3,i4, n1,n2,n3,n4) \
+         indx4( ((i1)-1), ((i2)-1), ((i3)-1), ((i4)-1),  n1,n2,n3,n4)
+
+#define A(i1,i2,i3,i4)  \
+	A_[ indx4f(i1,i2,i3,i4,   lda,nb,nblocks,batch_count) ]
+
+#define B(i1,i2,i3,i4 ) \
+	B_[ indx4f(i1,i2,i3,i4,   ldb,nb,nblocks,batch_count) ]
+
+#define C(i1,i2,i3,i4)  \
+	C_[ indx4f(i1,i2,i3,i4,   ldc,nb,nblocks,batch_count) ]
+
+
+/*
+!     --------------------------
+!     reuse storage
+!     over-write matrix B with D
+!     over-write matrix C with U
+!     --------------------------
+*/
+#define D(i1,i2,i3,i4) B(i1,i2,i3,i4)
+#define U(i1,i2,i3,i4) C(i1,i2,i3,i4)
+rocblas_int const ldd = ldb;
+rocblas_stride const strideD = strideB;
+
+rocblas_int const ldu = ldc;
+rocblas_stride const strideU = strideC;
+
+ 
+ 
+
+
+
+
+
+/*
+---------------------------------------
+! % B1 = D1
+! % D1 * U1 = C1 => U1 = D1 \ C1
+! % D2 + A2*U1 = B2 => D2 = B2 - A2*U1
+! %
+! % D2*U2 = C2 => U2 = D2 \ C2
+! % D3 + A3*U2 = B3 => D3 = B3 - A3*U2
+! %
+! % D3*U3 = C3 => U3 = D3 \ C3
+! % D4 + A4*U3 = B4 => D4 = B4 - A4*U3
+---------------------------------------
+*/
+
+
+// -----------------------------------------------------------------------
+// D(1:nb,1:nb,k, 1:batch_count) = getrf_npvt( D(1:nb,1:nb,k, 1:batch_count)
+// -----------------------------------------------------------------------
+ {
+ rocblas_int const k = 1;
+ rocblas_int const mm = nb;
+ rocblas_int const nn = nb;
+ rocblas_int const ld1 = ldd;
+ rocblas_stride const stride1 = strideD;
+
+ rocblas_int const i = 1;
+ rocblas_int const j = 1;
+ rocblas_int const ibatch = 1;
+ T* Ap = &(D(i,j,k,ibatch));
+ rocblas_status istat = rocsolver_getrf_npvt_strided_batched( 
+       handle, mm,nn,Ap,ld1,stride1, info_array, batch_count );
+ if (istat != rocblas_status_success) {
+   return( rocblas_status );
+   };
+ }
+
+
+/*
+!------------------------------------------------
+! for k=1:(nblocks-1),
+!    
+! 
+!     U(1:nb,1:nb,k) = getrs_npvt( D(1:nb,1:nb,k), C(1:nb,1:nb,k) );
+! 
+!    D(1:nb,1:nb,k+1) = B(1:nb,1:nb,k+1) - 
+!          A(1:nb,1:nb,k+1) * U(1:nb,1:nb,k);
+!      D(1:nb,1:nb,k+1) = getrf_npvt( D(1:nb,1:nb,k+1) );
+! end;
+!------------------------------------------------
+*/
+  for(rocblas_int k=1; k <= (nblocks-1); k++) {
+
+     {
+/*
+     -------------------------------------------------------------
+     U(1:nb,1:nb,k) = getrs_npvt( D(1:nb,1:nb,k), C(1:nb,1:nb,k) );
+
+     Note reuse storage for C(:,:,:,:) as U(:,:,:,:)
+     -------------------------------------------------------------
+*/
+
+ 
+      rocblas_int const nn = nb;
+      rocblas_int const nrhs = nb;
+        
+      rocblas_int const ibatch = 1;
+      T const * const Ap = &(D(1,1,k,ibatch));
+      rocblas_int const ld1 = ldd;
+      rocblas_stride const stride1 = strideD;
+
+      T * const Bp = &(U(1,1,k,ibatch));
+      rocblas_int const ld2 = ldu;
+      rocblas_stride const stride2 = strideU;
+
+     
+      rocblas_status istat = rocsolver_getrs_npvt_strided_batched( 
+                  handle, nn, nrhs,
+                  Ap, ld1, stride1,
+                  Bp, ld2, stride2,
+                  batch_count );
+      if (istat != rocblas_status_success) {
+        return( istat );
+        };
+      };
+
+      
+/*
+!--------------------------------------------
+!    D(1:nb,1:nb,k+1) = B(1:nb,1:nb,k+1) - 
+!          A(1:nb,1:nb,k+1) * U(1:nb,1:nb,k);
+!--------------------------------------------
+*/
     {
-        sinfo = 0;
+    T alpha = -1;
+    T beta = 1;
+    rocblas_int const ibatch = 1;
+
+    rocblas_int const mm = nb;
+    rocblas_int const nn = nb;
+    rocblas_int const kk = nb;
+
+    T const * const Ap = &(A(1,1,k+1,ibatch));
+    rocblas_int const ld1 = lda;
+    rocblas_stride const stride1 = strideA;
+
+    T const * const Bp = &(U(1,1,k,ibatch));
+    rocblas_int const ld2 = ldu;
+    rocblas_int const stride2 = strideU;
+
+    T* const Cp = &(B(1,1,k+1,ibatch));
+    rocblas_int const ld3 = ldb;
+    rocblas_stride const stride3 = strideB;
+
+
+    rocblas_status istat = rocsolver_gemm_strided_batched(
+          handle, mm,nn,kk, 
+          alpha,  Ap, ld1, stride1,
+                  Bp, ld2, stride2,
+          beta,   Cp, ld3, stride3
+          );
+    if (istat != rocblas_success) {
+       return( istat );
+       };
     };
-#else
-    I const i_start = 0;
-    I const i_inc = 1;
-    sinfo = 0;
-#endif
 
+
+/*
+!      --------------------------------------------------
+!      D(1:nb,1:nb,k+1) = getrf_npvt( D(1:nb,1:nb,k+1) );
+!      --------------------------------------------------
+*/
     {
-        I info = 0;
-        for(I i = i_start; i < batchCount; i += i_inc)
-        {
-            int64_t indxA = ((int64_t)strideA) * (i - 1);
-            int64_t indxB = ((int64_t)strideB) * (i - 1);
-            int64_t indxC = ((int64_t)strideC) * (i - 1);
 
-            I linfo = 0;
-            geblttrf_npvt_device<T>(nb, nblocks, &(A_[indxA]), lda, &(B_[indxB]), ldb, &(C_[indxC]),
-                                    ldc, &linfo);
-            info = max(info, linfo);
+     rocblas_int const mm = nb;
+     rocblas_int const nn = nb;
+
+     rocblas_int const ibatch = 1;
+     T* const Ap = &(D(1,1,k+1,ibatch));
+     rocblas_int const ld1 = ldd;
+     rocblas_stride const stride1 = strideD;
+
+     rocblas_status istat = rocsolver_getrf_npvt_strided_batched( 
+            handle, mm,nn,
+            Ap,ld1,stride1, 
+            info_array, batch_count );
+     if (istat != rocblas_status_success) {
+        return( istat );
         };
 
-        atomicMax(&sinfo, info);
-        SYNCTHREADS;
-    };
+     };
 
-    if(is_root)
-    {
-        atomicMax(pinfo, sinfo);
-    };
-}
+  }; // end for k
 
-template <typename T, typename I, typename Istride>
-rocblas_status geblttrf_npvt_strided_batched_template(hipStream_t stream,
-                                                      I nb,
-                                                      I nblocks,
-                                                      I batchCount,
+};
 
-                                                      T* A_,
-                                                      I lda,
-                                                      Istride strideA,
-                                                      T* B_,
-                                                      I ldb,
-                                                      Istride strideB,
-                                                      T* C_,
-                                                      I ldc,
-                                                      Istride strideC,
-                                                      I* phost_info)
-{
-    *phost_info = 0;
-    I* pdevice_info;
-    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
-    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
-    I grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
-    hipLaunchKernelGGL((geblttrf_npvt_strided_batched_kernel<T, I, Istride>), dim3(grid_dim),
-                       dim3(GEBLT_BLOCK_DIM), 0, stream,
 
-                       nb, nblocks, batchCount,
 
-                       A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
 
-                       pdevice_info);
 
-    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(I)), rocblas_status_internal_error);
-    HIP_CHECK(hipFree(pdevice_info), rocblas_status_memory_error);
-    return (rocblas_status_success);
-}
 
-#endif
+#undef indx4
+#undef indx4f
+#undef A
+#undef B
+#undef C
+#undef D
+#undef U
