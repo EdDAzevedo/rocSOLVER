@@ -1,12 +1,12 @@
 /* ************************************************************************
- * Copyright (c) 2019-2021 Advanced Micro Devices, Inc.
+ * Copyright (c) 2022 Advanced Micro Devices, Inc.
  * ************************************************************************ */
-#include "rocblas.hpp"
+#include "rocblas/rocblas.h"
 #include "assert.h"
 
 #pragma once
 template< typename T>
-rocsolver_status
+rocblas_status
 rocsolver_getrf_npvt_strided_batched(
 	rocblas_handle handle,
         rocblas_int const m,
@@ -17,13 +17,14 @@ rocsolver_getrf_npvt_strided_batched(
         rocblas_int info_array[],
         rocblas_int batch_count )
 {
+ #pragma unused(handle,m,n,A_,lda,strideA,info_array,batch_count)
  assert( false );
- return( rocblas_status_internal_error );
+ return( rocblas_status_not_implemented );
 };
         
 
 template<>
-rocsolver_status
+rocblas_status
 rocsolver_getrf_npvt_strided_batched(
 	rocblas_handle handle,
         rocblas_int const m,
@@ -42,3 +43,65 @@ rocsolver_getrf_npvt_strided_batched(
 }
 
 
+template<>
+rocblas_status
+rocsolver_getrf_npvt_strided_batched(
+	rocblas_handle handle,
+        rocblas_int const m,
+        rocblas_int const n,
+        float* const A_,
+        rocblas_int const lda,
+        rocblas_stride const strideA,
+        rocblas_int info_array[],
+        rocblas_int batch_count )
+{
+  return( rocsolver_sgetrf_npvt_strided_batched(
+              handle,
+              m, n,     A,lda,strideA,   
+              info_array, batch_count )
+        );
+}
+
+
+
+
+template<>
+rocblas_status
+rocsolver_getrf_npvt_strided_batched(
+	rocblas_handle handle,
+        rocblas_int const m,
+        rocblas_int const n,
+        rocblas_double_complex* const A_,
+        rocblas_int const lda,
+        rocblas_stride const strideA,
+        rocblas_int info_array[],
+        rocblas_int batch_count )
+{
+  return( rocsolver_zgetrf_npvt_strided_batched(
+              handle,
+              m, n,     A,lda,strideA,   
+              info_array, batch_count )
+        );
+}
+
+
+
+
+template<>
+rocblas_status
+rocsolver_getrf_npvt_strided_batched(
+	rocblas_handle handle,
+        rocblas_int const m,
+        rocblas_int const n,
+        rocblas_float_complex* const A_,
+        rocblas_int const lda,
+        rocblas_stride const strideA,
+        rocblas_int info_array[],
+        rocblas_int batch_count )
+{
+  return( rocsolver_cgetrf_npvt_strided_batched(
+              handle,
+              m, n,     A,lda,strideA,   
+              info_array, batch_count )
+        );
+}
