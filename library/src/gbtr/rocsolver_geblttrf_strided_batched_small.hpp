@@ -43,27 +43,19 @@ GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
                                                           T* C_,
                                                           I ldc,
                                                           Istride strideC,
-                                                          I* pinfo)
+                                                          I devinfo_array[])
 {
-    I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
     auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
     auto const i_start = thread_id;
     auto const i_inc = gridDim.x * blockDim.x;
-    bool const is_root = (thread_id == 0);
 
-    if(is_root)
-    {
-        sinfo = 0;
-    };
 #else
     I const i_start = 0;
     I const i_inc = 1;
-    sinfo = 0;
 #endif
 
     {
-        I info = 0;
         for(I i = i_start; i < batchCount; i += i_inc)
         {
             int64_t indxA = ((int64_t)strideA) * (i - 1);
@@ -73,17 +65,14 @@ GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
             I linfo = 0;
             geblttrf_npvt_device<T>(nb, nblocks, &(A_[indxA]), lda, &(B_[indxB]), ldb, &(C_[indxC]),
                                     ldc, &linfo);
-            info = max(info, linfo);
+
+            devinfo_array[ i ] = linfo;
         };
 
-        atomicMax(&sinfo, info);
-        SYNCTHREADS;
+        
     };
 
-    if(is_root)
-    {
-        atomicMax(pinfo, sinfo);
-    };
+   
 }
 
 template <typename T, typename I, typename Istride>
