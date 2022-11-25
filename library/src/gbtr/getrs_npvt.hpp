@@ -103,7 +103,6 @@ DEVICE_FUNCTION void
         };
     };
 
-    if(info != 0)
     {
         *pinfo = info;
     };
