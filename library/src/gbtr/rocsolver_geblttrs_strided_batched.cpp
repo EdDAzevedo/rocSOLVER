@@ -76,12 +76,12 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    I host_info = 0;
+   return(
     geblttrs_npvt_strided_batched_template<T, I, Istride>(stream, nb, nblocks, nrhs, batchCount, A_,
                                                           lda, strideA, B_, ldb, strideB, C_, ldc,
-                                                          strideC, brhs_, ldbrhs, &host_info);
+                                                          strideC, brhs_, ldbrhs)
+    );
 
-    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 };
 
 extern "C" {

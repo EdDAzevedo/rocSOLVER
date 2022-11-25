@@ -46,29 +46,21 @@ GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
                                                           Istride strideC,
 
                                                           T* brhs_,
-                                                          I ldbrhs,
+                                                          I ldbrhs 
 
-                                                          I* pinfo)
+                                                          )
 {
-    I SHARED_MEMORY sinfo;
 #ifdef USE_GPU
     auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
     auto const i_start = thread_id;
     auto const i_inc = gridDim.x * blockDim.x;
-    bool const is_root = (thread_id == 0);
 
-    if(thread_id == 0)
-    {
-        sinfo = 0;
-    };
 #else
     I const i_start = 0;
     I const i_inc = 1;
-    sinfo = 0;
 #endif
 
     {
-        I info = 0;
         for(I i = i_start; i < batchCount; i += i_inc)
         {
             int64_t indxA = ((int64_t)strideA) * (i - 1);
@@ -78,17 +70,10 @@ GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
             I linfo = 0;
             geblttrs_npvt_device<T>(nb, nblocks, nrhs, &(A_[indxA]), lda, &(B_[indxB]), ldb,
                                     &(C_[indxC]), ldc, brhs_, ldbrhs, &linfo);
-            info = max(info, linfo);
         };
 
-        atomicMax(&sinfo, info);
-        SYNCTHREADS;
     };
 
-    if(is_root)
-    {
-        atomicMax(pinfo, sinfo);
-    };
 }
 
 template <typename T, typename I, typename Istride>
@@ -109,14 +94,10 @@ rocblas_status geblttrs_npvt_strided_batched_template(hipStream_t stream,
                                                       Istride strideC,
 
                                                       T* brhs_,
-                                                      I ldbrhs,
+                                                      I ldbrhs
 
-                                                      I* phost_info)
+                                                      )
 {
-    *phost_info = 0;
-    I* pdevice_info;
-    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
-    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
     auto const grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
     hipLaunchKernelGGL((geblttrs_npvt_strided_batched_kernel<T>), dim3(grid_dim),
@@ -128,8 +109,6 @@ rocblas_status geblttrs_npvt_strided_batched_template(hipStream_t stream,
 
                        brhs_, ldbrhs, pdevice_info);
 
-    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(I)), rocblas_status_internal_error);
-    HIP_CHECK(hipFree(pdevice_info), rocblas_status_memory_error);
     return (rocblas_status_success);
 }
 
