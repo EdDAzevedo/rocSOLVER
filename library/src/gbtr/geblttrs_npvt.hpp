@@ -189,7 +189,6 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
         };
     };
 
-    if(info != 0)
     {
         *pinfo = info;
     };
