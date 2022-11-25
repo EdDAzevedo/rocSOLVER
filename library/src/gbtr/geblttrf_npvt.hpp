@@ -53,6 +53,7 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
 #define U(i, j, k) C(i, j, k)
     I const ldu = ldc;
     I const ldd = ldb;
+
     /*
 ! 
 ! % B1 = D1
@@ -129,6 +130,7 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
 !     U(1:nb,1:nb,k) = getrs_npvt( D(1:nb,1:nb,k), C(1:nb,1:nb,k) );
 !     --------------------------------------------------------------     
 */
+        if(info == 0)
         {
             I nn = nb;
             I nrhs = nb;
@@ -136,7 +138,7 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
 
             getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ldd, &(C(1, 1, k)), ldc, &linfo);
 
-            info = (info == 0) && (linfo != 0) ? (k - 1) * nb + linfo : info;
+            info = (k-1)*nb + linfo;
         };
 
         /*
@@ -144,6 +146,7 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
 !    D(1:nb,1:nb,k+1) = B(1:nb,1:nb,k+1) - A(1:nb,1:nb,k+1) * U(1:nb,1:nb,k);
 !    ------------------------------------------------------------------------
 */
+        if(info == 0)
         {
             I const mm = nb;
             I const nn = nb;
@@ -162,16 +165,16 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
 !      D(1:nb,1:nb,k+1) = getrf_npvt( D(1:nb,1:nb,k+1) );
 !      --------------------------------------------------
 */
+        if(info == 0)
         {
             I const mm = nb;
             I const nn = nb;
             I linfo = 0;
             getrf_npvt_device(mm, nn, &(D(1, 1, k + 1)), ldd, &linfo);
-            info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
+            info = (k-1)*nb + linfo;
         };
     };
 
-    if(info != 0)
     {
         *pinfo = info;
     };
