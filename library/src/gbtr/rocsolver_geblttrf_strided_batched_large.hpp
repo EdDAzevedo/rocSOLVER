@@ -2,7 +2,7 @@
  * Copyright (c) 2022 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include "roclapack_getrf.hpp"
+#pragma once
 
 #include "rocsolver_getrf_npvt_strided_batched.hpp"
 #include "rocsolver_getrs_npvt_strided_batched.hpp"
@@ -123,7 +123,7 @@ rocblas_stride const strideU = strideC;
  rocblas_status istat = rocsolver_getrf_npvt_strided_batched( 
        handle, mm,nn,Ap,ld1,stride1, info_array, batch_count );
  if (istat != rocblas_status_success) {
-   return( rocblas_status );
+   return( istat );
    };
  }
 
@@ -211,7 +211,7 @@ rocblas_stride const strideU = strideC;
                   Bp, ld2, stride2,
           beta,   Cp, ld3, stride3
           );
-    if (istat != rocblas_success) {
+    if (istat != rocblas_status_success) {
        return( istat );
        };
     };

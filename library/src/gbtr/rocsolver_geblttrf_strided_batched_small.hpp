@@ -23,16 +23,15 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GTRF_STRIDED_BATCHED
-#define ROCSOLVER_GTRF_STRIDED_BATCHED
+#ifndef ROCSOLVER_GEBLTTRF_STRIDED_BATCHED_SMALL
+#define ROCSOLVER_GEBLTTRF_STRIDED_BATCHED_SMALL
 
 #include "geblt_common.h"
 #include "geblttrf_npvt.hpp"
 
 template <typename T, typename I, typename Istride>
-GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
+GLOBAL_FUNCTION void rocsolver_geblttrf_npvt_strided_batched_small_kernel(I nb,
                                                           I nblocks,
-                                                          I batchCount,
 
                                                           T* A_,
                                                           I lda,
@@ -43,7 +42,8 @@ GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
                                                           T* C_,
                                                           I ldc,
                                                           Istride strideC,
-                                                          I devinfo_array[])
+                                                          I devinfo_array[],
+                                                          I batchCount)
 {
 #ifdef USE_GPU
     auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
@@ -76,10 +76,9 @@ GLOBAL_FUNCTION void geblttrf_npvt_strided_batched_kernel(I nb,
 }
 
 template <typename T, typename I, typename Istride>
-rocblas_status geblttrf_npvt_strided_batched_template(hipStream_t stream,
+rocblas_status rocsolver_geblttrf_npvt_strided_batched_small_template(hipStream_t stream,
                                                       I nb,
                                                       I nblocks,
-                                                      I batchCount,
 
                                                       T* A_,
                                                       I lda,
@@ -90,25 +89,22 @@ rocblas_status geblttrf_npvt_strided_batched_template(hipStream_t stream,
                                                       T* C_,
                                                       I ldc,
                                                       Istride strideC,
-                                                      I* phost_info)
+                                                      I devinfo_array[],
+                                                      I batchCount 
+                                                      )
 {
-    *phost_info = 0;
-    I* pdevice_info;
-    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
-    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
 
     I grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
-    hipLaunchKernelGGL((geblttrf_npvt_strided_batched_kernel<T, I, Istride>), dim3(grid_dim),
-                       dim3(GEBLT_BLOCK_DIM), 0, stream,
+    hipLaunchKernelGGL((rocsolver_geblttrf_npvt_strided_batched_small_kernel<T, I, Istride>), 
+                       dim3(grid_dim), dim3(GEBLT_BLOCK_DIM), 0, stream,
 
-                       nb, nblocks, batchCount,
+                       nb, nblocks, 
 
                        A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
 
-                       pdevice_info);
+                       devinfo_array,
+                       batchCount);
 
-    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(I)), rocblas_status_internal_error);
-    HIP_CHECK(hipFree(pdevice_info), rocblas_status_memory_error);
     return (rocblas_status_success);
 }
 
