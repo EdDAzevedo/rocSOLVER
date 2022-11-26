@@ -20,6 +20,11 @@
 #define GEBLT_BLOCK_DIM 256
 #endif
 
+#ifndef NB_SMALL
+#define NB_SMALL 16
+#endif
+
+
 #define GLOBAL_FUNCTION __global__ __launch_bounds__(GEBLT_BLOCK_DIM)
 #define SYNCTHREADS __syncthreads()
 #define SHARED_MEMORY __shared__
