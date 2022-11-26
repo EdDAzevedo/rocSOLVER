@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "rocsolver_geblttrf_strided_batched_small.hpp"
 #include "rocsolver_geblttrf_strided_batched_large.hpp"
+#include "rocsolver_geblttrf_strided_batched_small.hpp"
 
 template <typename T, typename I, typename Istride>
 rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
@@ -54,7 +54,7 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
     // no work
     if((nb == 0) || (nblocks == 0) || (batchCount == 0))
     {
-        return (rocblas_status_success;)
+        return (rocblas_status_success);
     };
 
     if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr))
@@ -73,11 +73,19 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    geblttrf_npvt_strided_batched_template<T, I, Istride>(stream, nb, nblocks, batchCount, A_, lda,
-                                                          strideA, B_, ldb, strideB, C_, ldc,
-                                                          strideC, devinfo_array);
-
-    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
+    I const nb_small = 15;
+    if(nb <= nb_small)
+    {
+        return (rocsolver_geblttrf_npvt_strided_batched_small_template(
+            stream, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
+            devinfo_array, batchCount));
+    }
+    else
+    {
+        return (rocsolver_geblttrf_npvt_strided_batched_small_template(
+            stream, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
+            devinfo_array, batchCount));
+    };
 };
 
 extern "C" {

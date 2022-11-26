@@ -46,9 +46,9 @@ GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
                                                           Istride strideC,
 
                                                           T* brhs_,
-                                                          I ldbrhs 
+                                                          I ldbrhs
 
-                                                          )
+)
 {
 #ifdef USE_GPU
     auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
@@ -71,9 +71,7 @@ GLOBAL_FUNCTION void geblttrs_npvt_strided_batched_kernel(I nb,
             geblttrs_npvt_device<T>(nb, nblocks, nrhs, &(A_[indxA]), lda, &(B_[indxB]), ldb,
                                     &(C_[indxC]), ldc, brhs_, ldbrhs, &linfo);
         };
-
     };
-
 }
 
 template <typename T, typename I, typename Istride>
@@ -96,9 +94,8 @@ rocblas_status geblttrs_npvt_strided_batched_template(hipStream_t stream,
                                                       T* brhs_,
                                                       I ldbrhs
 
-                                                      )
+)
 {
-
     auto const grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
     hipLaunchKernelGGL((geblttrs_npvt_strided_batched_kernel<T>), dim3(grid_dim),
                        dim3(GEBLT_BLOCK_DIM), 0, stream,
