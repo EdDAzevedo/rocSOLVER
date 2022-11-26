@@ -22,7 +22,9 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "rocsolver_geblttrs_strided_batched.hpp"
+#include "roclapack_getrs.hpp"
+#include "rocsolver_geblttrs_strided_batched_small.hpp"
+#include "rocsolver_geblttrs_strided_batched_large.hpp"
 
 template <typename T, typename I, typename Istride>
 rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
@@ -43,6 +45,11 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
                                                        I ldbrhs,
                                                        I batchCount)
 {
+
+
+    ROCSOLVER_ENTER_TOP("getrs_strided_batched", "--nb", nb, "--nblocks", nblocks, "--nrhs", nrhs, 
+                        "--lda", lda, "--strideA", strideA,  "--ldb", ldb, "--strideB", strideB, 
+                        "--batch_count", batch_count);
     /* 
     ---------------
     check arguments
@@ -59,10 +66,6 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
         return (rocblas_status_success;)
     };
 
-    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr) || (brhs_ == nullptr))
-    {
-        return (rocblas_status_invalid_pointer);
-    };
     {
         bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (strideA >= 1)
             && (strideB >= 1) && (strideC >= 1) && (lda >= nb) && (ldb >= nb) && (ldc >= nb)
@@ -73,12 +76,26 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
         };
     };
 
+    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr) || (brhs_ == nullptr))
+    {
+        return (rocblas_status_invalid_pointer);
+    };
+
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    return (geblttrs_npvt_strided_batched_template<T, I, Istride>(
-        stream, nb, nblocks, nrhs, batchCount, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-        brhs_, ldbrhs));
+    if (nb < NB_SMALL) {
+      return( rocsolver_geblttrs_npvt_strided_batched_small_template<T,I,Istride>(
+        stream, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
+        brhs_, ldbrhs,batchCount));
+      }
+    else {
+      return( rocsolver_geblttrs_npvt_strided_batched_large_template<T,I,Istride>(
+        stream, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
+        brhs_, ldbrhs,batchCount));
+                  
+       };
+
 };
 
 extern "C" {
