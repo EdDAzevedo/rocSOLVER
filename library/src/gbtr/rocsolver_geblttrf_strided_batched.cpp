@@ -89,7 +89,7 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
     }
     else
     {
-        return (rocsolver_geblttrf_npvt_strided_batched_small_template(
+        return (rocsolver_geblttrf_npvt_strided_batched_large_template(
             stream, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
             devinfo_array, batchCount));
     };
