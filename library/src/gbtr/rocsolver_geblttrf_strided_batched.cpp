@@ -81,8 +81,7 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    I const nb_small = 15;
-    if(nb <= nb_small)
+    if(nb < NB_SMALL)
     {
         return (rocsolver_geblttrf_npvt_strided_batched_small_template(
             stream, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
