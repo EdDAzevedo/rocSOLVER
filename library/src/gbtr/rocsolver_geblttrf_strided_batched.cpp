@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
+#include "roclapack_getrf.hpp"
 #include "rocsolver_geblttrf_strided_batched_large.hpp"
 #include "rocsolver_geblttrf_strided_batched_small.hpp"
 
@@ -38,18 +39,24 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
                                                        T* C_,
                                                        I ldc,
                                                        Istride strideC,
-                                                       I devinfo_array[],
+                                                       I *devinfo_array,
                                                        I batchCount)
 {
-    /* 
-    ---------------
-    check arguments
-    ---------------
-    */
+
+    {
+    const char* name =  "getrf_npvt_strided_batched";
+    ROCSOLVER_ENTER_TOP(name, "-nb", nb, "-nblocks", nblocks, "--lda", lda, 
+                        "--strideA", strideA, "--strideB", strideB, 
+                        "--batch_count", batch_count);
+    };
+
+    using S = decltype(std::real(T{}));
     if(handle == nullptr)
     {
         return (rocblas_status_invalid_handle);
     };
+
+    // argument checking
 
     // no work
     if((nb == 0) || (nblocks == 0) || (batchCount == 0))
@@ -57,10 +64,6 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
         return (rocblas_status_success);
     };
 
-    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr))
-    {
-        return (rocblas_status_invalid_pointer);
-    };
     {
         bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (strideA >= 1)
             && (strideB >= 1) && (strideC >= 1) && (lda >= nb) && (ldb >= nb) && (ldc >= nb);
@@ -68,6 +71,11 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
         {
             return (rocblas_status_invalid_size);
         };
+    };
+
+    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr) || (devinfo_array == nullptr))
+    {
+        return (rocblas_status_invalid_pointer);
     };
 
     hipStream_t stream;
