@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "rocsolver_geblttrf_batched.hpp"
+#include "rocsolver_geblttrf_npvt_batched.hpp"
 
 template <typename T, typename I>
 rocblas_status rocsolver_geblttrf_batched_impl(rocblas_handle handle,
@@ -49,7 +49,7 @@ rocblas_status rocsolver_geblttrf_batched_impl(rocblas_handle handle,
     // no work
     if((nb == 0) || (nblocks == 0) || (batchCount == 0))
     {
-        return (rocblas_status_success;)
+        return (rocblas_status_success);
     };
 
     if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr))

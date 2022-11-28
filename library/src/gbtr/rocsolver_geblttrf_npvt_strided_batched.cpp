@@ -23,8 +23,8 @@
  *
  * ************************************************************************ */
 // #include "roclapack_getrf.hpp"
-#include "rocsolver_geblttrf_strided_batched_large.hpp"
-#include "rocsolver_geblttrf_strided_batched_small.hpp"
+#include "rocsolver_geblttrf_npvt_strided_batched_large.hpp"
+#include "rocsolver_geblttrf_npvt_strided_batched_small.hpp"
 
 template <typename T, typename I, typename Istride>
 rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,

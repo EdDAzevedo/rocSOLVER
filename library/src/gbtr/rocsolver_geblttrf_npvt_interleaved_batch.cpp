@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "rocsolver_geblttrf_interleaved_batch.hpp"
+#include "rocsolver_geblttrf_npvt_interleaved_batch.hpp"
 
 extern "C" {
 

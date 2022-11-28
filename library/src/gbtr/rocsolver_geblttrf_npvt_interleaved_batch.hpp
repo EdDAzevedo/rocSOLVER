@@ -54,7 +54,7 @@ rocblas_status rocsolver_geblttrf_interleaved_batch_template(rocblas_handle hand
     // no work
     if((nb == 0) || (nblocks == 0) || (batchCount == 0))
     {
-        return (rocblas_status_success;)
+        return (rocblas_status_success);
     };
 
     if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr))
