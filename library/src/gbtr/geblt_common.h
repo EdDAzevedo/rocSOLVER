@@ -25,7 +25,7 @@
 #define NB_SMALL 16
 #endif
 
-#define GLOBAL_FUNCTION __global__ __launch_bounds__(GEBLT_BLOCK_DIM)
+#define GLOBAL_FUNCTION static __global__ __launch_bounds__(GEBLT_BLOCK_DIM)
 #define SYNCTHREADS __syncthreads()
 #define SHARED_MEMORY __shared__
 #define DEVICE_FUNCTION __device__
