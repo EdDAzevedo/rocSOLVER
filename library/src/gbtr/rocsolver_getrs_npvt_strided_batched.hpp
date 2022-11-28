@@ -7,17 +7,17 @@
 
 #include "rocsolver_trsm_strided_batched.hpp"
 
-template <typename T>
+template <typename T, typename I, typename Istride>
 rocblas_status rocsolver_getrs_npvt_strided_batched(rocblas_handle handle,
-                                                    rocblas_int const n,
-                                                    rocblas_int const nrhs,
-                                                    T* A_,
-                                                    rocblas_int const lda,
-                                                    rocblas_stride const strideA,
-                                                    T* B_,
-                                                    rocblas_int const ldb,
-                                                    rocblas_stride const strideB,
-                                                    rocblas_int batch_count)
+                                                    I const n,
+                                                    I const nrhs,
+                                                    T const * A_,
+                                                    I const lda,
+                                                    Istride const strideA,
+                                                    T* const B_,
+                                                    I const ldb,
+                                                    Istride const strideB,
+                                                    I const batch_count)
 {
     rocblas_pointer_mode old_mode;
     rocblas_get_pointer_mode(handle, &old_mode);
@@ -35,7 +35,7 @@ rocblas_status rocsolver_getrs_npvt_strided_batched(rocblas_handle handle,
         rocblas_diagonal const diag = rocblas_diagonal_unit;
         T alpha = 1;
 
-        istat = rocblas_trsm_strided_batched(handle, side, uplo, trans, diag, n, nrhs, &alpha, A_,
+        istat = rocsolver_trsm_strided_batched(handle, side, uplo, trans, diag, n, nrhs, &alpha, A_,
                                              lda, strideA, B_, ldb, strideB, batch_count);
         if(istat != rocblas_status_success)
         {
@@ -55,7 +55,7 @@ rocblas_status rocsolver_getrs_npvt_strided_batched(rocblas_handle handle,
         rocblas_diagonal const diag = rocblas_diagonal_non_unit;
         T alpha = 1;
 
-        istat = rocblas_trsm_strided_batched(handle, side, uplo, trans, diag, n, nrhs, &alpha, A_,
+        istat = rocsolver_trsm_strided_batched(handle, side, uplo, trans, diag, n, nrhs, &alpha, A_,
                                              lda, strideA, B_, ldb, strideB, batch_count);
         if(istat != rocblas_status_success)
         {

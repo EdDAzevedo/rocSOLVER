@@ -25,6 +25,7 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
                                           T* brhs_,
                                           I const ldbrhs,
                                           I* pinfo)
+
 {
     /*
 ! % ------------------------------------------------
@@ -46,8 +47,19 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
 #define A(ia, ja, iblock) A_[indx3f(ia, ja, iblock, lda, nb)]
 #define D(id, jd, iblock) D_[indx3f(id, jd, iblock, ldd, nb)]
 #define U(iu, ju, iblock) U_[indx3f(iu, ju, iblock, ldu, nb)]
-#define brhs(i, j, k) brhs_[indx3f(i, j, k, ldbrhs, nblocks)]
 
+/*
+ --------------------------------------
+ dimension brhs(ldbrhs, nblocks, nrhs )
+ --------------------------------------
+*/
+#define brhs(i, iblock,irhs) brhs_[indx3f(i,iblock,irhs,     ldbrhs, nblocks)]
+
+/*
+ -------------------------
+ reuse storage x,y in brhs
+ -------------------------
+*/
 #define x(i, j, k) brhs(i, j, k)
 #define y(i, j, k) brhs(i, j, k)
 
@@ -97,7 +109,7 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
         {
             /*
 !         ----------------------------------------------------
-!         y(1:nb,k,:) = y(1:nb,k,:) - A(1:nb,1:nb,k) * y(1:nb,k-1,:);
+!         y(1:nb,k,1:nrhs) = y(1:nb,k,1:nrhs) - A(1:nb,k,1:nb) * y(1:nb,k-1,1:nrhs);
 !         ----------------------------------------------------
 */
             {
@@ -112,23 +124,28 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
                 I const ld2 = ldy * nblocks;
                 I const ld3 = ldy * nblocks;
 
-                gemm_nn_device(mm, nn, kk, alpha, &(A(1, 1, k)), ld1, &(y(1, k - 1, 1)), ld2, beta,
-                               &(y(1, k, 1)), ld3);
+                gemm_nn_device(mm, nn, kk, 
+                       alpha, 
+                               &(A(1, 1, k)), ld1, 
+                               &(y(1, k - 1,1)), ld2, 
+                       beta,
+                               &(y(1, k,1)), ld3);
             };
         };
 
         /*
 !      ----------------------------------------------------
-!      y(1:nb,k,:) = getrs_npvt( D(1:nb,1:nb,k), y(1:nb,k,:) );
+!      y(1:nb,k,1:nrhs) = getrs_npvt( D(1:nb,1:nb,k), y(1:nb,k,1:nrhs) );
 !      ----------------------------------------------------
 */
         {
             I const nn = nb;
             I const ld1 = ldd;
-            I const ld2 = ldbrhs * nblocks;
+            I const ld2 = ldy * nblocks;
             I linfo = 0;
 
-            getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ld1, &(y(1, k, 1)), ld2, &linfo);
+            getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ld1, 
+                              &(y(1, k, 1)), ld2, &linfo);
             info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
         };
     };
@@ -170,7 +187,7 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
         {
             /*
 !     ----------------------------------------------------------
-!     y(1:nb,k,:) = y(1:nb,k,:) - U(1:nb,1:nb,k) * x(1:nb,k+1,:);
+!     y(1:nb,k,1:nrhs) = y(1:nb,k,1:nrhs) - U(1:nb,1:nb,k) * x(1:nb,k+1,1:nrhs);
 !     ----------------------------------------------------------
 */
             I const mm = nb;
@@ -193,6 +210,7 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
         *pinfo = info;
     };
 };
+#undef brhs
 #undef x
 #undef y
 

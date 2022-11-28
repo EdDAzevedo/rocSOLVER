@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "roclapack_getrf.hpp"
+// #include "roclapack_getrf.hpp"
 #include "rocsolver_geblttrf_strided_batched_large.hpp"
 #include "rocsolver_geblttrf_strided_batched_small.hpp"
 
@@ -44,13 +44,11 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
 {
 
     {
-    const char* name =  "getrf_npvt_strided_batched";
-    ROCSOLVER_ENTER_TOP(name, "-nb", nb, "-nblocks", nblocks, "--lda", lda, 
+    ROCSOLVER_ENTER_TOP("getrf_npvt_strided_batched", "-nb", nb, "-nblocks", nblocks, "--lda", lda, 
                         "--strideA", strideA, "--strideB", strideB, 
                         "--batch_count", batch_count);
     };
 
-    using S = decltype(std::real(T{}));
     if(handle == nullptr)
     {
         return (rocblas_status_invalid_handle);
@@ -78,19 +76,17 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
         return (rocblas_status_invalid_pointer);
     };
 
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
 
     if(nb < NB_SMALL)
     {
         return (rocsolver_geblttrf_npvt_strided_batched_small_template(
-            stream, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
+            handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
             devinfo_array, batchCount));
     }
     else
     {
         return (rocsolver_geblttrf_npvt_strided_batched_large_template(
-            stream, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
+            handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
             devinfo_array, batchCount));
     };
 };
