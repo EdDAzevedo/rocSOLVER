@@ -31,13 +31,13 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
                                                        I nb,
                                                        I nblocks,
                                                        I nrhs,
-                                                       T* A_,
+                                                       const T* A_,
                                                        I lda,
                                                        Istride strideA,
-                                                       T* B_,
+                                                       const T* B_,
                                                        I ldb,
                                                        Istride strideB,
-                                                       T* C_,
+                                                       const T* C_,
                                                        I ldc,
                                                        Istride strideC,
 
@@ -70,6 +70,15 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
             && (strideB >= 1) && (strideC >= 1) && (strideX >= 1) && (lda >= nb) && (ldb >= nb)
             && (ldc >= nb) && (ldx >= nb);
         if(!isok)
+        {
+            return (rocblas_status_invalid_size);
+        };
+
+        // check no overlap
+        bool const isok_stride = (batch_count >= 2) && (strideA >= (lda * nb) * nblocks)
+            && (strideB >= (ldb * nb) * nblocks) && (strideC >= (ldc * nb) * nblocks)
+            && (strideX >= (ldx * nblocks) * nrhs);
+        if(!isok_stride)
         {
             return (rocblas_status_invalid_size);
         };

@@ -25,13 +25,13 @@ rocblas_status rocsolver_geblttrs_npvt_strided_batched_large_template(rocblas_ha
                                                                       I nblocks,
                                                                       I nrhs,
 
-                                                                      T* A_,
+                                                                      const T* A_,
                                                                       I lda,
                                                                       Istride strideA,
-                                                                      T* B_,
+                                                                      const T* B_,
                                                                       I ldb,
                                                                       Istride strideB,
-                                                                      T* C_,
+                                                                      const T* C_,
                                                                       I ldc,
                                                                       Istride strideC,
 

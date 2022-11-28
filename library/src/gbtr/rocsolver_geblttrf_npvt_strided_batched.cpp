@@ -40,7 +40,7 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
                                                        I ldc,
                                                        Istride strideC,
                                                        I* devinfo_array,
-                                                       I batchCount)
+                                                       I batch_count)
 {
     {
         ROCSOLVER_ENTER_TOP("getrf_npvt_strided_batched", "-nb", nb, "-nblocks", nblocks, "--lda",
@@ -56,15 +56,23 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
     // argument checking
 
     // no work
-    if((nb == 0) || (nblocks == 0) || (batchCount == 0))
+    if((nb == 0) || (nblocks == 0) || (batch_count == 0))
     {
         return (rocblas_status_success);
     };
 
     {
-        bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (strideA >= 1)
-            && (strideB >= 1) && (strideC >= 1) && (lda >= nb) && (ldb >= nb) && (ldc >= nb);
+        bool const isok = (nb >= 1) && (nblocks >= 1) && (batch_count >= 1) && (lda >= nb)
+            && (ldb >= nb) && (ldc >= nb);
         if(!isok)
+        {
+            return (rocblas_status_invalid_size);
+        };
+
+        // check no overlap
+        bool const isok_stride = (batch_count >= 2) && (strideA >= (lda * nb) * nblocks)
+            && (strideB >= (ldb * nb) * nblocks) && (strideC >= (ldc * nb) * nblocks);
+        if(!isok_stride)
         {
             return (rocblas_status_invalid_size);
         };
@@ -79,13 +87,13 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
     {
         return (rocsolver_geblttrf_npvt_strided_batched_small_template(
             handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-            devinfo_array, batchCount));
+            devinfo_array, batch_count));
     }
     else
     {
         return (rocsolver_geblttrf_npvt_strided_batched_large_template(
             handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-            devinfo_array, batchCount));
+            devinfo_array, batch_count));
     };
 };
 
@@ -104,11 +112,11 @@ rocblas_status rocsolver_dgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int ldc,
                                                    rocblas_stride strideC,
                                                    rocblas_int devinfo_array[],
-                                                   rocblas_int batchCount)
+                                                   rocblas_int batch_count)
 {
     return (rocsolver_geblttrf_strided_batched_impl<double, rocblas_int, rocblas_stride>(
         handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, devinfo_array,
-        batchCount));
+        batch_count));
 };
 
 rocblas_status rocsolver_sgeblttrf_strided_batched(rocblas_handle handle,
@@ -124,11 +132,11 @@ rocblas_status rocsolver_sgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int ldc,
                                                    rocblas_stride strideC,
                                                    rocblas_int devinfo_array[],
-                                                   rocblas_int batchCount)
+                                                   rocblas_int batch_count)
 {
     return (rocsolver_geblttrf_strided_batched_impl<float, rocblas_int, rocblas_stride>(
         handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, devinfo_array,
-        batchCount));
+        batch_count));
 };
 
 rocblas_status rocsolver_zgeblttrf_strided_batched(rocblas_handle handle,
@@ -144,12 +152,12 @@ rocblas_status rocsolver_zgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int ldc,
                                                    rocblas_stride strideC,
                                                    rocblas_int devinfo_array[],
-                                                   rocblas_int batchCount)
+                                                   rocblas_int batch_count)
 {
     return (
         rocsolver_geblttrf_strided_batched_impl<rocblas_double_complex, rocblas_int, rocblas_stride>(
             handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-            devinfo_array, batchCount));
+            devinfo_array, batch_count));
 };
 
 rocblas_status rocsolver_cgeblttrf_strided_batched(rocblas_handle handle,
@@ -165,11 +173,11 @@ rocblas_status rocsolver_cgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int ldc,
                                                    rocblas_stride strideC,
                                                    rocblas_int devinfo_array[],
-                                                   rocblas_int batchCount)
+                                                   rocblas_int batch_count)
 {
     return (
         rocsolver_geblttrf_strided_batched_impl<rocblas_float_complex, rocblas_int, rocblas_stride>(
             handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-            devinfo_array, batchCount));
+            devinfo_array, batch_count));
 };
 }
