@@ -44,8 +44,9 @@ GLOBAL_FUNCTION void rocsolver_geblttrs_npvt_strided_batched_kernel(I nb,
                                                           I ldc,
                                                           Istride strideC,
 
-                                                          T* brhs_,
-                                                          I ldbrhs,
+                                                          T* X_,
+                                                          I ldx,
+                                                          Istride strideX,
                                                           I batchCount
 
 )
@@ -66,16 +67,18 @@ GLOBAL_FUNCTION void rocsolver_geblttrs_npvt_strided_batched_kernel(I nb,
             int64_t indxA = ((int64_t)strideA) * (i - 1);
             int64_t indxB = ((int64_t)strideB) * (i - 1);
             int64_t indxC = ((int64_t)strideC) * (i - 1);
+            int64_t indxX = ((int64_t)strideX) * (i - 1);
 
             I linfo = 0;
             geblttrs_npvt_device<T>(nb, nblocks, nrhs, &(A_[indxA]), lda, &(B_[indxB]), ldb,
-                                    &(C_[indxC]), ldc, brhs_, ldbrhs, &linfo);
+                                    &(C_[indxC]), ldc, &(X_[indxX]), ldx, &linfo);
         };
     };
 }
 
 template <typename T, typename I, typename Istride>
-rocblas_status rocsolver_geblttrs_npvt_strided_batched_template(hipStream_t stream,
+rocblas_status rocsolver_geblttrs_npvt_strided_batched_small_template(
+                                                      rocblas_handle handle,
                                                       I nb,
                                                       I nblocks,
                                                       I nrhs,
@@ -90,13 +93,17 @@ rocblas_status rocsolver_geblttrs_npvt_strided_batched_template(hipStream_t stre
                                                       I ldc,
                                                       Istride strideC,
 
-                                                      T* brhs_,
-                                                      I ldbrhs,
+                                                      T* X_,
+                                                      I ldx,
+                                                      Istride strideX,
                                                       I batchCount
 
 )
 {
-    auto const grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
+    hipStream_t stream;
+    rocblas_get_stream( handle, &stream );
+
+    I const grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
     hipLaunchKernelGGL((rocsolver_geblttrs_npvt_strided_batched_kernel<T>), 
                        dim3(grid_dim), dim3(GEBLT_BLOCK_DIM), 0, stream,
 
@@ -104,7 +111,7 @@ rocblas_status rocsolver_geblttrs_npvt_strided_batched_template(hipStream_t stre
 
                        A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
 
-                       brhs_, ldbrhs, batchCount);
+                       X_, ldx, strideX, batchCount);
 
     return (rocblas_status_success);
 }

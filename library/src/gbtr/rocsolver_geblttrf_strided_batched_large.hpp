@@ -20,22 +20,22 @@
 ! ------------------------------------------------------
 */
 
-template<typename T >
-rocblas_status rocsolver_geblttrf_strided_batched_large_impl(
+template<typename T, typename I, typename Istride >
+rocblas_status rocsolver_geblttrf_npvt_strided_batched_large_template(
 	rocblas_handle handle,
-	const rocblas_int nb,
-	const rocblas_int nblocks,
+	const I nb,
+	const I nblocks,
         T* A_, 
-        const rocblas_int lda,
-        const rocblas_stride strideA,
+        const I lda,
+        const Istride strideA,
         T* B_,
-        const rocblas_int ldb,
-        const rocblas_stride strideB,
+        const I ldb,
+        const Istride strideB,
         T* C_,
-        const rocblas_int ldc,
-        const rocblas_stride strideC,
-        rocblas_int info_array[], // array of batch_count integers on GPU
-        const rocblas_int batch_count )
+        const I ldc,
+        const Istride strideC,
+        I info_array[], // array of batch_count integers on GPU
+        const I batch_count )
 {
 
 /*
@@ -48,25 +48,29 @@ rocblas_status rocsolver_geblttrf_strided_batched_large_impl(
  -----------------
 */
 
-/*
- i1 + i2*n1 + i3*(n1*n2) + i4*(n1*n2*n3)
- or
- ((i4*n3 + i3)*n2 + i2)*n1 + i1
- */
-#define indx4(i1,i2,i3,i4, n1,n2,n3,n4) \
-    ((((i4)*(n3)+(i3))*(n2)+(i2))*(n1)+(i1))
- 
-#define indx4f(i1,i2,i3,i4, n1,n2,n3,n4) \
-         indx4( ((i1)-1), ((i2)-1), ((i3)-1), ((i4)-1),  n1,n2,n3,n4)
 
-#define A(i1,i2,i3,i4)  \
-	A_[ indx4f(i1,i2,i3,i4,   lda,nb,nblocks,batch_count) ]
 
-#define B(i1,i2,i3,i4 ) \
-	B_[ indx4f(i1,i2,i3,i4,   ldb,nb,nblocks,batch_count) ]
+#ifndef indx3
+// i1 + i2*n1 + i3*(n1*n2)
+#define indx3(i1,i2,i3, n1,n2) \
+  (((i3)*( (int64_t) (n2)) + (i2))*(n1) + (i1))
+#endif
 
-#define C(i1,i2,i3,i4)  \
-	C_[ indx4f(i1,i2,i3,i4,   ldc,nb,nblocks,batch_count) ]
+#ifndef indx3f
+#define indx3f(i1,i2,i3, n1,n2) \
+        indx3( ((i1)-1), ((i2)-1), ((i3)-1), n1,n2)
+#endif
+	
+
+#define A(i1,i2,i3,ibatch)  \
+        A_[ ((ibatch)-1)*strideA + indx3f(i1,i2,i3, lda,nb) ]
+
+#define B(i1,i2,i3,ibatch ) \
+	B_[ ((ibatch)-1)*strideB + indx3f(i1,i2,i3, ldb,nb) ]
+
+#define C(i1,i2,i3,ibatch)  \
+	C_[ ((ibatch)-1)*strideC + indx3f(i1,i2,i3, ldc,nb) ]
+
 
 
 /*
@@ -78,11 +82,11 @@ rocblas_status rocsolver_geblttrf_strided_batched_large_impl(
 */
 #define D(i1,i2,i3,i4) B(i1,i2,i3,i4)
 #define U(i1,i2,i3,i4) C(i1,i2,i3,i4)
-rocblas_int const ldd = ldb;
-rocblas_stride const strideD = strideB;
+I const ldd = ldb;
+Istride const strideD = strideB;
 
-rocblas_int const ldu = ldc;
-rocblas_stride const strideU = strideC;
+I const ldu = ldc;
+Istride const strideU = strideC;
 
  
  
@@ -110,15 +114,15 @@ rocblas_stride const strideU = strideC;
 // D(1:nb,1:nb,k, 1:batch_count) = getrf_npvt( D(1:nb,1:nb,k, 1:batch_count)
 // -----------------------------------------------------------------------
  {
- rocblas_int const k = 1;
- rocblas_int const mm = nb;
- rocblas_int const nn = nb;
- rocblas_int const ld1 = ldd;
- rocblas_stride const stride1 = strideD;
+ I const k = 1;
+ I const mm = nb;
+ I const nn = nb;
+ I const ld1 = ldd;
+ Istride const stride1 = strideD;
 
- rocblas_int const i = 1;
- rocblas_int const j = 1;
- rocblas_int const ibatch = 1;
+ I const i = 1;
+ I const j = 1;
+ I const ibatch = 1;
  T* Ap = &(D(i,j,k,ibatch));
  rocblas_status istat = rocsolver_getrf_npvt_strided_batched( 
        handle, mm,nn,Ap,ld1,stride1, info_array, batch_count );
@@ -141,7 +145,7 @@ rocblas_stride const strideU = strideC;
 ! end;
 !------------------------------------------------
 */
-  for(rocblas_int k=1; k <= (nblocks-1); k++) {
+  for(I k=1; k <= (nblocks-1); k++) {
 
      {
 /*
@@ -153,17 +157,17 @@ rocblas_stride const strideU = strideC;
 */
 
  
-      rocblas_int const nn = nb;
-      rocblas_int const nrhs = nb;
+      I const nn = nb;
+      I const nrhs = nb;
         
-      rocblas_int const ibatch = 1;
+      I const ibatch = 1;
       T const * const Ap = &(D(1,1,k,ibatch));
-      rocblas_int const ld1 = ldd;
-      rocblas_stride const stride1 = strideD;
+      I const ld1 = ldd;
+      Istride const stride1 = strideD;
 
       T * const Bp = &(U(1,1,k,ibatch));
-      rocblas_int const ld2 = ldu;
-      rocblas_stride const stride2 = strideU;
+      I const ld2 = ldu;
+      Istride const stride2 = strideU;
 
      
       rocblas_status istat = rocsolver_getrs_npvt_strided_batched( 
@@ -184,32 +188,38 @@ rocblas_stride const strideU = strideC;
 !--------------------------------------------
 */
     {
-    T alpha = -1;
-    T beta = 1;
-    rocblas_int const ibatch = 1;
+    T const alpha = -1;
+    T const beta = 1;
+    I const ibatch = 1;
 
-    rocblas_int const mm = nb;
-    rocblas_int const nn = nb;
-    rocblas_int const kk = nb;
+    I const mm = nb;
+    I const nn = nb;
+    I const kk = nb;
 
     T const * const Ap = &(A(1,1,k+1,ibatch));
-    rocblas_int const ld1 = lda;
-    rocblas_stride const stride1 = strideA;
+    I const ld1 = lda;
+    Istride const stride1 = strideA;
 
     T const * const Bp = &(U(1,1,k,ibatch));
-    rocblas_int const ld2 = ldu;
-    rocblas_int const stride2 = strideU;
+    I const ld2 = ldu;
+    I const stride2 = strideU;
 
     T* const Cp = &(B(1,1,k+1,ibatch));
-    rocblas_int const ld3 = ldb;
-    rocblas_stride const stride3 = strideB;
+    I const ld3 = ldb;
+    Istride const stride3 = strideB;
 
+
+    rocblas_operation const transA = rocblas_operation_none;
+    rocblas_operation const transB = rocblas_operation_none;
 
     rocblas_status istat = rocsolver_gemm_strided_batched(
-          handle, mm,nn,kk, 
-          alpha,  Ap, ld1, stride1,
+          handle, 
+                  transA, transB,
+                  mm,nn,kk, 
+          &alpha,  Ap, ld1, stride1,
                   Bp, ld2, stride2,
-          beta,   Cp, ld3, stride3
+          &beta,   Cp, ld3, stride3,
+          batch_count
           );
     if (istat != rocblas_status_success) {
        return( istat );
@@ -224,13 +234,13 @@ rocblas_stride const strideU = strideC;
 */
     {
 
-     rocblas_int const mm = nb;
-     rocblas_int const nn = nb;
+     I const mm = nb;
+     I const nn = nb;
 
-     rocblas_int const ibatch = 1;
+     I const ibatch = 1;
      T* const Ap = &(D(1,1,k+1,ibatch));
-     rocblas_int const ld1 = ldd;
-     rocblas_stride const stride1 = strideD;
+     I const ld1 = ldd;
+     Istride const stride1 = strideD;
 
      rocblas_status istat = rocsolver_getrf_npvt_strided_batched( 
             handle, mm,nn,
@@ -244,6 +254,7 @@ rocblas_stride const strideU = strideC;
 
   }; // end for k
 
+ return( rocblas_status_success );
 };
 
 
@@ -252,8 +263,8 @@ rocblas_stride const strideU = strideC;
 
 
 
-#undef indx4
-#undef indx4f
+#undef indx3
+#undef indx3f
 #undef A
 #undef B
 #undef C

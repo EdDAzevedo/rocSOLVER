@@ -76,23 +76,28 @@ GLOBAL_FUNCTION void rocsolver_geblttrf_npvt_strided_batched_small_kernel(I nb,
 }
 
 template <typename T, typename I, typename Istride>
-rocblas_status rocsolver_geblttrf_npvt_strided_batched_small_template(hipStream_t stream,
-                                                      I nb,
-                                                      I nblocks,
+rocblas_status rocsolver_geblttrf_npvt_strided_batched_small_template(
+                                                      rocblas_handle handle,
+                                                      const I nb,
+                                                      const I nblocks,
 
                                                       T* A_,
-                                                      I lda,
-                                                      Istride strideA,
+                                                      const I lda,
+                                                      const Istride strideA,
                                                       T* B_,
-                                                      I ldb,
-                                                      Istride strideB,
+                                                      const I ldb,
+                                                      const Istride strideB,
                                                       T* C_,
-                                                      I ldc,
-                                                      Istride strideC,
+                                                      const I ldc,
+                                                      const Istride strideC,
                                                       I devinfo_array[],
-                                                      I batchCount 
+                                                      const I batchCount 
                                                       )
 {
+
+    hipStream_t stream;
+    rocblas_get_stream( handle, &stream );
+
 
     I grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
     hipLaunchKernelGGL((rocsolver_geblttrf_npvt_strided_batched_small_kernel<T, I, Istride>), 
