@@ -39,14 +39,13 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
                                                        T* C_,
                                                        I ldc,
                                                        Istride strideC,
-                                                       I *devinfo_array,
+                                                       I* devinfo_array,
                                                        I batchCount)
 {
-
     {
-    ROCSOLVER_ENTER_TOP("getrf_npvt_strided_batched", "-nb", nb, "-nblocks", nblocks, "--lda", lda, 
-                        "--strideA", strideA, "--strideB", strideB, 
-                        "--batch_count", batch_count);
+        ROCSOLVER_ENTER_TOP("getrf_npvt_strided_batched", "-nb", nb, "-nblocks", nblocks, "--lda",
+                            lda, "--strideA", strideA, "--strideB", strideB, "--batch_count",
+                            batch_count);
     };
 
     if(handle == nullptr)
@@ -75,7 +74,6 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
     {
         return (rocblas_status_invalid_pointer);
     };
-
 
     if(nb < NB_SMALL)
     {

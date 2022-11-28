@@ -31,23 +31,23 @@
 
 template <typename T, typename I, typename Istride>
 GLOBAL_FUNCTION void rocsolver_geblttrs_npvt_strided_batched_kernel(I nb,
-                                                          I nblocks,
-                                                          I nrhs,
+                                                                    I nblocks,
+                                                                    I nrhs,
 
-                                                          T* A_,
-                                                          I lda,
-                                                          Istride strideA,
-                                                          T* B_,
-                                                          I ldb,
-                                                          Istride strideB,
-                                                          T* C_,
-                                                          I ldc,
-                                                          Istride strideC,
+                                                                    T* A_,
+                                                                    I lda,
+                                                                    Istride strideA,
+                                                                    T* B_,
+                                                                    I ldb,
+                                                                    Istride strideB,
+                                                                    T* C_,
+                                                                    I ldc,
+                                                                    Istride strideC,
 
-                                                          T* X_,
-                                                          I ldx,
-                                                          Istride strideX,
-                                                          I batchCount
+                                                                    T* X_,
+                                                                    I ldx,
+                                                                    Istride strideX,
+                                                                    I batchCount
 
 )
 {
@@ -77,37 +77,36 @@ GLOBAL_FUNCTION void rocsolver_geblttrs_npvt_strided_batched_kernel(I nb,
 }
 
 template <typename T, typename I, typename Istride>
-rocblas_status rocsolver_geblttrs_npvt_strided_batched_small_template(
-                                                      rocblas_handle handle,
-                                                      I nb,
-                                                      I nblocks,
-                                                      I nrhs,
+rocblas_status rocsolver_geblttrs_npvt_strided_batched_small_template(rocblas_handle handle,
+                                                                      I nb,
+                                                                      I nblocks,
+                                                                      I nrhs,
 
-                                                      T* A_,
-                                                      I lda,
-                                                      Istride strideA,
-                                                      T* B_,
-                                                      I ldb,
-                                                      Istride strideB,
-                                                      T* C_,
-                                                      I ldc,
-                                                      Istride strideC,
+                                                                      T* A_,
+                                                                      I lda,
+                                                                      Istride strideA,
+                                                                      T* B_,
+                                                                      I ldb,
+                                                                      Istride strideB,
+                                                                      T* C_,
+                                                                      I ldc,
+                                                                      Istride strideC,
 
-                                                      T* X_,
-                                                      I ldx,
-                                                      Istride strideX,
-                                                      I batchCount
+                                                                      T* X_,
+                                                                      I ldx,
+                                                                      Istride strideX,
+                                                                      I batchCount
 
 )
 {
     hipStream_t stream;
-    rocblas_get_stream( handle, &stream );
+    rocblas_get_stream(handle, &stream);
 
     I const grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
-    hipLaunchKernelGGL((rocsolver_geblttrs_npvt_strided_batched_kernel<T>), 
-                       dim3(grid_dim), dim3(GEBLT_BLOCK_DIM), 0, stream,
+    hipLaunchKernelGGL((rocsolver_geblttrs_npvt_strided_batched_kernel<T>), dim3(grid_dim),
+                       dim3(GEBLT_BLOCK_DIM), 0, stream,
 
-                       nb, nblocks, nrhs, 
+                       nb, nblocks, nrhs,
 
                        A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
 

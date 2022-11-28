@@ -23,8 +23,8 @@
  *
  * ************************************************************************ */
 // #include "roclapack_getrs.hpp"
-#include "rocsolver_geblttrs_strided_batched_small.hpp"
 #include "rocsolver_geblttrs_strided_batched_large.hpp"
+#include "rocsolver_geblttrs_strided_batched_small.hpp"
 
 template <typename T, typename I, typename Istride>
 rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
@@ -46,10 +46,8 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
                                                        Istride strideX,
                                                        I batch_count)
 {
-
-
-    ROCSOLVER_ENTER_TOP("getrs_strided_batched", "--nb", nb, "--nblocks", nblocks, "--nrhs", nrhs, 
-                        "--lda", lda, "--strideA", strideA,  "--ldb", ldb, "--strideB", strideB, 
+    ROCSOLVER_ENTER_TOP("getrs_strided_batched", "--nb", nb, "--nblocks", nblocks, "--nrhs", nrhs,
+                        "--lda", lda, "--strideA", strideA, "--ldb", ldb, "--strideB", strideB,
                         "--batch_count", batch_count);
     /* 
     ---------------
@@ -68,10 +66,9 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
     };
 
     {
-        bool const isok = (nb >= 1) && (nblocks >= 1) && (batch_count >= 1) && 
-                          (strideA >= 1) && (strideB >= 1) && (strideC >= 1) && (strideX >= 1) &&
-               (lda >= nb) && (ldb >= nb) && (ldc >= nb) && 
-               (ldx >= nb);
+        bool const isok = (nb >= 1) && (nblocks >= 1) && (batch_count >= 1) && (strideA >= 1)
+            && (strideB >= 1) && (strideC >= 1) && (strideX >= 1) && (lda >= nb) && (ldb >= nb)
+            && (ldc >= nb) && (ldx >= nb);
         if(!isok)
         {
             return (rocblas_status_invalid_size);
@@ -83,19 +80,18 @@ rocblas_status rocsolver_geblttrs_strided_batched_impl(rocblas_handle handle,
         return (rocblas_status_invalid_pointer);
     };
 
-
-    if (nb < NB_SMALL) {
-      return( rocsolver_geblttrs_npvt_strided_batched_small_template<T,I,Istride>(
-        handle, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-        X_, ldx, strideX, batch_count));
-      }
-    else {
-      return( rocsolver_geblttrs_npvt_strided_batched_large_template<T,I,Istride>(
-        handle, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-        X_, ldx, strideX, batch_count));
-                  
-       };
-
+    if(nb < NB_SMALL)
+    {
+        return (rocsolver_geblttrs_npvt_strided_batched_small_template<T, I, Istride>(
+            handle, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, X_,
+            ldx, strideX, batch_count));
+    }
+    else
+    {
+        return (rocsolver_geblttrs_npvt_strided_batched_large_template<T, I, Istride>(
+            handle, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, X_,
+            ldx, strideX, batch_count));
+    };
 };
 
 extern "C" {
@@ -199,6 +195,6 @@ rocblas_status rocsolver_cgeblttrs_strided_batched(rocblas_handle handle,
         rocsolver_geblttrs_strided_batched_impl<rocblas_float_complex, rocblas_int, rocblas_stride>(
             handle, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
 
-            X_, ldx, strideX, batch_count ));
+            X_, ldx, strideX, batch_count));
 };
 }

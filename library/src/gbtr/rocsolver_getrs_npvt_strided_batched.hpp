@@ -11,7 +11,7 @@ template <typename T, typename I, typename Istride>
 rocblas_status rocsolver_getrs_npvt_strided_batched(rocblas_handle handle,
                                                     I const n,
                                                     I const nrhs,
-                                                    T const * A_,
+                                                    T const* A_,
                                                     I const lda,
                                                     Istride const strideA,
                                                     T* const B_,
@@ -36,7 +36,7 @@ rocblas_status rocsolver_getrs_npvt_strided_batched(rocblas_handle handle,
         T alpha = 1;
 
         istat = rocsolver_trsm_strided_batched(handle, side, uplo, trans, diag, n, nrhs, &alpha, A_,
-                                             lda, strideA, B_, ldb, strideB, batch_count);
+                                               lda, strideA, B_, ldb, strideB, batch_count);
         if(istat != rocblas_status_success)
         {
             rocblas_set_pointer_mode(handle, old_mode);
@@ -56,7 +56,7 @@ rocblas_status rocsolver_getrs_npvt_strided_batched(rocblas_handle handle,
         T alpha = 1;
 
         istat = rocsolver_trsm_strided_batched(handle, side, uplo, trans, diag, n, nrhs, &alpha, A_,
-                                             lda, strideA, B_, ldb, strideB, batch_count);
+                                               lda, strideA, B_, ldb, strideB, batch_count);
         if(istat != rocblas_status_success)
         {
             rocblas_set_pointer_mode(handle, old_mode);
