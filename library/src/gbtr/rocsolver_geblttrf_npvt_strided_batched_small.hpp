@@ -23,8 +23,8 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GEBLTTRF_STRIDED_BATCHED_SMALL
-#define ROCSOLVER_GEBLTTRF_STRIDED_BATCHED_SMALL
+#ifndef ROCSOLVER_GEBLTTRF_NPVT_STRIDED_BATCHED_SMALL
+#define ROCSOLVER_GEBLTTRF_NPVT_STRIDED_BATCHED_SMALL
 
 #include "geblt_common.h"
 #include "geblttrf_npvt.hpp"

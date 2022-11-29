@@ -35,8 +35,8 @@ rocblas_status rocsolver_geblttrs_batched_impl(rocblas_handle handle,
                                                I ldb,
                                                T* C_array[],
                                                I ldc,
-                                               T* brhs_,
-                                               I ldbrhs,
+                                               T* X_,
+                                               I ldx,
                                                I batchCount)
 {
     /* 
@@ -55,14 +55,14 @@ rocblas_status rocsolver_geblttrs_batched_impl(rocblas_handle handle,
         return (rocblas_status_success);
     };
 
-    if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr) || (brhs_ == nullptr))
+    if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr) || (X_ == nullptr))
     {
         return (rocblas_status_invalid_pointer);
     };
 
     {
         bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (lda >= nb)
-            && (ldb >= nb) && (ldc >= nb) && (ldbrhs >= (nb * nblocks));
+            && (ldb >= nb) && (ldc >= nb) && (ldx >= (nb * nblocks));
         if(!isok)
         {
             return (rocblas_status_invalid_size);
@@ -74,7 +74,7 @@ rocblas_status rocsolver_geblttrs_batched_impl(rocblas_handle handle,
 
     I host_info = 0;
     geblttrs_npvt_batched_template<T, I>(stream, nb, nblocks, nrhs, batchCount, A_array, lda,
-                                         B_array, ldb, C_array, ldc, brhs_, ldbrhs, &host_info);
+                                         B_array, ldb, C_array, ldc, X_, ldx, &host_info);
 
     return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 };
@@ -91,12 +91,12 @@ rocblas_status rocsolver_dgeblttrs_batched(rocblas_handle handle,
                                            rocblas_int ldb,
                                            double* C_array[],
                                            rocblas_int ldc,
-                                           double* brhs_,
-                                           rocblas_int ldbrhs,
+                                           double* X_,
+                                           rocblas_int ldx,
                                            rocblas_int batchCount)
 {
     return (rocsolver_geblttrs_batched_impl<double, rocblas_int>(handle, nb, nblocks, nrhs, A_array,
                                                                  lda, B_array, ldb, C_array, ldc,
-                                                                 brhs_, ldbrhs, batchCount));
+                                                                 X_, ldx, batchCount));
 };
 }

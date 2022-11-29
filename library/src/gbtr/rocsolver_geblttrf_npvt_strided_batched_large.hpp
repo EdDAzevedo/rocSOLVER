@@ -3,6 +3,8 @@
  * ************************************************************************ */
 
 #pragma once
+#ifndef ROCSOLVER_GEBLTTRF_STRIDED_BATCHED_LARGE_H
+#define ROCSOLVER_GEBLTTRF_STRIDED_BATCHED_LARGE_H
 
 #include "rocsolver_gemm_strided_batched.hpp"
 #include "rocsolver_getrf_npvt_strided_batched.hpp"
@@ -229,3 +231,7 @@ rocblas_status rocsolver_geblttrf_npvt_strided_batched_large_template(
 #undef C
 #undef D
 #undef U
+
+
+
+#endif

@@ -23,14 +23,14 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GBTRS_INTERLEAVED_BATCH
-#define ROCSOLVER_GBTRS_INTERLEAVED_BATCH
+#ifndef ROCSOLVER_GEBLTTRS_NPVT_INTERLEAVED_BATCH_H
+#define ROCSOLVER_GEBLTTRS_NPVT_INTERLEAVED_BATCH_H
 
 #include "geblt_common.h"
 #include "geblttrs_npvt_bf.hpp"
 
 template <typename T, typename I>
-rocblas_status rocsolver_geblttrs_interleaved_batch_template(rocblas_handle handle,
+rocblas_status rocsolver_geblttrs_npvt_interleaved_batch_template(rocblas_handle handle,
                                                              I nb,
                                                              I nblocks,
                                                              I nrhs,

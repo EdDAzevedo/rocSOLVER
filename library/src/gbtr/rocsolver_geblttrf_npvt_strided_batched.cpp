@@ -27,7 +27,7 @@
 #include "rocsolver_geblttrf_npvt_strided_batched_small.hpp"
 
 template <typename T, typename I, typename Istride>
-rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
+rocblas_status rocsolver_geblttrf_npvt_strided_batched_impl(rocblas_handle handle,
                                                        I nb,
                                                        I nblocks,
                                                        T* A_,
@@ -99,7 +99,7 @@ rocblas_status rocsolver_geblttrf_strided_batched_impl(rocblas_handle handle,
 
 extern "C" {
 
-rocblas_status rocsolver_dgeblttrf_strided_batched(rocblas_handle handle,
+rocblas_status rocsolver_dgeblttrf_npvt_strided_batched(rocblas_handle handle,
                                                    rocblas_int nb,
                                                    rocblas_int nblocks,
                                                    double* A_,
@@ -114,12 +114,12 @@ rocblas_status rocsolver_dgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int devinfo_array[],
                                                    rocblas_int batch_count)
 {
-    return (rocsolver_geblttrf_strided_batched_impl<double, rocblas_int, rocblas_stride>(
+    return (rocsolver_geblttrf_npvt_strided_batched_impl<double, rocblas_int, rocblas_stride>(
         handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, devinfo_array,
         batch_count));
 };
 
-rocblas_status rocsolver_sgeblttrf_strided_batched(rocblas_handle handle,
+rocblas_status rocsolver_sgeblttrf_npvt_strided_batched(rocblas_handle handle,
                                                    rocblas_int nb,
                                                    rocblas_int nblocks,
                                                    float* A_,
@@ -134,12 +134,12 @@ rocblas_status rocsolver_sgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int devinfo_array[],
                                                    rocblas_int batch_count)
 {
-    return (rocsolver_geblttrf_strided_batched_impl<float, rocblas_int, rocblas_stride>(
+    return (rocsolver_geblttrf_npvt_strided_batched_impl<float, rocblas_int, rocblas_stride>(
         handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, devinfo_array,
         batch_count));
 };
 
-rocblas_status rocsolver_zgeblttrf_strided_batched(rocblas_handle handle,
+rocblas_status rocsolver_zgeblttrf_npvt_strided_batched(rocblas_handle handle,
                                                    rocblas_int nb,
                                                    rocblas_int nblocks,
                                                    rocblas_double_complex* A_,
@@ -155,12 +155,12 @@ rocblas_status rocsolver_zgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int batch_count)
 {
     return (
-        rocsolver_geblttrf_strided_batched_impl<rocblas_double_complex, rocblas_int, rocblas_stride>(
+        rocsolver_geblttrf_npvt_strided_batched_impl<rocblas_double_complex, rocblas_int, rocblas_stride>(
             handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
             devinfo_array, batch_count));
 };
 
-rocblas_status rocsolver_cgeblttrf_strided_batched(rocblas_handle handle,
+rocblas_status rocsolver_cgeblttrf_npvt_strided_batched(rocblas_handle handle,
                                                    rocblas_int nb,
                                                    rocblas_int nblocks,
                                                    rocblas_float_complex* A_,
@@ -176,7 +176,7 @@ rocblas_status rocsolver_cgeblttrf_strided_batched(rocblas_handle handle,
                                                    rocblas_int batch_count)
 {
     return (
-        rocsolver_geblttrf_strided_batched_impl<rocblas_float_complex, rocblas_int, rocblas_stride>(
+        rocsolver_geblttrf_npvt_strided_batched_impl<rocblas_float_complex, rocblas_int, rocblas_stride>(
             handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
             devinfo_array, batch_count));
 };
