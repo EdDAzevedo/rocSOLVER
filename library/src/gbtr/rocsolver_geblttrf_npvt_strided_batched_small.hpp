@@ -23,8 +23,8 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GEBLTTRF_NPVT_STRIDED_BATCHED_SMALL
-#define ROCSOLVER_GEBLTTRF_NPVT_STRIDED_BATCHED_SMALL
+#ifndef ROCSOLVER_GEBLTTRF_NPVT_STRIDED_BATCHED_SMALL_HPP
+#define ROCSOLVER_GEBLTTRF_NPVT_STRIDED_BATCHED_SMALL_HPP
 
 #include "geblt_common.h"
 #include "geblttrf_npvt.hpp"
@@ -46,9 +46,9 @@ GLOBAL_FUNCTION void rocsolver_geblttrf_npvt_strided_batched_small_kernel(I nb,
                                                                           I batchCount)
 {
 #ifdef USE_GPU
-    auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-    auto const i_start = thread_id;
-    auto const i_inc = gridDim.x * blockDim.x;
+    I const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
+    I const i_start = thread_id;
+    I const i_inc = gridDim.x * blockDim.x;
 
 #else
     I const i_start = 0;

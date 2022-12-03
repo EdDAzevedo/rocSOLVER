@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "geblt_common.h"
+
 #include "rocsolver_gemm_strided_batched.hpp"
 #include "rocsolver_getrf_npvt_strided_batched.hpp"
 #include "rocsolver_getrs_npvt_strided_batched.hpp"
@@ -278,8 +280,6 @@ rocblas_status rocsolver_geblttrs_npvt_strided_batched_large_template(rocblas_ha
     return (rocblas_status_success);
 };
 
-#undef indx3
-#undef indx3f
 #undef A
 #undef B
 #undef C

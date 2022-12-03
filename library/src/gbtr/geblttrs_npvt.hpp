@@ -53,7 +53,7 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
  dimension brhs(ldbrhs, nblocks, nrhs )
  --------------------------------------
 */
-#define brhs(i, iblock,irhs) brhs_[indx3f(i,iblock,irhs,     ldbrhs, nblocks)]
+#define brhs(i, iblock, irhs) brhs_[indx3f(i, iblock, irhs, ldbrhs, nblocks)]
 
 /*
  -------------------------
@@ -124,12 +124,8 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
                 I const ld2 = ldy * nblocks;
                 I const ld3 = ldy * nblocks;
 
-                gemm_nn_device(mm, nn, kk, 
-                       alpha, 
-                               &(A(1, 1, k)), ld1, 
-                               &(y(1, k - 1,1)), ld2, 
-                       beta,
-                               &(y(1, k,1)), ld3);
+                gemm_nn_device(mm, nn, kk, alpha, &(A(1, 1, k)), ld1, &(y(1, k - 1, 1)), ld2, beta,
+                               &(y(1, k, 1)), ld3);
             };
         };
 
@@ -144,8 +140,7 @@ DEVICE_FUNCTION void geblttrs_npvt_device(I const nb,
             I const ld2 = ldy * nblocks;
             I linfo = 0;
 
-            getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ld1, 
-                              &(y(1, k, 1)), ld2, &linfo);
+            getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ld1, &(y(1, k, 1)), ld2, &linfo);
             info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
         };
     };

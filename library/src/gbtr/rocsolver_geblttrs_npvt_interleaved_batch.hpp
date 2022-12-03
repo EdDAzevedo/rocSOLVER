@@ -31,18 +31,18 @@
 
 template <typename T, typename I>
 rocblas_status rocsolver_geblttrs_npvt_interleaved_batch_template(rocblas_handle handle,
-                                                             I nb,
-                                                             I nblocks,
-                                                             I nrhs,
-                                                             const T* A_,
-                                                             I lda,
-                                                             const T* B_,
-                                                             I ldb,
-                                                             const T* C_,
-                                                             I ldc,
-                                                             T* brhs_,
-                                                             I ldbrhs,
-                                                             I batchCount)
+                                                                  I nb,
+                                                                  I nblocks,
+                                                                  I nrhs,
+                                                                  const T* A_,
+                                                                  I lda,
+                                                                  const T* B_,
+                                                                  I ldb,
+                                                                  const T* C_,
+                                                                  I ldc,
+                                                                  T* brhs_,
+                                                                  I ldbrhs,
+                                                                  I batchCount)
 {
     /* 
     ---------------

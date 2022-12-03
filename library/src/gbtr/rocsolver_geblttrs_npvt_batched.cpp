@@ -95,8 +95,7 @@ rocblas_status rocsolver_dgeblttrs_batched(rocblas_handle handle,
                                            rocblas_int ldx,
                                            rocblas_int batchCount)
 {
-    return (rocsolver_geblttrs_batched_impl<double, rocblas_int>(handle, nb, nblocks, nrhs, A_array,
-                                                                 lda, B_array, ldb, C_array, ldc,
-                                                                 X_, ldx, batchCount));
+    return (rocsolver_geblttrs_batched_impl<double, rocblas_int>(
+        handle, nb, nblocks, nrhs, A_array, lda, B_array, ldb, C_array, ldc, X_, ldx, batchCount));
 };
 }

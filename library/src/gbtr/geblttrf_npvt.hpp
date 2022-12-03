@@ -4,8 +4,9 @@
 ! -------------------------------------------------------------------
 */
 
-#ifndef GBTRF_NPVT_HPP
-#define GBTRF_NPVT_HPP
+#pragma once
+#ifndef GEBLT_NPVT_HPP
+#define GEBLT_NPVT_HPP
 
 #include "geblt_common.h"
 
@@ -33,6 +34,13 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
 ! % [    A3, B3, C3 ]   [    A3 D3   ]   [       I  U3 ]
 ! % [        A4, B4 ]   [       A4 D4]   [          I4 ]
 ! ------------------------------------------------------
+*/
+
+    /*
+#ifndef indx3f
+#define indx3f(i1,i2,i3,n1,n2) \
+    ((i1-1) + ((i2)-1)*(n1) + ((i3)-1)*((n1)*(n2)))
+#endif
 */
 
 #define A(ia, ja, iblock) A_[indx3f(ia, ja, iblock, lda, nb)]
@@ -138,7 +146,7 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
 
             getrs_npvt_device(nn, nrhs, &(D(1, 1, k)), ldd, &(C(1, 1, k)), ldc, &linfo);
 
-            info = (k-1)*nb + linfo;
+            info = (k - 1) * nb + linfo;
         };
 
         /*
@@ -171,7 +179,7 @@ DEVICE_FUNCTION void geblttrf_npvt_device(I const nb,
             I const nn = nb;
             I linfo = 0;
             getrf_npvt_device(mm, nn, &(D(1, 1, k + 1)), ldd, &linfo);
-            info = (k-1)*nb + linfo;
+            info = (k - 1) * nb + linfo;
         };
     };
 

@@ -23,96 +23,24 @@
  *
  * ************************************************************************ */
 // #include "roclapack_getrf.hpp"
-#include "rocsolver_geblttrf_npvt_strided_batched_large.hpp"
-#include "rocsolver_geblttrf_npvt_strided_batched_small.hpp"
-
-template <typename T, typename I, typename Istride>
-rocblas_status rocsolver_geblttrf_npvt_strided_batched_impl(rocblas_handle handle,
-                                                       I nb,
-                                                       I nblocks,
-                                                       T* A_,
-                                                       I lda,
-                                                       Istride strideA,
-                                                       T* B_,
-                                                       I ldb,
-                                                       Istride strideB,
-                                                       T* C_,
-                                                       I ldc,
-                                                       Istride strideC,
-                                                       I* devinfo_array,
-                                                       I batch_count)
-{
-    {
-        ROCSOLVER_ENTER_TOP("getrf_npvt_strided_batched", "-nb", nb, "-nblocks", nblocks, "--lda",
-                            lda, "--strideA", strideA, "--strideB", strideB, "--batch_count",
-                            batch_count);
-    };
-
-    if(handle == nullptr)
-    {
-        return (rocblas_status_invalid_handle);
-    };
-
-    // argument checking
-
-    // no work
-    if((nb == 0) || (nblocks == 0) || (batch_count == 0))
-    {
-        return (rocblas_status_success);
-    };
-
-    {
-        bool const isok = (nb >= 1) && (nblocks >= 1) && (batch_count >= 1) && (lda >= nb)
-            && (ldb >= nb) && (ldc >= nb);
-        if(!isok)
-        {
-            return (rocblas_status_invalid_size);
-        };
-
-        // check no overlap
-        bool const isok_stride = (batch_count >= 2) && (strideA >= (lda * nb) * nblocks)
-            && (strideB >= (ldb * nb) * nblocks) && (strideC >= (ldc * nb) * nblocks);
-        if(!isok_stride)
-        {
-            return (rocblas_status_invalid_size);
-        };
-    };
-
-    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr) || (devinfo_array == nullptr))
-    {
-        return (rocblas_status_invalid_pointer);
-    };
-
-    if(nb < NB_SMALL)
-    {
-        return (rocsolver_geblttrf_npvt_strided_batched_small_template(
-            handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-            devinfo_array, batch_count));
-    }
-    else
-    {
-        return (rocsolver_geblttrf_npvt_strided_batched_large_template(
-            handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
-            devinfo_array, batch_count));
-    };
-};
+#include "rocsolver_geblttrf_npvt_strided_batched.hpp"
 
 extern "C" {
 
 rocblas_status rocsolver_dgeblttrf_npvt_strided_batched(rocblas_handle handle,
-                                                   rocblas_int nb,
-                                                   rocblas_int nblocks,
-                                                   double* A_,
-                                                   rocblas_int lda,
-                                                   rocblas_stride strideA,
-                                                   double* B_,
-                                                   rocblas_int ldb,
-                                                   rocblas_stride strideB,
-                                                   double* C_,
-                                                   rocblas_int ldc,
-                                                   rocblas_stride strideC,
-                                                   rocblas_int devinfo_array[],
-                                                   rocblas_int batch_count)
+                                                        rocblas_int nb,
+                                                        rocblas_int nblocks,
+                                                        double* A_,
+                                                        rocblas_int lda,
+                                                        rocblas_stride strideA,
+                                                        double* B_,
+                                                        rocblas_int ldb,
+                                                        rocblas_stride strideB,
+                                                        double* C_,
+                                                        rocblas_int ldc,
+                                                        rocblas_stride strideC,
+                                                        rocblas_int devinfo_array[],
+                                                        rocblas_int batch_count)
 {
     return (rocsolver_geblttrf_npvt_strided_batched_impl<double, rocblas_int, rocblas_stride>(
         handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, devinfo_array,
@@ -120,19 +48,19 @@ rocblas_status rocsolver_dgeblttrf_npvt_strided_batched(rocblas_handle handle,
 };
 
 rocblas_status rocsolver_sgeblttrf_npvt_strided_batched(rocblas_handle handle,
-                                                   rocblas_int nb,
-                                                   rocblas_int nblocks,
-                                                   float* A_,
-                                                   rocblas_int lda,
-                                                   rocblas_stride strideA,
-                                                   float* B_,
-                                                   rocblas_int ldb,
-                                                   rocblas_stride strideB,
-                                                   float* C_,
-                                                   rocblas_int ldc,
-                                                   rocblas_stride strideC,
-                                                   rocblas_int devinfo_array[],
-                                                   rocblas_int batch_count)
+                                                        rocblas_int nb,
+                                                        rocblas_int nblocks,
+                                                        float* A_,
+                                                        rocblas_int lda,
+                                                        rocblas_stride strideA,
+                                                        float* B_,
+                                                        rocblas_int ldb,
+                                                        rocblas_stride strideB,
+                                                        float* C_,
+                                                        rocblas_int ldc,
+                                                        rocblas_stride strideC,
+                                                        rocblas_int devinfo_array[],
+                                                        rocblas_int batch_count)
 {
     return (rocsolver_geblttrf_npvt_strided_batched_impl<float, rocblas_int, rocblas_stride>(
         handle, nb, nblocks, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, devinfo_array,
@@ -140,19 +68,19 @@ rocblas_status rocsolver_sgeblttrf_npvt_strided_batched(rocblas_handle handle,
 };
 
 rocblas_status rocsolver_zgeblttrf_npvt_strided_batched(rocblas_handle handle,
-                                                   rocblas_int nb,
-                                                   rocblas_int nblocks,
-                                                   rocblas_double_complex* A_,
-                                                   rocblas_int lda,
-                                                   rocblas_stride strideA,
-                                                   rocblas_double_complex* B_,
-                                                   rocblas_int ldb,
-                                                   rocblas_stride strideB,
-                                                   rocblas_double_complex* C_,
-                                                   rocblas_int ldc,
-                                                   rocblas_stride strideC,
-                                                   rocblas_int devinfo_array[],
-                                                   rocblas_int batch_count)
+                                                        rocblas_int nb,
+                                                        rocblas_int nblocks,
+                                                        rocblas_double_complex* A_,
+                                                        rocblas_int lda,
+                                                        rocblas_stride strideA,
+                                                        rocblas_double_complex* B_,
+                                                        rocblas_int ldb,
+                                                        rocblas_stride strideB,
+                                                        rocblas_double_complex* C_,
+                                                        rocblas_int ldc,
+                                                        rocblas_stride strideC,
+                                                        rocblas_int devinfo_array[],
+                                                        rocblas_int batch_count)
 {
     return (
         rocsolver_geblttrf_npvt_strided_batched_impl<rocblas_double_complex, rocblas_int, rocblas_stride>(
@@ -161,19 +89,19 @@ rocblas_status rocsolver_zgeblttrf_npvt_strided_batched(rocblas_handle handle,
 };
 
 rocblas_status rocsolver_cgeblttrf_npvt_strided_batched(rocblas_handle handle,
-                                                   rocblas_int nb,
-                                                   rocblas_int nblocks,
-                                                   rocblas_float_complex* A_,
-                                                   rocblas_int lda,
-                                                   rocblas_stride strideA,
-                                                   rocblas_float_complex* B_,
-                                                   rocblas_int ldb,
-                                                   rocblas_stride strideB,
-                                                   rocblas_float_complex* C_,
-                                                   rocblas_int ldc,
-                                                   rocblas_stride strideC,
-                                                   rocblas_int devinfo_array[],
-                                                   rocblas_int batch_count)
+                                                        rocblas_int nb,
+                                                        rocblas_int nblocks,
+                                                        rocblas_float_complex* A_,
+                                                        rocblas_int lda,
+                                                        rocblas_stride strideA,
+                                                        rocblas_float_complex* B_,
+                                                        rocblas_int ldb,
+                                                        rocblas_stride strideB,
+                                                        rocblas_float_complex* C_,
+                                                        rocblas_int ldc,
+                                                        rocblas_stride strideC,
+                                                        rocblas_int devinfo_array[],
+                                                        rocblas_int batch_count)
 {
     return (
         rocsolver_geblttrf_npvt_strided_batched_impl<rocblas_float_complex, rocblas_int, rocblas_stride>(

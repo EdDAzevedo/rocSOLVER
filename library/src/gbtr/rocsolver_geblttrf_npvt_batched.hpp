@@ -80,18 +80,18 @@ GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
 }
 
 template <typename T, typename I>
-rocblas_status geblttrf_npvt_batched_template(hipStream_t stream,
-                                              I nb,
-                                              I nblocks,
-                                              I batchCount,
+rocblas_status rocsolver_geblttrf_npvt_batched_template(hipStream_t stream,
+                                                        I nb,
+                                                        I nblocks,
+                                                        I batchCount,
 
-                                              T* A_array[],
-                                              I lda,
-                                              T* B_array[],
-                                              I ldb,
-                                              T* C_array[],
-                                              I ldc,
-                                              I* phost_info)
+                                                        T* A_array[],
+                                                        I lda,
+                                                        T* B_array[],
+                                                        I ldb,
+                                                        T* C_array[],
+                                                        I ldc,
+                                                        I* phost_info)
 {
     *phost_info = 0;
     I* pdevice_info;
@@ -111,6 +111,57 @@ rocblas_status geblttrf_npvt_batched_template(hipStream_t stream,
     HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(I)), rocblas_status_internal_error);
     HIP_CHECK(hipFree(pdevice_info), rocblas_status_memory_error);
     return (rocblas_status_success);
+}
+
+template <typename T, typename I>
+rocblas_status rocsolver_geblttrf_batched_impl(rocblas_handle handle,
+                                               I nb,
+                                               I nblocks,
+                                               T* A_array[],
+                                               I lda,
+                                               T* B_array[],
+                                               I ldb,
+                                               T* C_array[],
+                                               I ldc,
+                                               I batchCount)
+{
+    /* 
+    ---------------
+    check arguments
+    ---------------
+    */
+    if(handle == nullptr)
+    {
+        return (rocblas_status_invalid_handle);
+    };
+
+    // no work
+    if((nb == 0) || (nblocks == 0) || (batchCount == 0))
+    {
+        return (rocblas_status_success);
+    };
+
+    if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr))
+    {
+        return (rocblas_status_invalid_pointer);
+    };
+    {
+        bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (lda >= nb)
+            && (ldb >= nb) && (ldc >= nb);
+        if(!isok)
+        {
+            return (rocblas_status_invalid_size);
+        };
+    };
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    I host_info = 0;
+    rocsolver_geblttrf_npvt_batched_template<T, I>(stream, nb, nblocks, batchCount, A_array, lda,
+                                                   B_array, ldb, C_array, ldc, &host_info);
+
+    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
 }
 
 #endif

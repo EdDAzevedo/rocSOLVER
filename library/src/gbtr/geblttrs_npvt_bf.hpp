@@ -4,8 +4,9 @@
 ! -------------------------------------------------------------------
 */
 
-#ifndef GBTRS_NPVT_BF_HPP
-#define GBTRS_NPVT_BF_HPP
+#pragma once
+#ifndef GEBLTTRS_NPVT_BF_HPP
+#define GEBLTTRS_NPVT_BF_HPP
 /*
 ! % ------------------------------------------------
 ! % Perform forward and backward solve

@@ -3,7 +3,7 @@
  * Copyright (c) 2022 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 #pragma once
-#include "rocblas/rocblas.h"
+#include "rocsolver/rocsolver.h"
 #include <assert.h>
 
 template <typename T>
