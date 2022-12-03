@@ -190,7 +190,6 @@ GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
 
     }; // end for k
 
-    if(info != 0)
     {
         *pinfo = info;
     };
