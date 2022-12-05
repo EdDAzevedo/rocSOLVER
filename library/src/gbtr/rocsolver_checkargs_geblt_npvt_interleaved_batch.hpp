@@ -1,4 +1,3 @@
-
 /*! \file */
 /* ************************************************************************
  * Copyright (C) 2020-2022 Advanced Micro Devices, Inc. All rights Reserved.
@@ -23,15 +22,13 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GEBLTTRF_NPVT_INTERLEAVED_BATCH_H
-#define ROCSOLVER_GEBLTTRF_NPVT_INTERLEAVED_BATCH_H
+#ifndef ROCSOLVER_CHECKARGS_GEBLT_NPVT_INTERLEAVED_BATCH_HPP
+#define ROCSOLVER_CHECKARGS_GEBLT_NPVT_INTERLEAVED_BATCH_HPP
 
 #include "geblt_common.h"
-#include "geblttrf_npvt_bf.hpp"
-#include "rocsolver_checkargs_geblt_npvt_interleaved_batch.hpp"
 
 template <typename T, typename I>
-rocblas_status rocsolver_geblttrf_npvt_interleaved_batch_impl(rocblas_handle handle,
+rocblas_status rocsolver_checkargs_geblt_npvt_interleaved_batch(rocblas_handle handle,
                                                                   I nb,
                                                                   I nblocks,
                                                                   T* A_,
@@ -43,23 +40,38 @@ rocblas_status rocsolver_geblttrf_npvt_interleaved_batch_impl(rocblas_handle han
                                                                   I devinfo_array[],
                                                                   I batch_count)
 {
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
 
-    rocblas_status istat = rocsolver_checkargs_geblt_npvt_interleaved_batch(
-                  handle, nb, nblocks,
-                  A_, lda, B_, ldb, C_, ldc,
-                  devinfo_array,
-                  batch_count );
-    if (istat != rocblas_status_continue) {
-       return(istat);
+    /* 
+    ---------------
+    check arguments
+    ---------------
+    */
+    if(handle == nullptr)
+    {
+        return (rocblas_status_invalid_handle);
+    };
+
+
+    bool const has_work = (nb >= 1) && (nblocks >= 1) && (batch_count >= 1);
+
+    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr) || (devinfo_array == nullptr) )
+    {
+        return (rocblas_status_invalid_pointer);
+    };
+    {
+        bool const isok = (nb >= 0) && (nblocks >= 0) && (batch_count >= 0) && 
+                          (lda >= nb) && (ldb >= nb) && (ldc >= nb); 
+        if(!isok)
+        {
+            return (rocblas_status_invalid_size);
+        };
+    };
+
+    bool const no_work = !has_work;
+    if (no_work) {
+       return( rocblas_status_success );
        };
 
-
-    istat = geblttrf_npvt_bf_template(handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc,
-                                    devinfo_array, batch_count );
-
-    return(istat);
+   return( rocblas_status_continue );
 }
-
 #endif

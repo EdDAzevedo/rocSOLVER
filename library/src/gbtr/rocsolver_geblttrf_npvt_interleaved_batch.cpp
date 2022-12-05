@@ -35,10 +35,11 @@ rocblas_status rocsolver_dgeblttrf_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldb,
                                                           double* C_,
                                                           rocblas_int ldc,
+                                                          rocblas_int devinfo_array[],
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrf_npvt_interleaved_batch_template<double, rocblas_int>(
-        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
+    return (rocsolver_geblttrf_npvt_interleaved_batch_impl<double, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, devinfo_array, batchCount));
 };
 
 rocblas_status rocsolver_sgeblttrf_npvt_interleaved_batch(rocblas_handle handle,
@@ -50,10 +51,11 @@ rocblas_status rocsolver_sgeblttrf_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldb,
                                                           float* C_,
                                                           rocblas_int ldc,
+                                                          rocblas_int devinfo_array[],
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrf_npvt_interleaved_batch_template<float, rocblas_int>(
-        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
+    return (rocsolver_geblttrf_npvt_interleaved_batch_impl<float, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, devinfo_array, batchCount));
 };
 
 rocblas_status rocsolver_zgeblttrf_npvt_interleaved_batch(rocblas_handle handle,
@@ -65,10 +67,11 @@ rocblas_status rocsolver_zgeblttrf_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldb,
                                                           rocblas_double_complex* C_,
                                                           rocblas_int ldc,
+                                                          rocblas_int devinfo_array[],
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrf_npvt_interleaved_batch_template<rocblas_double_complex, rocblas_int>(
-        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
+    return (rocsolver_geblttrf_npvt_interleaved_batch_impl<rocblas_double_complex, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, devinfo_array, batchCount));
 };
 
 rocblas_status rocsolver_cgeblttrf_npvt_interleaved_batch(rocblas_handle handle,
@@ -80,9 +83,10 @@ rocblas_status rocsolver_cgeblttrf_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldb,
                                                           rocblas_float_complex* C_,
                                                           rocblas_int ldc,
+                                                          rocblas_int devinfo_array[],
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrf_npvt_interleaved_batch_template<rocblas_float_complex, rocblas_int>(
-        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, batchCount));
+    return (rocsolver_geblttrf_npvt_interleaved_batch_impl<rocblas_float_complex, rocblas_int>(
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, devinfo_array, batchCount));
 };
 }
