@@ -62,7 +62,7 @@ rocblas_status rocsolver_geblttrs_npvt_batched_impl(rocblas_handle handle,
     }
     else
     {
-        istat = rocsolver_geblttrs_npvt_batched_small_template(handle, nb, nblocks, nrhs, A_array,
+        istat = rocsolver_geblttrs_npvt_batched_large_template(handle, nb, nblocks, nrhs, A_array,
                                                                lda, B_array, ldb, C_array, ldc,
                                                                X_array, ldx, batch_count);
     };
