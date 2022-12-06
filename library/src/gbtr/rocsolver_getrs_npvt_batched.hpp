@@ -3,13 +3,18 @@
  * Copyright (c) 2022 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 #pragma once
+#ifndef ROCSOLVER_GETRS_NPVT_BATCHED_WITH_OFFSET_HPP
+#define ROCSOLVER_GETRS_NPVT_BATCHED_WITH_OFFSET_HPP
 
-#include "rocblas/rocblas.h"
+
+
+#include "geblt_common.h"
 
 #include "rocsolver_trsm_batched.hpp"
+#include "rocsolver_adjust_batch.hpp"
 
-template <typename T, typename I, typename Istride>
-rocblas_status rocsolver_getrs_npvt_batched(rocblas_handle handle,
+template <typename T, typename I >
+rocblas_status rocsolver_getrs_npvt_batched_with_offset(rocblas_handle handle,
                                                     I const n,
                                                     I const nrhs,
                                                     T * A_array[],
@@ -84,3 +89,5 @@ L999:
     rocblas_set_pointer_mode(handle, old_mode);
     return (istat);
 };
+
+#endif
