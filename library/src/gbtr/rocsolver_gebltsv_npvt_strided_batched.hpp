@@ -32,58 +32,46 @@
 #include "rocsolver_geblttrf_npvt_strided_batched.hpp"
 #include "rocsolver_geblttrs_npvt_strided_batched.hpp"
 
-template< typename T, typename I, typename Istride>
-rocblas_status rocsolver_gebltsv_npvt_strided_batched_impl(
-     rocblas_handle handle,
-     const I nb,
-     const I nblocks,
-     const I nrhs,
+template <typename T, typename I, typename Istride>
+rocblas_status rocsolver_gebltsv_npvt_strided_batched_impl(rocblas_handle handle,
+                                                           const I nb,
+                                                           const I nblocks,
+                                                           const I nrhs,
 
-     T * A_,
-     const I lda,
-     const Istride strideA,
+                                                           T* A_,
+                                                           const I lda,
+                                                           const Istride strideA,
 
-     T * B_,
-     const I ldb,
-     const Istride strideB,
+                                                           T* B_,
+                                                           const I ldb,
+                                                           const Istride strideB,
 
-     T * C_,
-     const I ldc,
-     const Istride strideC,
+                                                           T* C_,
+                                                           const I ldc,
+                                                           const Istride strideC,
 
-     T * X_,
-     const I ldx,
-     const Istride strideX,
+                                                           T* X_,
+                                                           const I ldx,
+                                                           const Istride strideX,
 
-     I info_array[],
-     const I batch_count
-     )
+                                                           I info_array[],
+                                                           const I batch_count)
 {
-  rocblas_status istat = rocblas_status_success;
+    rocblas_status istat = rocblas_status_success;
 
-  istat = rocsolver_geblttrf_npvt_strided_batched_impl(
-                handle,
-                nb, nblocks,
-                A_, lda, strideA,
-                B_, ldb, strideB,
-                C_, ldc, strideC,
-                info_array,
-                batch_count );
-   if (istat != rocblas_status_success) {
-      return( istat );
-      };
+    istat = rocsolver_geblttrf_npvt_strided_batched_impl(handle, nb, nblocks, A_, lda, strideA, B_,
+                                                         ldb, strideB, C_, ldc, strideC, info_array,
+                                                         batch_count);
+    if(istat != rocblas_status_success)
+    {
+        return (istat);
+    };
 
-  istat = rocsolver_geblttrs_npvt_strided_batched_impl(
-                handle,
-                nb, nblocks, nrhs,
-                A_, lda, strideA,
-                B_, ldb, strideB,
-                C_, ldc, strideC,
-                X_, ldx, strideX,
-                batch_count );
+    istat = rocsolver_geblttrs_npvt_strided_batched_impl(handle, nb, nblocks, nrhs, A_, lda,
+                                                         strideA, B_, ldb, strideB, C_, ldc,
+                                                         strideC, X_, ldx, strideX, batch_count);
 
-  return( istat );
+    return (istat);
 }
-
 
 #endif

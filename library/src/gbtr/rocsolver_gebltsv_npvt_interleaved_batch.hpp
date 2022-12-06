@@ -32,43 +32,34 @@
 #include "rocsolver_geblttrf_npvt_interleaved_batch.hpp"
 #include "rocsolver_geblttrs_npvt_interleaved_batch.hpp"
 
-template< typename T, typename I>
-rocblas_status rocsolver_gebltsv_npvt_interleaved_batch_impl(
-            rocblas_handle handle,
-            const I nb,
-            const I nblocks,
-            const I nrhs,
-            T * A_,
-            const I lda,
-            T * B_,
-            const I ldb,
-            T * C_,
-            const I ldc,
-            T * X_,
-            const I ldx,
-            I dinfo_array[],
-            const I batch_count
-            )
+template <typename T, typename I>
+rocblas_status rocsolver_gebltsv_npvt_interleaved_batch_impl(rocblas_handle handle,
+                                                             const I nb,
+                                                             const I nblocks,
+                                                             const I nrhs,
+                                                             T* A_,
+                                                             const I lda,
+                                                             T* B_,
+                                                             const I ldb,
+                                                             T* C_,
+                                                             const I ldc,
+                                                             T* X_,
+                                                             const I ldx,
+                                                             I dinfo_array[],
+                                                             const I batch_count)
 {
-
     rocblas_status istat = rocblas_status_success;
 
-    istat = rocsolver_geblttrf_npvt_interleaved_batch_impl(
-                 handle, nb, nblocks, 
-                 A_, lda, B_, ldb, C_, ldc, 
-                 dinfo_array, 
-                 batch_count );
-    if (istat != rocblas_status_success ) {
-       return(istat);
-       };
+    istat = rocsolver_geblttrf_npvt_interleaved_batch_impl(handle, nb, nblocks, A_, lda, B_, ldb,
+                                                           C_, ldc, dinfo_array, batch_count);
+    if(istat != rocblas_status_success)
+    {
+        return (istat);
+    };
 
-    istat = rocsolver_geblttrs_npvt_interleaved_batch_impl(
-               handle, nb, nblocks, nrhs,
-               A_, lda, B_, ldb, C_, ldc,
-               X_, ldx,
-               batch_count );
-    return( istat );
+    istat = rocsolver_geblttrs_npvt_interleaved_batch_impl(handle, nb, nblocks, nrhs, A_, lda, B_,
+                                                           ldb, C_, ldc, X_, ldx, batch_count);
+    return (istat);
 }
-
 
 #endif
