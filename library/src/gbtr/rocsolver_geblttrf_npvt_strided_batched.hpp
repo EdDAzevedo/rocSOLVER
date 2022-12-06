@@ -56,7 +56,6 @@ rocblas_status rocsolver_geblttrf_npvt_strided_batched_impl(rocblas_handle handl
         // check arguments
         // ---------------
 
-
         // ------------------------------------------------------------
         // reuse  values of A_,lda, strideA, for dummy X_, ldx, strideX
         // ------------------------------------------------------------
@@ -65,40 +64,34 @@ rocblas_status rocsolver_geblttrf_npvt_strided_batched_impl(rocblas_handle handl
         const Istride strideX = strideA;
         const I nrhs = nb;
 
-
-
         rocblas_status istat = rocsolver_checkargs_geblt_npvt_strided_batched(
             handle, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC, X_,
-            ldx, strideX,  batch_count);
-
+            ldx, strideX, batch_count);
 
         if(istat != rocblas_status_continue)
         {
             return (istat);
         };
 
-        if (devinfo_array == nullptr) {
-           return( rocblas_status_invalid_pointer);
-           };
+        if(devinfo_array == nullptr)
+        {
+            return (rocblas_status_invalid_pointer);
+        };
     }
-
-
 
     // ----------------------------
     // set devinfo_array to be zero
     // ----------------------------
-    if (batch_count >= 1)
+    if(batch_count >= 1)
     {
-    hipStream_t stream;
-    rocblas_get_stream( handle, &stream );
+        hipStream_t stream;
+        rocblas_get_stream(handle, &stream);
 
+        void* dst = (void*)&(devinfo_array[0]);
+        int value = 0;
+        size_t sizeBytes = sizeof(I) * batch_count;
 
-    void *dst = (void *) &(devinfo_array[0]);
-    int value = 0;
-    size_t sizeBytes = sizeof(I) * batch_count;
-    
-    HIP_CHECK( hipMemsetAsync( dst, value, sizeBytes, stream ),
-               rocblas_status_internal_error );
+        HIP_CHECK(hipMemsetAsync(dst, value, sizeBytes, stream), rocblas_status_internal_error);
     };
 
     if(nb < NB_SMALL)

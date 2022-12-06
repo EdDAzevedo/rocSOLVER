@@ -23,27 +23,26 @@
  * ************************************************************************ */
 #pragma once
 #ifndef ROCSOLVER_CHECKARGS_GEBLT_NPVT_BATCHED_HPP
-#define  ROCSOLVER_CHECKARGS_GEBLT_NPVT_BATCHED_HPP
+#define ROCSOLVER_CHECKARGS_GEBLT_NPVT_BATCHED_HPP
 
 #include "geblt_common.h"
 
 template <typename T, typename I>
-rocblas_status rocsolver_checkargs_geblt_npvt_batched(
-                                               rocblas_handle handle,
-                                               const I nb,
-                                               const I nblocks,
-                                               const I nrhs,
+rocblas_status rocsolver_checkargs_geblt_npvt_batched(rocblas_handle handle,
+                                                      const I nb,
+                                                      const I nblocks,
+                                                      const I nrhs,
 
-                                               T* A_array[],
-                                               const I lda,
-                                               T* B_array[],
-                                               const I ldb,
-                                               T* C_array[],
-                                               const I ldc,
+                                                      T* A_array[],
+                                                      const I lda,
+                                                      T* B_array[],
+                                                      const I ldb,
+                                                      T* C_array[],
+                                                      const I ldc,
 
-                                               T* X_array[],
-                                               const I ldx,
-                                               const I batch_count)
+                                                      T* X_array[],
+                                                      const I ldx,
+                                                      const I batch_count)
 {
     /* 
     ---------------
@@ -55,33 +54,31 @@ rocblas_status rocsolver_checkargs_geblt_npvt_batched(
         return (rocblas_status_invalid_handle);
     };
 
-
     if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr) || (X_array == nullptr))
     {
         return (rocblas_status_invalid_pointer);
     };
 
-
     bool const has_work = (nb >= 1) && (nblocks >= 1) && (batch_count >= 1) && (nrhs >= 1);
 
-    if (has_work)
+    if(has_work)
     {
-        bool const isok =  (lda >= nb) && (ldb >= nb) && (ldc >= nb) && (ldx >= nb);
+        bool const isok = (lda >= nb) && (ldb >= nb) && (ldc >= nb) && (ldx >= nb);
         if(!isok)
         {
             return (rocblas_status_invalid_size);
         };
-     }
+    }
 
     // no work
-    if(has_work) {
-        return( rocblas_status_continue );
-        }
-    else {
+    if(has_work)
+    {
+        return (rocblas_status_continue);
+    }
+    else
+    {
         return (rocblas_status_success);
     };
 };
-
-
 
 #endif

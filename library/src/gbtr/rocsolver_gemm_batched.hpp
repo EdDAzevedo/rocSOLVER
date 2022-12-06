@@ -9,8 +9,7 @@
 #include "rocblas/rocblas.h"
 #include <assert.h>
 
-
-template<typename T>
+template <typename T>
 rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
                                       const rocblas_operation transA,
                                       const rocblas_operation transB,
@@ -27,10 +26,10 @@ rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
                                       const rocblas_int ldc,
                                       const rocblas_int batch_count)
 {
-#pragma unused(handle,transA,transB,m,n,k,alpha)
-#pragma unused(A_array,lda,B_array,ldb,beta,C_array,ldc,batch_count)
+#pragma unused(handle, transA, transB, m, n, k, alpha)
+#pragma unused(A_array, lda, B_array, ldb, beta, C_array, ldc, batch_count)
 
-  return( rocblas_status_not_implemented );
+    return (rocblas_status_not_implemented);
 }
 
 template <>
@@ -55,11 +54,9 @@ rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
                                       const rocblas_int ldc,
                                       const rocblas_int batch_count)
 {
-    return (rocblas_dgemm_batched(handle, transA, transB, m, n, k, 
-                                  alpha, A_array, lda, B_array, ldb, 
-                                  beta, C_array, ldc, batch_count));
+    return (rocblas_dgemm_batched(handle, transA, transB, m, n, k, alpha, A_array, lda, B_array,
+                                  ldb, beta, C_array, ldc, batch_count));
 }
-
 
 template <>
 rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
@@ -83,13 +80,9 @@ rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
                                       const rocblas_int ldc,
                                       const rocblas_int batch_count)
 {
-    return (rocblas_sgemm_batched(handle, transA, transB, m, n, k, 
-                                  alpha, A_array, lda, B_array, ldb, 
-                                  beta, C_array, ldc, batch_count));
+    return (rocblas_sgemm_batched(handle, transA, transB, m, n, k, alpha, A_array, lda, B_array,
+                                  ldb, beta, C_array, ldc, batch_count));
 }
-
-
-
 
 template <>
 rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
@@ -113,13 +106,9 @@ rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
                                       const rocblas_int ldc,
                                       const rocblas_int batch_count)
 {
-    return (rocblas_zgemm_batched(handle, transA, transB, m, n, k, 
-                                  alpha, A_array, lda, B_array, ldb, 
-                                  beta, C_array, ldc, batch_count));
+    return (rocblas_zgemm_batched(handle, transA, transB, m, n, k, alpha, A_array, lda, B_array,
+                                  ldb, beta, C_array, ldc, batch_count));
 }
-
-
-
 
 template <>
 rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
@@ -143,8 +132,7 @@ rocblas_status rocsolver_gemm_batched(rocblas_handle handle,
                                       const rocblas_int ldc,
                                       const rocblas_int batch_count)
 {
-    return (rocblas_cgemm_batched(handle, transA, transB, m, n, k, 
-                                  alpha, A_array, lda, B_array, ldb, 
-                                  beta, C_array, ldc, batch_count));
+    return (rocblas_cgemm_batched(handle, transA, transB, m, n, k, alpha, A_array, lda, B_array,
+                                  ldb, beta, C_array, ldc, batch_count));
 }
 #endif

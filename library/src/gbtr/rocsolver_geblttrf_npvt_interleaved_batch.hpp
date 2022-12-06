@@ -32,34 +32,31 @@
 
 template <typename T, typename I>
 rocblas_status rocsolver_geblttrf_npvt_interleaved_batch_impl(rocblas_handle handle,
-                                                                  I nb,
-                                                                  I nblocks,
-                                                                  T* A_,
-                                                                  I lda,
-                                                                  T* B_,
-                                                                  I ldb,
-                                                                  T* C_,
-                                                                  I ldc,
-                                                                  I devinfo_array[],
-                                                                  I batch_count)
+                                                              I nb,
+                                                              I nblocks,
+                                                              T* A_,
+                                                              I lda,
+                                                              T* B_,
+                                                              I ldb,
+                                                              T* C_,
+                                                              I ldc,
+                                                              I devinfo_array[],
+                                                              I batch_count)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
     rocblas_status istat = rocsolver_checkargs_geblt_npvt_interleaved_batch(
-                  handle, nb, nblocks,
-                  A_, lda, B_, ldb, C_, ldc,
-                  devinfo_array,
-                  batch_count );
-    if (istat != rocblas_status_continue) {
-       return(istat);
-       };
+        handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, devinfo_array, batch_count);
+    if(istat != rocblas_status_continue)
+    {
+        return (istat);
+    };
 
+    istat = geblttrf_npvt_bf_template(handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc, devinfo_array,
+                                      batch_count);
 
-    istat = geblttrf_npvt_bf_template(handle, nb, nblocks, A_, lda, B_, ldb, C_, ldc,
-                                    devinfo_array, batch_count );
-
-    return(istat);
+    return (istat);
 }
 
 #endif

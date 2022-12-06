@@ -45,7 +45,6 @@ rocblas_status rocsolver_dgeblttrs_npvt_strided_batched(rocblas_handle handle,
                                                         const rocblas_stride strideX,
                                                         const rocblas_int batch_count)
 {
-
     return (rocsolver_geblttrs_npvt_strided_batched_impl<double, rocblas_int, rocblas_stride>(
         handle, nb, nblocks, nrhs, A_, lda, strideA, B_, ldb, strideB, C_, ldc, strideC,
 

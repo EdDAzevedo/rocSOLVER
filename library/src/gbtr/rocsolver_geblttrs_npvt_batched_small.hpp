@@ -22,16 +22,16 @@
  *
  * ************************************************************************ */
 #pragma once
-
-#ifndef ROCSOLVER_GEBLTTRF_NPVT_BATCHED_SMALL
-#define ROCSOLVER_GEBLTTRF_NPVT_BATCHED_SMALL
+#ifndef ROCSOVLER_GEBLTTRS_NPVT_BATCHED_SMALL_HPP
+#define ROCSOVLER_GEBLTTRS_NPVT_BATCHED_SMALL_HPP
 
 #include "geblt_common.h"
-#include "geblttrf_npvt.hpp"
+#include "geblttrs_npvt.hpp"
 
 template <typename T, typename I>
-GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(const I nb,
+GLOBAL_FUNCTION void geblttrs_npvt_batched_kernel(const I nb,
                                                   const I nblocks,
+                                                  const I nrhs,
 
                                                   T* A_array[],
                                                   const I lda,
@@ -39,7 +39,9 @@ GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(const I nb,
                                                   const I ldb,
                                                   T* C_array[],
                                                   const I ldc,
-                                                  I devinfo_array[],
+
+                                                  T* X_array[],
+                                                  const I ldX,
                                                   const I batch_count)
 {
 #ifdef USE_GPU
@@ -48,25 +50,26 @@ GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(const I nb,
     auto const i_inc = gridDim.x * blockDim.x;
 
 #else
-    auto const i_start = 0;
-    auto const i_inc = 1;
+    I const i_start = 0;
+    I const i_inc = 1;
+    sinfo = 0;
 #endif
 
     {
         for(I i = i_start; i < batch_count; i += i_inc)
         {
             I linfo = 0;
-            geblttrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i],
-                                       ldc, &linfo);
-            devinfo_array[i] = linfo;
+            geblttrs_npvt_device<T, I>(nb, nblocks, nrhs, A_array[i], lda, B_array[i], ldb,
+                                       C_array[i], ldc, X_array[i], ldX, &linfo);
         };
     };
 }
 
 template <typename T, typename I>
-rocblas_status rocsolver_geblttrf_npvt_batched_small_template(rocblas_handle handle,
+rocblas_status rocsolver_geblttrs_npvt_batched_small_template(rocblas_handle handle,
                                                               const I nb,
                                                               const I nblocks,
+                                                              const I nrhs,
 
                                                               T* A_array[],
                                                               const I lda,
@@ -74,15 +77,23 @@ rocblas_status rocsolver_geblttrf_npvt_batched_small_template(rocblas_handle han
                                                               const I ldb,
                                                               T* C_array[],
                                                               const I ldc,
-                                                              I devinfo_array[],
+
+                                                              T* X_array[],
+                                                              const I ldX,
+
                                                               const I batch_count)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    auto grid_dim = (batch_count + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
-    hipLaunchKernelGGL((geblttrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GEBLT_BLOCK_DIM), 0,
-                       stream, nb, nblocks, A_array, lda, B_array, ldb, C_array, ldc, devinfo_array,
+    auto nthread_blocks = (batch_count + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
+    hipLaunchKernelGGL((geblttrs_npvt_batched_kernel<T, I>), dim3(nthread_blocks),
+                       dim3(GEBLT_BLOCK_DIM), 0, stream,
+
+                       nb, nblocks, nrhs,
+
+                       A_array, lda, B_array, ldb, C_array, ldc, X_array, ldX,
+
                        batch_count);
 
     return (rocblas_status_success);

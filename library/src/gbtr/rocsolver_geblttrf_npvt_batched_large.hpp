@@ -9,8 +9,8 @@
 #include "geblt_common.h"
 
 #include "rocsolver_gemm_batched_with_offset.hpp"
-#include "rocsolver_getrs_npvt_batched_with_offset.hpp"
 #include "rocsolver_getrf_npvt_batched_with_offset.hpp"
+#include "rocsolver_getrs_npvt_batched_with_offset.hpp"
 
 /*
 ! ------------------------------------------------------
@@ -24,18 +24,18 @@
 */
 
 template <typename T, typename I>
-rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
-    rocblas_handle handle,
-    const I nb,
-    const I nblocks,
-    T* A_array[],
-    const I lda,
-    T* B_array[],
-    const I ldb,
-    T* C_array[],
-    const I ldc,
-    I info_array[], // array of batch_count integers on GPU
-    const I batch_count)
+rocblas_status
+    rocsolver_geblttrf_npvt_batched_large_template(rocblas_handle handle,
+                                                   const I nb,
+                                                   const I nblocks,
+                                                   T* A_array[],
+                                                   const I lda,
+                                                   T* B_array[],
+                                                   const I ldb,
+                                                   T* C_array[],
+                                                   const I ldc,
+                                                   I info_array[], // array of batch_count integers on GPU
+                                                   const I batch_count)
 {
     /*
  -----------------
@@ -56,11 +56,9 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
 #define indx3f(i1, i2, i3, n1, n2) indx3(((i1)-1), ((i2)-1), ((i3)-1), (n1), (n2))
 #endif
 
-
-#define A(i1, i2, i3, ibatch) (A_array[(ibatch)-1])[ indx3f(i1, i2, i3, lda, nb)]
-#define B(i1, i2, i3, ibatch) (B_array[(ibatch)-1])[ indx3f(i1, i2, i3, ldb, nb)]
-#define C(i1, i2, i3, ibatch) (C_array[(ibatch)-1])[ indx3f(i1, i2, i3, ldc, nb)]
-
+#define A(i1, i2, i3, ibatch) (A_array[(ibatch)-1])[indx3f(i1, i2, i3, lda, nb)]
+#define B(i1, i2, i3, ibatch) (B_array[(ibatch)-1])[indx3f(i1, i2, i3, ldb, nb)]
+#define C(i1, i2, i3, ibatch) (C_array[(ibatch)-1])[indx3f(i1, i2, i3, ldc, nb)]
 
 /*
 !     --------------------------
@@ -104,12 +102,9 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
         I const j = 1;
         // T* Ap = &(D(i, j, k, ibatch));
         auto Ap_array = D_array;
-        I const offset1 = indx3f(i,j,k, ldd,nb);
-        rocblas_status istat = rocsolver_getrf_npvt_batched_with_offset(handle, 
-                                                                    mm, nn, 
-                                                                    Ap_array, offset1, ld1, 
-                                                                    info_array, 
-                                                                    batch_count);
+        I const offset1 = indx3f(i, j, k, ldd, nb);
+        rocblas_status istat = rocsolver_getrf_npvt_batched_with_offset(
+            handle, mm, nn, Ap_array, offset1, ld1, info_array, batch_count);
         if(istat != rocblas_status_success)
         {
             return (istat);
@@ -146,18 +141,15 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
             // T const* const Ap = &(D(1, 1, k, ibatch));
             auto Ap_array = D_array;
             I const ld1 = ldd;
-            I const offset1 = indx3f(1,1,k,  ldd,nb);
+            I const offset1 = indx3f(1, 1, k, ldd, nb);
 
             // T* const Bp = &(U(1, 1, k, ibatch));
             auto Bp_array = U_array;
             I const ld2 = ldu;
-            I const offset2 = indx3f(1,1,k, ldu, nb);
+            I const offset2 = indx3f(1, 1, k, ldu, nb);
 
             rocblas_status istat = rocsolver_getrs_npvt_batched_with_offset(
-                handle, nn, nrhs, 
-                        Ap_array, offset1, ld1,  
-			Bp_array, offset2, ld2, 
-               batch_count);
+                handle, nn, nrhs, Ap_array, offset1, ld1, Bp_array, offset2, ld2, batch_count);
             if(istat != rocblas_status_success)
             {
                 return (istat);
@@ -182,27 +174,24 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
             auto Ap_array = A_array;
 
             I const ld1 = lda;
-            I const offset1 = indx3f(1,1,k+1, lda,nb);
+            I const offset1 = indx3f(1, 1, k + 1, lda, nb);
 
             // T const* const Bp = &(U(1, 1, k, ibatch));
             auto Bp_array = U_array;
             I const ld2 = ldu;
-            I const offset2 = indx3f(1,1,k, ldu,nb);
+            I const offset2 = indx3f(1, 1, k, ldu, nb);
 
             // T* const Cp = &(B(1, 1, k + 1, ibatch));
             auto Cp_array = B_array;
             I const ld3 = ldb;
-            I const offset3 = indx3f(1,1,k+1,  ldb,nb);
+            I const offset3 = indx3f(1, 1, k + 1, ldb, nb);
 
             rocblas_operation const transA = rocblas_operation_none;
             rocblas_operation const transB = rocblas_operation_none;
 
             rocblas_status istat = rocsolver_gemm_batched_with_offset(
-                handle, transA, transB, mm, nn, kk, 
-                    &alpha, Ap_array, offset1, ld1, 
-                            Bp_array, offset2, ld2, 
-                    &beta,  Cp_array, offset3, ld3, 
-                            batch_count);
+                handle, transA, transB, mm, nn, kk, &alpha, Ap_array, offset1, ld1, Bp_array,
+                offset2, ld2, &beta, Cp_array, offset3, ld3, batch_count);
             if(istat != rocblas_status_success)
             {
                 return (istat);
@@ -221,11 +210,10 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
             // T* const Ap = &(D(1, 1, k + 1, ibatch));
             auto Ap_array = D_array;
             I const ld1 = ldd;
-            I const offset1 = indx3f(1,1,k+1,   ldd,nb);
+            I const offset1 = indx3f(1, 1, k + 1, ldd, nb);
 
             rocblas_status istat = rocsolver_getrf_npvt_batched_with_offset(
-                handle, mm, nn, Ap_array, offset1, ld1, 
-                               info_array, batch_count);
+                handle, mm, nn, Ap_array, offset1, ld1, info_array, batch_count);
             if(istat != rocblas_status_success)
             {
                 return (istat);

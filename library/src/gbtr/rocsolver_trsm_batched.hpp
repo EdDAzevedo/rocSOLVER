@@ -96,9 +96,9 @@ rocblas_status rocsolver_trsm_batched(rocblas_handle handle,
                                       const rocblas_int m,
                                       const rocblas_int n,
                                       rocblas_float_complex* alpha,
-                                      rocblas_float_complex*  A[],
+                                      rocblas_float_complex* A[],
                                       const rocblas_int lda,
-                                      rocblas_float_complex*  B[],
+                                      rocblas_float_complex* B[],
                                       const rocblas_int ldb,
                                       const rocblas_int batch_count)
 {

@@ -29,58 +29,50 @@
 #ifndef ROCSOLVER_ADJUST_BATCH_HPP
 #define ROCSOLVER_ADJUST_BATCH_HPP
 
-
-template<typename T, typename I>
-GLOBAL_FUNCTION void rocsolver_adjust_batch_kernel(
-                           bool const is_add,
-                           T * A_array[],
-                           I const offset,
-                           I const batch_count) 
+template <typename T, typename I>
+GLOBAL_FUNCTION void
+    rocsolver_adjust_batch_kernel(bool const is_add, T* A_array[], I const offset, I const batch_count)
 {
 #ifdef USE_GPU
-  I const ibatch_start = threadIdx.x + blockIdx.x * blockDim.x;
-  I const ibatch_inc = blockDim.x * gridDim.x;
+    I const ibatch_start = threadIdx.x + blockIdx.x * blockDim.x;
+    I const ibatch_inc = blockDim.x * gridDim.x;
 #else
-  I const ibatch_start = 0;
-  I const ibatch_inc = 1;
+    I const ibatch_start = 0;
+    I const ibatch_inc = 1;
 #endif
-  for(I ibatch=ibatch_start; ibatch < batch_count; ibatch += ibatch_inc) {
-    if (is_add) {
-      A_array[ ibatch ] += offset;
-      }
-    else{
-      A_array[ ibatch ] -= offset;
-      };
-
+    for(I ibatch = ibatch_start; ibatch < batch_count; ibatch += ibatch_inc)
+    {
+        if(is_add)
+        {
+            A_array[ibatch] += offset;
+        }
+        else
+        {
+            A_array[ibatch] -= offset;
+        };
     };
-  return;
+    return;
 };
 
-
-template<typename T, typename I>
-rocblas_status rocsolver_adjust_batch(
-                 rocblas_handle handle,
-                 bool const is_add,
-                 T *  A_array[],
-                 I const offset,
-                 I const batch_count )
+template <typename T, typename I>
+rocblas_status rocsolver_adjust_batch(rocblas_handle handle,
+                                      bool const is_add,
+                                      T* A_array[],
+                                      I const offset,
+                                      I const batch_count)
 {
-   auto const nthreads = 4 * 32;
-   auto const nblocks = (batch_count + (nthreads-1))/nthreads;
+    auto const nthreads = 4 * 32;
+    auto const nblocks = (batch_count + (nthreads - 1)) / nthreads;
 
-   
+    if(batch_count >= 1)
+    {
+        hipStream_t stream;
+        rocblas_get_stream(handle, &stream);
 
-   if (batch_count >= 1) {
-     hipStream_t stream;
-     rocblas_get_stream( handle, &stream );
-
-     hipLaunchKernelGGL( (rocsolver_adjust_batch_kernel<T,I>),
-                       dim3( nblocks ), dim3( nthreads ), 0, stream,
-                       is_add, A_array, offset, batch_count );
-     };
-   return( rocblas_status_success );
+        hipLaunchKernelGGL((rocsolver_adjust_batch_kernel<T, I>), dim3(nblocks), dim3(nthreads), 0,
+                           stream, is_add, A_array, offset, batch_count);
+    };
+    return (rocblas_status_success);
 };
-
-
 
 #endif

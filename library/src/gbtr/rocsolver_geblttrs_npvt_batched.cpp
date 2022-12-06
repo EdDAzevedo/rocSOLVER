@@ -24,78 +24,81 @@
  * ************************************************************************ */
 #include "rocsolver_geblttrs_npvt_batched.hpp"
 
-template <typename T, typename I>
-rocblas_status rocsolver_geblttrs_batched_impl(rocblas_handle handle,
-                                               I nb,
-                                               I nblocks,
-                                               I nrhs,
-                                               T* A_array[],
-                                               I lda,
-                                               T* B_array[],
-                                               I ldb,
-                                               T* C_array[],
-                                               I ldc,
-                                               T* X_,
-                                               I ldx,
-                                               I batchCount)
-{
-    /* 
-    ---------------
-    check arguments
-    ---------------
-    */
-    if(handle == nullptr)
-    {
-        return (rocblas_status_invalid_handle);
-    };
-
-    // no work
-    if((nb == 0) || (nblocks == 0) || (batchCount == 0) || (nrhs == 0))
-    {
-        return (rocblas_status_success);
-    };
-
-    if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr) || (X_ == nullptr))
-    {
-        return (rocblas_status_invalid_pointer);
-    };
-
-    {
-        bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (lda >= nb)
-            && (ldb >= nb) && (ldc >= nb) && (ldx >= (nb * nblocks));
-        if(!isok)
-        {
-            return (rocblas_status_invalid_size);
-        };
-    };
-
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
-
-    I host_info = 0;
-    geblttrs_npvt_batched_template<T, I>(stream, nb, nblocks, nrhs, batchCount, A_array, lda,
-                                         B_array, ldb, C_array, ldc, X_, ldx, &host_info);
-
-    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
-};
-
 extern "C" {
 
-rocblas_status rocsolver_dgeblttrs_batched(rocblas_handle handle,
-                                           rocblas_int nb,
-                                           rocblas_int nblocks,
-                                           rocblas_int nrhs,
-                                           double* A_array[],
-                                           rocblas_int lda,
-                                           double* B_array[],
-                                           rocblas_int ldb,
-                                           double* C_array[],
-                                           rocblas_int ldc,
-                                           double* X_,
-                                           rocblas_int ldx,
-                                           rocblas_int batchCount)
+rocblas_status rocsolver_dgeblttrs_npvt_batched(rocblas_handle handle,
+                                                const rocblas_int nb,
+                                                const rocblas_int nblocks,
+                                                const rocblas_int nrhs,
+                                                double* A_array[],
+                                                const rocblas_int lda,
+                                                double* B_array[],
+                                                const rocblas_int ldb,
+                                                double* C_array[],
+                                                const rocblas_int ldc,
+                                                double* X_array[],
+                                                const rocblas_int ldx,
+                                                const rocblas_int batchCount)
 {
-    return (rocsolver_geblttrs_batched_impl<double, rocblas_int>(
-        handle, nb, nblocks, nrhs, A_array, lda, B_array, ldb, C_array, ldc, X_, ldx, batchCount));
+    return (rocsolver_geblttrs_npvt_batched_impl<double, rocblas_int>(
+        handle, nb, nblocks, nrhs, A_array, lda, B_array, ldb, C_array, ldc, X_array, ldx,
+        batchCount));
+};
+
+rocblas_status rocsolver_sgeblttrs_npvt_batched(rocblas_handle handle,
+                                                const rocblas_int nb,
+                                                const rocblas_int nblocks,
+                                                const rocblas_int nrhs,
+                                                float* A_array[],
+                                                const rocblas_int lda,
+                                                float* B_array[],
+                                                const rocblas_int ldb,
+                                                float* C_array[],
+                                                const rocblas_int ldc,
+                                                float* X_array[],
+                                                const rocblas_int ldx,
+                                                const rocblas_int batchCount)
+{
+    return (rocsolver_geblttrs_npvt_batched_impl<float, rocblas_int>(
+        handle, nb, nblocks, nrhs, A_array, lda, B_array, ldb, C_array, ldc, X_array, ldx,
+        batchCount));
+};
+
+rocblas_status rocsolver_zgeblttrs_npvt_batched(rocblas_handle handle,
+                                                const rocblas_int nb,
+                                                const rocblas_int nblocks,
+                                                const rocblas_int nrhs,
+                                                rocblas_double_complex* A_array[],
+                                                const rocblas_int lda,
+                                                rocblas_double_complex* B_array[],
+                                                const rocblas_int ldb,
+                                                rocblas_double_complex* C_array[],
+                                                const rocblas_int ldc,
+                                                rocblas_double_complex* X_array[],
+                                                const rocblas_int ldx,
+                                                const rocblas_int batchCount)
+{
+    return (rocsolver_geblttrs_npvt_batched_impl<rocblas_double_complex, rocblas_int>(
+        handle, nb, nblocks, nrhs, A_array, lda, B_array, ldb, C_array, ldc, X_array, ldx,
+        batchCount));
+};
+
+rocblas_status rocsolver_cgeblttrs_npvt_batched(rocblas_handle handle,
+                                                const rocblas_int nb,
+                                                const rocblas_int nblocks,
+                                                const rocblas_int nrhs,
+                                                rocblas_float_complex* A_array[],
+                                                const rocblas_int lda,
+                                                rocblas_float_complex* B_array[],
+                                                const rocblas_int ldb,
+                                                rocblas_float_complex* C_array[],
+                                                const rocblas_int ldc,
+                                                rocblas_float_complex* X_array[],
+                                                const rocblas_int ldx,
+                                                const rocblas_int batchCount)
+{
+    return (rocsolver_geblttrs_npvt_batched_impl<rocblas_float_complex, rocblas_int>(
+        handle, nb, nblocks, nrhs, A_array, lda, B_array, ldb, C_array, ldc, X_array, ldx,
+        batchCount));
 };
 }

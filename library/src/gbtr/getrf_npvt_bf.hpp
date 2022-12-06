@@ -37,7 +37,7 @@ DEVICE_FUNCTION void
         {
             bool const is_diag_zero = (std::abs(A(iv, j, j)) == zero);
             T const Ujj_iv = is_diag_zero ? one : A(iv, j, j);
-            info[iv-1] = is_diag_zero && (info[iv-1] == 0) ? j : info[iv-1];
+            info[iv - 1] = is_diag_zero && (info[iv - 1] == 0) ? j : info[iv - 1];
 
             for(I ia = jp1; ia <= m; ia++)
             {
@@ -60,7 +60,6 @@ DEVICE_FUNCTION void
 
         SYNCTHREADS;
     };
-
 }
 #undef A
 

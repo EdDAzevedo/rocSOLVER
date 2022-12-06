@@ -29,18 +29,17 @@
 
 template <typename T, typename I>
 rocblas_status rocsolver_checkargs_geblt_npvt_interleaved_batch(rocblas_handle handle,
-                                                                  I nb,
-                                                                  I nblocks,
-                                                                  T* A_,
-                                                                  I lda,
-                                                                  T* B_,
-                                                                  I ldb,
-                                                                  T* C_,
-                                                                  I ldc,
-                                                                  I devinfo_array[],
-                                                                  I batch_count)
+                                                                I nb,
+                                                                I nblocks,
+                                                                T* A_,
+                                                                I lda,
+                                                                T* B_,
+                                                                I ldb,
+                                                                T* C_,
+                                                                I ldc,
+                                                                I devinfo_array[],
+                                                                I batch_count)
 {
-
     /* 
     ---------------
     check arguments
@@ -51,16 +50,15 @@ rocblas_status rocsolver_checkargs_geblt_npvt_interleaved_batch(rocblas_handle h
         return (rocblas_status_invalid_handle);
     };
 
-
     bool const has_work = (nb >= 1) && (nblocks >= 1) && (batch_count >= 1);
 
-    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr) || (devinfo_array == nullptr) )
+    if((A_ == nullptr) || (B_ == nullptr) || (C_ == nullptr) || (devinfo_array == nullptr))
     {
         return (rocblas_status_invalid_pointer);
     };
     {
-        bool const isok = (nb >= 0) && (nblocks >= 0) && (batch_count >= 0) && 
-                          (lda >= nb) && (ldb >= nb) && (ldc >= nb); 
+        bool const isok = (nb >= 0) && (nblocks >= 0) && (batch_count >= 0) && (lda >= nb)
+            && (ldb >= nb) && (ldc >= nb);
         if(!isok)
         {
             return (rocblas_status_invalid_size);
@@ -68,10 +66,11 @@ rocblas_status rocsolver_checkargs_geblt_npvt_interleaved_batch(rocblas_handle h
     };
 
     bool const no_work = !has_work;
-    if (no_work) {
-       return( rocblas_status_success );
-       };
+    if(no_work)
+    {
+        return (rocblas_status_success);
+    };
 
-   return( rocblas_status_continue );
+    return (rocblas_status_continue);
 }
 #endif
