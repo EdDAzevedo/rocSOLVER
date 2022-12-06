@@ -40,7 +40,7 @@ rocblas_status rocsolver_dgeblttrs_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldx,
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrs_npvt_interleaved_batch_template<double, rocblas_int>(
+    return (rocsolver_geblttrs_npvt_interleaved_batch_impl<double, rocblas_int>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, X_, ldx, batchCount));
 };
 
@@ -58,7 +58,7 @@ rocblas_status rocsolver_sgeblttrs_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldx,
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrs_npvt_interleaved_batch_template<float, rocblas_int>(
+    return (rocsolver_geblttrs_npvt_interleaved_batch_impl<float, rocblas_int>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, X_, ldx, batchCount));
 };
 
@@ -76,7 +76,7 @@ rocblas_status rocsolver_cgeblttrs_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldx,
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrs_npvt_interleaved_batch_template<rocblas_float_complex>(
+    return (rocsolver_geblttrs_npvt_interleaved_batch_impl<rocblas_float_complex>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, X_, ldx, batchCount));
 };
 
@@ -94,7 +94,7 @@ rocblas_status rocsolver_zgeblttrs_npvt_interleaved_batch(rocblas_handle handle,
                                                           rocblas_int ldx,
                                                           rocblas_int batchCount)
 {
-    return (rocsolver_geblttrs_npvt_interleaved_batch_template<rocblas_double_complex, rocblas_int>(
+    return (rocsolver_geblttrs_npvt_interleaved_batch_impl<rocblas_double_complex, rocblas_int>(
         handle, nb, nblocks, nrhs, A_, lda, B_, ldb, C_, ldc, X_, ldx, batchCount));
 };
 }

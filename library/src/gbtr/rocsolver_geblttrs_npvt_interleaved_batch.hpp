@@ -30,7 +30,7 @@
 #include "geblttrs_npvt_bf.hpp"
 
 template <typename T, typename I>
-rocblas_status rocsolver_geblttrs_npvt_interleaved_batch_template(rocblas_handle handle,
+rocblas_status rocsolver_geblttrs_npvt_interleaved_batch_impl(rocblas_handle handle,
                                                                   I nb,
                                                                   I nblocks,
                                                                   I nrhs,
