@@ -21,7 +21,7 @@ rocblas_status rocsolver_getrs_npvt_batched_with_offset(rocblas_handle handle,
                                                     I const offsetA,
                                                     I const lda,
 
-                                                    T* const B_array[],
+                                                    T* B_array[],
                                                     I const offsetB,
                                                     I const ldb,
 
@@ -34,12 +34,12 @@ rocblas_status rocsolver_getrs_npvt_batched_with_offset(rocblas_handle handle,
     rocblas_status istat = rocblas_status_success;
 
     {
-    bool const is_add = true;
+    bool is_add = true;
 
-    istat = rocblas_adjust_batch(  handle, is_add, A_array, offsetA, batch_count );
+    istat = rocsolver_adjust_batch(  handle, is_add = true, A_array, offsetA, batch_count );
     if (istat != rocblas_status_success) { goto L999; };
 
-    istat = rocblas_adjust_batch(  handle, is_add, B_array, offsetB, batch_count );
+    istat = rocsolver_adjust_batch(  handle, is_add = true, B_array, offsetB, batch_count );
     if (istat != rocblas_status_success) { goto L999; };
     };
 
@@ -76,12 +76,12 @@ rocblas_status rocsolver_getrs_npvt_batched_with_offset(rocblas_handle handle,
 
 
     {
-    bool const is_add = false;
+    bool is_add = false;
 
-    istat = rocblas_adjust_batch(  handle, is_add, A_array, offsetA, batch_count );
+    istat = rocsolver_adjust_batch(  handle, is_add = false, A_array, offsetA, batch_count );
     if (istat != rocblas_status_success) { goto L999; };
 
-    istat = rocblas_adjust_batch(  handle, is_add, B_array, offsetB, batch_count );
+    istat = rocsolver_adjust_batch(  handle, is_add = false, B_array, offsetB, batch_count );
     if (istat != rocblas_status_success) { goto L999; };
     };
 

@@ -8,9 +8,9 @@
 
 #include "geblt_common.h"
 
-#include "rocsolver_gemm_batched.hpp"
-#include "rocsolver_getrf_npvt_batched.hpp"
-#include "rocsolver_getrs_npvt_batched.hpp"
+#include "rocsolver_gemm_batched_with_offset.hpp"
+#include "rocsolver_getrs_npvt_batched_with_offset.hpp"
+#include "rocsolver_getrf_npvt_batched_with_offset.hpp"
 
 /*
 ! ------------------------------------------------------
@@ -102,7 +102,6 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
 
         I const i = 1;
         I const j = 1;
-        I const ibatch = 1;
         // T* Ap = &(D(i, j, k, ibatch));
         auto Ap_array = D_array;
         I const offset1 = indx3f(i,j,k, ldd,nb);
@@ -144,7 +143,6 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
             I const nn = nb;
             I const nrhs = nb;
 
-            I const ibatch = 1;
             // T const* const Ap = &(D(1, 1, k, ibatch));
             auto Ap_array = D_array;
             I const ld1 = ldd;
@@ -155,7 +153,7 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
             I const ld2 = ldu;
             I const offset2 = indx3f(1,1,k, ldu, nb);
 
-            rocblas_status istat = rocsolver_getrs_npvt_batched_impl(
+            rocblas_status istat = rocsolver_getrs_npvt_batched_with_offset(
                 handle, nn, nrhs, 
                         Ap_array, offset1, ld1,  
 			Bp_array, offset2, ld2, 
@@ -173,9 +171,8 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
 !--------------------------------------------
 */
         {
-            T const alpha = -1;
-            T const beta = 1;
-            I const ibatch = 1;
+            T alpha = -1;
+            T beta = 1;
 
             I const mm = nb;
             I const nn = nb;
@@ -200,7 +197,7 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
             rocblas_operation const transA = rocblas_operation_none;
             rocblas_operation const transB = rocblas_operation_none;
 
-            rocblas_status istat = rocsolver_gemm_batched(
+            rocblas_status istat = rocsolver_gemm_batched_with_offset(
                 handle, transA, transB, mm, nn, kk, 
                     &alpha, Ap_array, offset1, ld1, 
                             Bp_array, offset2, ld2, 
@@ -221,13 +218,12 @@ rocblas_status rocsolver_geblttrf_npvt_batched_large_template(
             I const mm = nb;
             I const nn = nb;
 
-            I const ibatch = 1;
             // T* const Ap = &(D(1, 1, k + 1, ibatch));
             auto Ap_array = D_array;
             I const ld1 = ldd;
             I const offset1 = indx3f(1,1,k+1,   ldd,nb);
 
-            rocblas_status istat = rocsolver_getrf_npvt_batched_impl(
+            rocblas_status istat = rocsolver_getrf_npvt_batched_with_offset(
                 handle, mm, nn, Ap_array, offset1, ld1, 
                                info_array, batch_count);
             if(istat != rocblas_status_success)

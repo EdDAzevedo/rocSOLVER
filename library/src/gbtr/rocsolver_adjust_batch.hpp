@@ -33,7 +33,7 @@
 template<typename T, typename I>
 GLOBAL_FUNCTION void rocsolver_adjust_batch_kernel(
                            bool const is_add,
-                           T* A_array[],
+                           T * A_array[],
                            I const offset,
                            I const batch_count) 
 {
@@ -58,10 +58,10 @@ GLOBAL_FUNCTION void rocsolver_adjust_batch_kernel(
 
 
 template<typename T, typename I>
-rocblas_status rocsovler_adjust_batch(
+rocblas_status rocsolver_adjust_batch(
                  rocblas_handle handle,
                  bool const is_add,
-                 T * A_array[],
+                 T *  A_array[],
                  I const offset,
                  I const batch_count )
 {

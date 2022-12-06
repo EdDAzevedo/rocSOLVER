@@ -14,15 +14,15 @@
 #include "rocsolver_adjust_batch.hpp"
 #include "rocsolver_getrf_npvt_batched.hpp"
 
-template <typename T>
+template <typename T, typename I>
 rocblas_status rocsolver_getrf_npvt_batched_with_offset(rocblas_handle handle,
-                                            const rocblas_int m,
-                                            const rocblas_int n,
+                                            const I m,
+                                            const I n,
                                             T* A_array[],
-                                            const rocblas_int offsetA,
-                                            const rocblas_int lda,
-                                            rocblas_int* info,
-                                            const rocblas_int batch_count)
+                                            const I offsetA,
+                                            const I lda,
+                                            I info[],
+                                            const I batch_count)
 {
 
  
@@ -53,8 +53,10 @@ rocblas_status rocsolver_getrf_npvt_batched_with_offset(rocblas_handle handle,
  rocblas_status const istat = rocsolver_adjust_batch( handle, 
 			is_add, A_array, offsetA, batch_count );
     
+ bool const isok = (istat == rocblas_status_success) || (istat == rocblas_status_continue);
  if (!isok) { return( istat ); };
  };
 
  return( rocblas_status_success );
 };
+#endif

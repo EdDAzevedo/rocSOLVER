@@ -30,18 +30,18 @@
 #include "geblttrf_npvt.hpp"
 
 template <typename T, typename I>
-GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
-                                                  I nblocks,
+GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(const I nb,
+                                                  const I nblocks,
                                                   
 
                                                   T* A_array[],
-                                                  I lda,
+                                                  const I lda,
                                                   T* B_array[],
-                                                  I ldb,
+                                                  const I ldb,
                                                   T* C_array[],
-                                                  I ldc,
-                                                  // I devinfo_array[],
-                                                  I batch_count
+                                                  const I ldc,
+                                                  I devinfo_array[],
+                                                  const I batch_count
                                                   )
 {
 #ifdef USE_GPU
@@ -60,7 +60,7 @@ GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
             I linfo = 0;
             geblttrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i],
                                        ldc, &linfo);
-            // devinfo_array[ i ] = linfo;
+            devinfo_array[ i ] = linfo;
         };
 
     };
@@ -69,17 +69,17 @@ GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
 
 template <typename T, typename I>
 rocblas_status rocsolver_geblttrf_npvt_batched_small_template(rocblas_handle handle,
-                                                        I nb,
-                                                        I nblocks,
+                                                        const I nb,
+                                                        const I nblocks,
 
                                                         T* A_array[],
-                                                        I lda,
+                                                        const I lda,
                                                         T* B_array[],
-                                                        I ldb,
+                                                        const I ldb,
                                                         T* C_array[],
-                                                        I ldc,
-                                                        // I devinfo_array[],
-                                                        I batch_count
+                                                        const I ldc,
+                                                        I devinfo_array[],
+                                                        const I batch_count
                                                         )
 {
 
@@ -91,7 +91,7 @@ rocblas_status rocsolver_geblttrf_npvt_batched_small_template(rocblas_handle han
                        stream,
                        nb, nblocks, 
                        A_array, lda, B_array, ldb, C_array, ldc,
-                       // devinfo_array, 
+                       devinfo_array, 
                        batch_count);
 
     return (rocblas_status_success);

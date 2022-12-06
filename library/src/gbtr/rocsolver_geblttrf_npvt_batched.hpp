@@ -34,16 +34,16 @@
 
 template <typename T, typename I>
 rocblas_status rocsolver_geblttrf_npvt_batched_impl(rocblas_handle handle,
-                                               I nb,
-                                               I nblocks,
+                                               const I nb,
+                                               const I nblocks,
                                                T* A_array[],
-                                               I lda,
+                                               const I lda,
                                                T* B_array[],
-                                               I ldb,
+                                               const I ldb,
                                                T* C_array[],
-                                               I ldc,
+                                               const I ldc,
                                                I info_array[],
-                                               I batch_count)
+                                               const I batch_count)
 {
 
     rocblas_status istat = rocblas_status_success;
@@ -66,14 +66,14 @@ rocblas_status rocsolver_geblttrf_npvt_batched_impl(rocblas_handle handle,
 
 
     if (nb <  NB_SMALL) {
-       istat = rocsolver_geblttrf_npvt_batched_small_template<T, I>(
+       istat = rocsolver_geblttrf_npvt_batched_small_template(
                                                    handle, nb, nblocks,  A_array, lda,
                                                    B_array, ldb, C_array, ldc, 
                                                    info_array,
                                                    batch_count);
        }
     else {
-       istat = rocsolver_geblttrf_npvt_batched_large_template<T, I>(
+       istat = rocsolver_geblttrf_npvt_batched_large_template(
                                                    handle, nb, nblocks,  A_array, lda,
                                                    B_array, ldb, C_array, ldc, 
                                                    info_array,
