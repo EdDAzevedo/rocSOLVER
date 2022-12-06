@@ -15,7 +15,7 @@ template<typename T>
 rocblas_status rocsolver_getrf_npvt_batched( rocblas_handle handle,
                                              const rocblas_int m,
                                              const rocblas_int n,
-                                             double * A_array[],
+                                             T * A_array[],
                                              const rocblas_int lda,
                                              rocblas_int* info,
                                              const rocblas_int batch_count)

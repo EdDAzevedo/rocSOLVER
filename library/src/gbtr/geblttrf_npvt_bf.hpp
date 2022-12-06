@@ -26,20 +26,20 @@
 template <typename T, typename I>
 GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
                                              I const nblocks,
-                                             I const batchCount,
                                              T* A_,
                                              I const lda,
                                              T* B_,
                                              I const ldb,
                                              T* C_,
                                              I const ldc,
-                                             I* pinfo)
+                                             I devinfo_array[],
+                                             I batch_count)
 {
-#define A(iv, ia, ja, k) A_[indx4f(iv, ia, ja, k, batchCount, lda, nb)]
-#define B(iv, ib, jb, k) B_[indx4f(iv, ib, jb, k, batchCount, ldb, nb)]
-#define C(iv, ic, jc, k) C_[indx4f(iv, ic, jc, k, batchCount, ldc, nb)]
+#define A(iv, ia, ja, k) A_[indx4f(iv, ia, ja, k, batch_count, lda, nb)]
+#define B(iv, ib, jb, k) B_[indx4f(iv, ib, jb, k, batch_count, ldb, nb)]
+#define C(iv, ic, jc, k) C_[indx4f(iv, ic, jc, k, batch_count, ldc, nb)]
 
-    I info = 0;
+
 
     /*
 !     --------------------------
@@ -93,10 +93,8 @@ GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
 !   D(:,1:nb,1:nb,k) = getrf_npvt( D(:,1:nb,1:nb,k) );
 !   ----------------------------------------------
 */
-        I linfo = 0;
-        getrf_npvt_bf_device<T>(batchCount, mm, nn, Ap, ldd, &linfo);
+        getrf_npvt_bf_device<T>(batch_count, mm, nn, Ap, ldd, devinfo_array);
         SYNCTHREADS;
-        info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
     };
 
     /*
@@ -135,14 +133,12 @@ GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
             I const nrhs = nb;
             I const iv = 1;
 
-            I linfo = 0;
 
             T const* const Ap = &(D(iv, 1, 1, k));
             T* Bp = &(C(iv, 1, 1, k));
-            getrs_npvt_bf<T>(batchCount, nn, nrhs, Ap, ldd, Bp, ldc, &linfo);
+            getrs_npvt_bf<T>(batch_count, nn, nrhs, Ap, ldd, Bp, ldc, devinfo_array);
             SYNCTHREADS;
 
-            info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
         };
 
         /*
@@ -164,7 +160,7 @@ GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
             T const* const Ap = &(A(iv, 1, 1, k + 1));
             T const* const Bp = &(U(iv, 1, 1, k));
             T* Cp = &(D(iv, 1, 1, k + 1));
-            gemm_nn_bf_device<T>(batchCount, mm, nn, kk, alpha, Ap, ld1, Bp, ld2, beta, Cp, ld3);
+            gemm_nn_bf_device<T>(batch_count, mm, nn, kk, alpha, Ap, ld1, Bp, ld2, beta, Cp, ld3);
             SYNCTHREADS;
         };
 
@@ -180,19 +176,14 @@ GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
             I const nn = nb;
             T* Ap = &(D(iv, 1, 1, k + 1));
 
-            I linfo = 0;
-            getrf_npvt_bf_device<T>(batchCount, mm, nn, Ap, ldd, &linfo);
+            getrf_npvt_bf_device<T>(batch_count, mm, nn, Ap, ldd, devinfo_array);
 
             SYNCTHREADS;
 
-            info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
         };
 
     }; // end for k
 
-    {
-        *pinfo = info;
-    };
 }
 #undef D
 #undef U
@@ -202,30 +193,46 @@ GLOBAL_FUNCTION void geblttrf_npvt_bf_kernel(I const nb,
 #undef C
 
 template <typename T, typename I>
-void geblttrf_npvt_bf_template(hipStream_t stream,
-
+rocblas_status  geblttrf_npvt_bf_template(rocblas_handle handle,
                                I const nb,
                                I const nblocks,
-                               I const batchCount,
                                T* A_,
                                I const lda,
                                T* B_,
                                I const ldb,
                                T* C_,
                                I const ldc,
-                               I* pinfo)
+                               I* devinfo_array, 
+                               I batch_count)
 {
 #ifdef USE_GPU
+    hipStream_t stream;
+    rocblas_get_stream( handle, &stream );
+
+    {
+    void *dst = (void *) &(devinfo_array[0]);
+    int value = 0;
+    size_t sizeBytes = sizeof(I) * batch_count;
+
+    HIP_CHECK( hipMemsetAsync( dst, value, sizeBytes, stream),
+               rocblas_status_internal_error );
+
+    };
+
     auto const block_dim = GEBLT_BLOCK_DIM;
-    auto const grid_dim = (batchCount + (block_dim - 1)) / block_dim;
+    auto const grid_dim = (batch_count + (block_dim - 1)) / block_dim;
     hipLaunchKernelGGL((geblttrf_npvt_bf_kernel<T, I>), dim3(grid_dim), dim3(block_dim), 0, stream,
 
-                       nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
+                       nb, nblocks,  A_, lda, B_, ldb, C_, ldc, devinfo_array,batch_count);
 #else
 
-    geblttrf_npvt_bf_kernel<T, I>(nb, nblocks, batchCount, A_, lda, B_, ldb, C_, ldc, pinfo);
+    for(I i=0; i < batch_count; i++) { devinfo_array[i] = 0; };
+
+    geblttrf_npvt_bf_kernel<T, I>(nb, nblocks, A_, lda, B_, ldb, C_, ldc, devinfo_array,batch_count);
 
 #endif
+
+ return( rocblas_status_success );
 }
 
 #endif

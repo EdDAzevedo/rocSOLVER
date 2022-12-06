@@ -23,98 +23,17 @@
  *
  * ************************************************************************ */
 #pragma once
-#ifndef ROCSOLVER_GEBLTTRF_BATCHED
-#define ROCSOLVER_GEBLTTRF_BATCHED
+#ifndef ROCSOLVER_GEBLTTRF_NPVT_BATCHED
+#define ROCSOLVER_GEBLTTRF_NPVT_BATCHED
 
-#include "geblt_common.h"
-#include "geblttrf_npvt.hpp"
+#include "rocsolver_checkargs_geblt_npvt_batched.hpp"
+#include "rocsolver_geblttrf_npvt_batched_small.hpp"
+#include "rocsolver_geblttrf_npvt_batched_large.hpp"
 
-template <typename T, typename I>
-GLOBAL_FUNCTION void geblttrf_npvt_batched_kernel(I nb,
-                                                  I nblocks,
-                                                  I batchCount,
 
-                                                  T* A_array[],
-                                                  I lda,
-                                                  T* B_array[],
-                                                  I ldb,
-                                                  T* C_array[],
-                                                  I ldc,
-                                                  I* pinfo)
-{
-    I SHARED_MEMORY sinfo;
-#ifdef USE_GPU
-    auto const thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-    auto const i_start = thread_id;
-    auto const i_inc = gridDim.x * blockDim.x;
-
-    bool const is_root = (thread_id == 0);
-    if(is_root)
-    {
-        sinfo = 0;
-    };
-#else
-    auto const i_start = 0;
-    auto const i_inc = 1;
-    sinfo = 0;
-#endif
-
-    {
-        I info = 0;
-        for(I i = i_start; i < batchCount; i += i_inc)
-        {
-            I linfo = 0;
-            geblttrf_npvt_device<T, I>(nb, nblocks, A_array[i], lda, B_array[i], ldb, C_array[i],
-                                       ldc, &linfo);
-            info = max(info, linfo);
-        };
-
-        atomicMax(&sinfo, info);
-        SYNCTHREADS;
-    };
-
-    if(is_root)
-    {
-        atomicMax(pinfo, sinfo);
-    };
-}
 
 template <typename T, typename I>
-rocblas_status rocsolver_geblttrf_npvt_batched_template(hipStream_t stream,
-                                                        I nb,
-                                                        I nblocks,
-                                                        I batchCount,
-
-                                                        T* A_array[],
-                                                        I lda,
-                                                        T* B_array[],
-                                                        I ldb,
-                                                        T* C_array[],
-                                                        I ldc,
-                                                        I* phost_info)
-{
-    *phost_info = 0;
-    I* pdevice_info;
-    HIP_CHECK(hipMalloc(&pdevice_info, sizeof(I)), rocblas_status_memory_error);
-    HIP_CHECK(hipMemcpyHtoD(pdevice_info, phost_info, sizeof(I)), rocblas_status_internal_error);
-
-    auto grid_dim = (batchCount + (GEBLT_BLOCK_DIM - 1)) / GEBLT_BLOCK_DIM;
-    hipLaunchKernelGGL((geblttrf_npvt_batched_kernel<T>), dim3(grid_dim), dim3(GEBLT_BLOCK_DIM), 0,
-                       stream,
-
-                       nb, nblocks, batchCount,
-
-                       A_array, lda, B_array, ldb, C_array, ldc,
-
-                       pdevice_info);
-
-    HIP_CHECK(hipMemcpyDtoH(phost_info, pdevice_info, sizeof(I)), rocblas_status_internal_error);
-    HIP_CHECK(hipFree(pdevice_info), rocblas_status_memory_error);
-    return (rocblas_status_success);
-}
-
-template <typename T, typename I>
-rocblas_status rocsolver_geblttrf_batched_impl(rocblas_handle handle,
+rocblas_status rocsolver_geblttrf_npvt_batched_impl(rocblas_handle handle,
                                                I nb,
                                                I nblocks,
                                                T* A_array[],
@@ -123,45 +42,45 @@ rocblas_status rocsolver_geblttrf_batched_impl(rocblas_handle handle,
                                                I ldb,
                                                T* C_array[],
                                                I ldc,
-                                               I batchCount)
+                                               I info_array[],
+                                               I batch_count)
 {
-    /* 
-    ---------------
-    check arguments
-    ---------------
-    */
-    if(handle == nullptr)
-    {
-        return (rocblas_status_invalid_handle);
-    };
 
-    // no work
-    if((nb == 0) || (nblocks == 0) || (batchCount == 0))
+    rocblas_status istat = rocblas_status_success;
     {
-        return (rocblas_status_success);
-    };
-
-    if((A_array == nullptr) || (B_array == nullptr) || (C_array == nullptr))
-    {
-        return (rocblas_status_invalid_pointer);
-    };
-    {
-        bool const isok = (nb >= 1) && (nblocks >= 1) && (batchCount >= 1) && (lda >= nb)
-            && (ldb >= nb) && (ldc >= nb);
-        if(!isok)
-        {
-            return (rocblas_status_invalid_size);
+    I const dummy_nrhs = 1;
+    auto dummy_X_array = A_array;
+    I const dummy_ldx = lda;
+ 
+    istat = rocsolver_checkargs_geblt_npvt_batched(
+                  handle, nb, nblocks, dummy_nrhs,
+                  A_array, lda, B_array, ldb, C_array, ldc, 
+                  dummy_X_array, dummy_ldx, 
+                  batch_count );
+    if (istat != rocblas_status_continue) {
+        return( istat );
         };
-    };
+    
+     };
 
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
 
-    I host_info = 0;
-    rocsolver_geblttrf_npvt_batched_template<T, I>(stream, nb, nblocks, batchCount, A_array, lda,
-                                                   B_array, ldb, C_array, ldc, &host_info);
 
-    return ((host_info == 0) ? rocblas_status_success : rocblas_status_internal_error);
+    if (nb <  NB_SMALL) {
+       istat = rocsolver_geblttrf_npvt_batched_small_template<T, I>(
+                                                   handle, nb, nblocks,  A_array, lda,
+                                                   B_array, ldb, C_array, ldc, 
+                                                   info_array,
+                                                   batch_count);
+       }
+    else {
+       istat = rocsolver_geblttrf_npvt_batched_large_template<T, I>(
+                                                   handle, nb, nblocks,  A_array, lda,
+                                                   B_array, ldb, C_array, ldc, 
+                                                   info_array,
+                                                   batch_count);
+      };
+       
+  return( istat );
 }
 
 #endif

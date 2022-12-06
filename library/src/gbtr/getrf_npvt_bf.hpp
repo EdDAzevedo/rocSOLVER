@@ -10,11 +10,10 @@
 
 template <typename T, typename I>
 DEVICE_FUNCTION void
-    getrf_npvt_bf_device(I const batchCount, I const m, I const n, T* A_, I const lda, I* pinfo)
+    getrf_npvt_bf_device(I const batchCount, I const m, I const n, T* A_, I const lda, I info[])
 {
     I const min_mn = (m < n) ? m : n;
     T const one = 1;
-    I info = 0;
 
 #ifdef USE_GPU
     I const iv_start = (blockIdx.x * blockDim.x + threadIdx.x) + 1;
@@ -38,7 +37,7 @@ DEVICE_FUNCTION void
         {
             bool const is_diag_zero = (std::abs(A(iv, j, j)) == zero);
             T const Ujj_iv = is_diag_zero ? one : A(iv, j, j);
-            info = is_diag_zero && (info == 0) ? j : info;
+            info[iv-1] = is_diag_zero && (info[iv-1] == 0) ? j : info[iv-1];
 
             for(I ia = jp1; ia <= m; ia++)
             {
@@ -62,7 +61,6 @@ DEVICE_FUNCTION void
         SYNCTHREADS;
     };
 
-    *pinfo = info;
 }
 #undef A
 
