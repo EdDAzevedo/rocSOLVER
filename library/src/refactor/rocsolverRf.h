@@ -81,6 +81,29 @@ rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
                                          /* Output */
                                          rocsolverRfHandle_t handle);
 
+
+
+
+rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
+                                         int n,
+                                         int nnzA,
+                                         int* csrRowPtrA,
+                                         int* csrColIndA,
+                                         double* csrValA,
+                                         int nnzL,
+                                         int* csrRowPtrL,
+                                         int* csrColIndL,
+                                         double* csrValL,
+                                         int nnzU,
+                                         int* csrRowPtrU,
+                                         int* csrColIndU,
+                                         double* csrValU,
+                                         int* P,
+                                         int* Q,
+
+                                         /* Output */
+                                         rocsolverRfHandle_t handle);
+
 #ifdef __cplusplus
 };
 #endif

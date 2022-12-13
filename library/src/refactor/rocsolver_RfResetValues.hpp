@@ -55,13 +55,14 @@ rocsolverStatus_t rocsolver_RfResetValues_template(Iint n,
     {
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
-    if((n <= 0) || (nnzA <= 0))
+
+    bool const isok_scalar = (n >= 0) && (nnzA >= 0);
+    if(!isok_scalar) 
     {
         return (ROCSOLVER_STATUS_INVALID_VALUE);
     };
 
-    bool const isok
-        = (csrRowPtrA != NULL) && (csrColIndA != NULL) && (csrValA != NULL) && (handle != NULL);
+    bool const isok = (csrRowPtrA != nullptr) && (csrColIndA != nullptr) && (csrValA != nullptr);
 
     if(!isok)
     {
