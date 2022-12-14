@@ -257,13 +257,23 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
     {
         if(singular && (b == bc / 4 || b == bc / 2 || b == bc - 1))
         {
-            if(hInfoRes[b][0] <= 0)
+            if(hInfoRes[b][0] <= 0) {
                 err++;
+                printf("bc=%d, singular=%d, b=%d, hInfoRes[b][0] = %d <= 0\n",
+                        bc,    singular,    b,    hInfoRes[b][0] );
+                printf("nb=%d, nblocks=%d\n", 
+                        nb,    nblocks );
+                };
         }
         else
         {
-            if(hInfoRes[b][0] != 0)
+            if(hInfoRes[b][0] != 0) {
                 err++;
+                printf("bc=%d, singular=%d, b=%d, hInfoRes[b][0] = %d != 0\n",
+                        bc,    singular,    b,    hInfoRes[b][0] );
+                printf("nb=%d, nblocks=%d\n", 
+                        nb,    nblocks );
+                };
         }
     }
     *max_err += err;
