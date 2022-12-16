@@ -172,7 +172,7 @@ void rocsolver_geblttrs_npvt_interleaved_getMemorySize(const rocblas_int nb,
     *size_work = 0;
 }
 
-template <typename T>
+template <typename U>
 rocblas_status rocsolver_geblttrs_npvt_interleaved_argCheck(rocblas_handle handle,
                                                             const rocblas_int nb,
                                                             const rocblas_int nblocks,
@@ -181,11 +181,11 @@ rocblas_status rocsolver_geblttrs_npvt_interleaved_argCheck(rocblas_handle handl
                                                             const rocblas_int ldb,
                                                             const rocblas_int ldc,
                                                             const rocblas_int ldx,
-                                                            T A,
-                                                            T B,
-                                                            T C,
-                                                            T X,
-                                                            const rocblas_int batch_count = 1)
+                                                            U A,
+                                                            U B,
+                                                            U C,
+                                                            U X,
+                                                            const rocblas_int batch_count )
 {
     // order is important for unit tests:
 
