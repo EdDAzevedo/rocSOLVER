@@ -85,16 +85,17 @@ __device__ void gemm_nn_bf_device(const rocblas_int batch_count,
 
 template <typename T, typename I>
 __device__ void
-    getrf_npvt_bf_device(I const batchCount, I const m, I const n, T* A_, I const lda, I info[])
+    getrf_npvt_bf_device(I const batch_count, I const m, I const n, T* A_, I const lda, 
+                         I const info_offset, I info[])
 {
     I const min_mn = (m < n) ? m : n;
     T const one = 1;
 
     I const iv_start = (blockIdx.x * blockDim.x + threadIdx.x) + 1;
-    I const iv_end = batchCount;
+    I const iv_end = batch_count;
     I const iv_inc = (gridDim.x * blockDim.x);
 
-#define A(iv, i, j) A_[indx3f(iv, i, j, batchCount, lda)]
+#define A(iv, i, j) A_[indx3f(iv, i, j, batch_count, lda)]
 
     T const zero = 0;
 
@@ -106,7 +107,7 @@ __device__ void
         {
             bool const is_diag_zero = (std::abs(A(iv, j, j)) == zero);
             T const Ujj_iv = is_diag_zero ? one : A(iv, j, j);
-            info[iv - 1] = is_diag_zero && (info[iv - 1] == 0) ? j : info[iv - 1];
+            info[iv - 1] = is_diag_zero && (info[iv - 1] == 0) ? info_offset + j : info[iv - 1];
 
             for(I ia = jp1; ia <= m; ia++)
             {
@@ -132,14 +133,14 @@ __device__ void
 }
 
 template <typename T>
-__device__ void getrs_npvt_bf(rocblas_int const batchCount,
+__device__ void getrs_npvt_bf(rocblas_int const batch_count,
                               rocblas_int const n,
                               rocblas_int const nrhs,
                               T* A_,
                               rocblas_int const lda,
                               T* B_,
-                              rocblas_int const ldb,
-                              rocblas_int* pinfo)
+                              rocblas_int const ldb 
+                              )
 {
     /*
     !     ---------------------------------------------------
@@ -147,17 +148,16 @@ __device__ void getrs_npvt_bf(rocblas_int const batchCount,
     !     ---------------------------------------------------
     */
 
-#define A(iv, ia, ja) A_[indx3f(iv, ia, ja, batchCount, lda)]
-#define B(iv, ib, irhs) B_[indx3f(iv, ib, irhs, batchCount, ldb)]
+#define A(iv, ia, ja) A_[indx3f(iv, ia, ja, batch_count, lda)]
+#define B(iv, ib, irhs) B_[indx3f(iv, ib, irhs, batch_count, ldb)]
 
     rocblas_int const iv_start = (blockIdx.x * blockDim.x + threadIdx.x) + 1;
-    rocblas_int const iv_end = batchCount;
+    rocblas_int const iv_end = batch_count;
     rocblas_int const iv_inc = (gridDim.x * blockDim.x);
 
     T const one = 1;
     T const zero = 0;
 
-    rocblas_int info = 0;
     /*
     !
     ! % ------------------------
@@ -193,6 +193,8 @@ __device__ void getrs_npvt_bf(rocblas_int const batchCount,
             __syncthreads();
         };
     };
+
+    __syncthreads();
     /*
     ! % ------------------------------
     ! % [U11 U12 U13 ] [ X1 ] = [ Y1 ]
@@ -216,11 +218,10 @@ __device__ void getrs_npvt_bf(rocblas_int const batchCount,
 
         }; // end for j
 
-        for(rocblas_int iv = 1; iv <= iv_end; iv += iv_inc)
+        for(rocblas_int iv = iv_start; iv <= iv_end; iv += iv_inc)
         {
             T const A_iv_i_i = A(iv, i, i);
             bool const is_diag_zero = (std::abs(A_iv_i_i) == zero);
-            info = (is_diag_zero && (info == 0)) ? i : info;
 
             T const inv_Uii_iv = (is_diag_zero) ? one : one / A_iv_i_i;
 
@@ -234,7 +235,6 @@ __device__ void getrs_npvt_bf(rocblas_int const batchCount,
 
     }; // end for ir
 
-    *pinfo = info;
 
 #undef A
 #undef B
@@ -288,7 +288,8 @@ __global__ __launch_bounds__(GEBLT_BLOCK_DIM) void geblttrf_npvt_bf_kernel(I con
         I const nn = nb;
         T* Ap = &(D(iv, 1, 1, k));
 
-        getrf_npvt_bf_device<T>(batch_count, mm, nn, Ap, ldd, devinfo_array);
+        I const info_offset = (k-1)*nb;
+        getrf_npvt_bf_device<T>(batch_count, mm, nn, Ap, ldd, info_offset, devinfo_array);
         __syncthreads();
     };
 
@@ -301,7 +302,7 @@ __global__ __launch_bounds__(GEBLT_BLOCK_DIM) void geblttrf_npvt_bf_kernel(I con
 
             T* Ap = &(D(iv, 1, 1, k));
             T* Bp = &(C(iv, 1, 1, k));
-            getrs_npvt_bf<T>(batch_count, nn, nrhs, Ap, ldd, Bp, ldc, devinfo_array);
+            getrs_npvt_bf<T>(batch_count, nn, nrhs, Ap, ldd, Bp, ldc );
             __syncthreads();
         };
 
@@ -329,7 +330,8 @@ __global__ __launch_bounds__(GEBLT_BLOCK_DIM) void geblttrf_npvt_bf_kernel(I con
             I const nn = nb;
             T* Ap = &(D(iv, 1, 1, k + 1));
 
-            getrf_npvt_bf_device<T>(batch_count, mm, nn, Ap, ldd, devinfo_array);
+            I const info_offset = ((k+1)-1)*nb;
+            getrf_npvt_bf_device<T>(batch_count, mm, nn, Ap, ldd, info_offset, devinfo_array);
             __syncthreads();
         };
 
