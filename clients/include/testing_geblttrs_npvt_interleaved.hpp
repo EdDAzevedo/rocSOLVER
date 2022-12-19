@@ -14,26 +14,32 @@
 #include "rocsolver_arguments.hpp"
 #include "rocsolver_test.hpp"
 
-static int64_t indx2(rocblas_int i1, rocblas_int i2,
-                     rocblas_int n1_in, rocblas_int n2) {
-               int64_t const n1 = n1_in;
-               assert( (0 <= i1) && (i1 < n1) );
-               assert( (0 <= i2) && (i2 < n2) );
-
-               return( i1 + i2*n1 );
-               };
-
-static   int64_t indx4(rocblas_int i1, rocblas_int i2, rocblas_int i3, rocblas_int i4,
-                        rocblas_int n1_in, rocblas_int n2, rocblas_int n3, rocblas_int n4 ) 
+static int64_t indx2(rocblas_int i1, rocblas_int i2, rocblas_int n1_in, rocblas_int n2)
 {
-               int64_t const n1 = n1_in;
+    int64_t const n1 = n1_in;
+    assert((0 <= i1) && (i1 < n1));
+    assert((0 <= i2) && (i2 < n2));
 
-               assert( (0 <= i1) && (i1 < n1) );
-               assert( (0 <= i2) && (i2 < n2) );
-               assert( (0 <= i3) && (i3 < n3) );
-               assert( (0 <= i4) && (i4 < n4) );
-               
-               return( i1 + i2*n1 + i3*(n1*n2) + i4*(n1*n2*n3) );
+    return (i1 + i2 * n1);
+};
+
+static int64_t indx4(rocblas_int i1,
+                     rocblas_int i2,
+                     rocblas_int i3,
+                     rocblas_int i4,
+                     rocblas_int n1_in,
+                     rocblas_int n2,
+                     rocblas_int n3,
+                     rocblas_int n4)
+{
+    int64_t const n1 = n1_in;
+
+    assert((0 <= i1) && (i1 < n1));
+    assert((0 <= i2) && (i2 < n2));
+    assert((0 <= i3) && (i3 < n3));
+    assert((0 <= i4) && (i4 < n4));
+
+    return (i1 + i2 * n1 + i3 * (n1 * n2) + i4 * (n1 * n2 * n3));
 };
 
 template <typename T>
@@ -158,9 +164,9 @@ void geblttrs_npvt_interleaved_initData(const rocblas_handle handle,
         std::vector<T> XX_(ldXX * nrhs);
         std::vector<T> XB_(ldXB * nrhs);
 
-#define M(ii,jj) M_[ indx2(ii,jj, ldM, n) ]
-#define XX(ii,jj) XX_[ indx2(ii,jj, ldXX, nrhs) ]
-#define XB(ii,jj) XB_[ indx2(ii,jj, ldXB, nrhs) ]
+#define M(ii, jj) M_[indx2(ii, jj, ldM, n)]
+#define XX(ii, jj) XX_[indx2(ii, jj, ldXX, nrhs)]
+#define XB(ii, jj) XB_[indx2(ii, jj, ldXB, nrhs)]
 
         // std::vector<rocblas_int> ipiv(nb);
 
@@ -169,156 +175,151 @@ void geblttrs_npvt_interleaved_initData(const rocblas_handle handle,
         rocblas_init<T>(hB_, false);
         rocblas_init<T>(hC_, false);
 
-
         // initialize solution vectors
         rocblas_init<T>(hX_, false);
 
+        rocblas_int const ldrhs = ldx;
 
-        
+#define hA(b, i, j, k) hA_[0][indx4(b, i, j, k, bc, lda, nb, nblocks - 1)]
+#define hB(b, i, j, k) hB_[0][indx4(b, i, j, k, bc, ldb, nb, nblocks)]
+#define hC(b, i, j, k) hC_[0][indx4(b, i, j, k, bc, ldc, nb, nblocks - 1)]
+#define hX(b, i, k, irhs) hX_[0][indx4(b, i, k, irhs, bc, ldx, nblocks, nrhs)]
+#define hRHS(b, i, k, irhs) hRHS_[0][indx4(b, i, k, irhs, bc, ldrhs, nblocks, nrhs)]
 
-         rocblas_int const ldrhs = ldx;
+        // adjust hA_, hB_, hC_ to avoid singularities
+        for(rocblas_int k = 0; k < nblocks; k++)
+        {
+            for(rocblas_int j = 0; j < nb; j++)
+            {
+                for(rocblas_int i = 0; i < nb; i++)
+                {
+                    for(rocblas_int b = 0; b < bc; b++)
+                    {
+                        bool const is_diag = (i == j);
+                        if(is_diag)
+                        {
+                            hB(b, i, j, k) += 400;
+                        }
+                        else
+                        {
+                            hB(b, i, j, k) -= 4;
+                        };
 
-#define  hA(b,i,j,k) hA_[0][indx4(b,i,j,k, bc,lda,nb,nblocks-1)]
-#define  hB(b,i,j,k) hB_[0][indx4(b,i,j,k, bc,ldb,nb,nblocks)]
-#define  hC(b,i,j,k) hC_[0][indx4(b,i,j,k, bc,ldc,nb,nblocks-1)]
-#define  hX(b,i,k,irhs) hX_[0][indx4(b,i,k,irhs,   bc,ldx,nblocks,nrhs)]
-#define  hRHS(b,i,k,irhs) hRHS_[0][indx4(b,i,k,irhs,   bc,ldrhs,nblocks,nrhs)]
-
-
-
-         // adjust hA_, hB_, hC_ to avoid singularities
-         for(rocblas_int k=0; k < nblocks; k++) {
-         for(rocblas_int j=0; j < nb; j++) {
-         for(rocblas_int i=0; i < nb; i++) {
-         for(rocblas_int b=0; b < bc; b++) {
-
-             bool const is_diag = (i == j);
-             if (is_diag) {
-                 hB(b,i,j,k) += 400;
-                 }
-             else {
-                 hB(b,i,j,k) -= 4;
-                 };
-
-             if (k < (nblocks-1)) {
-                hA(b,i,j,k) -= 4;
-                hC(b,i,j,k) -= 4;
+                        if(k < (nblocks - 1))
+                        {
+                            hA(b, i, j, k) -= 4;
+                            hC(b, i, j, k) -= 4;
+                        };
+                    };
                 };
-
-
-             };
-             };
-             };
-             };
-
-
+            };
+        };
 
         for(rocblas_int b = 0; b < bc; ++b)
         {
             // form original matrix M and scale to avoid singularities
-            for(rocblas_int j=0; j < n; j++) {
-            for(rocblas_int i=0; i < n; i++) {
-                M(i,j) = 0;
+            for(rocblas_int j = 0; j < n; j++)
+            {
+                for(rocblas_int i = 0; i < n; i++)
+                {
+                    M(i, j) = 0;
                 };
-                };
+            };
 
-            for(rocblas_int k=0; k < nblocks; k++) {
+            for(rocblas_int k = 0; k < nblocks; k++)
+            {
                 // diagonal blocks
-                for(rocblas_int j=0; j < nb; j++) {
-                for(rocblas_int i=0; i < nb; i++) {
-                     T const bij = hB(b,i,j,k);
-                     auto const ii = indx2(i,k,   nb,nblocks);
-                     auto const jj = indx2(j,k,   nb,nblocks);
-                     M(ii,jj) = bij;
-                     };
-                     };
-                 }; // end for k
+                for(rocblas_int j = 0; j < nb; j++)
+                {
+                    for(rocblas_int i = 0; i < nb; i++)
+                    {
+                        T const bij = hB(b, i, j, k);
+                        auto const ii = indx2(i, k, nb, nblocks);
+                        auto const jj = indx2(j, k, nb, nblocks);
+                        M(ii, jj) = bij;
+                    };
+                };
+            }; // end for k
 
-          
-                // off-diagonal blocks
-               for(rocblas_int k=0; k < (nblocks-1); k++) { 
-                   for(rocblas_int j=0; j < nb; j++) {
-                   for(rocblas_int i=0; i < nb; i++) {
+            // off-diagonal blocks
+            for(rocblas_int k = 0; k < (nblocks - 1); k++)
+            {
+                for(rocblas_int j = 0; j < nb; j++)
+                {
+                    for(rocblas_int i = 0; i < nb; i++)
+                    {
+                        // lower-diagonal block
+                        {
+                            T const aij = hA(b, i, j, k);
 
-                       // lower-diagonal block
-                       {
-                       T const aij = hA(b,i,j,k);
+                            auto const ii = indx2(i, k, nb, nblocks) + nb;
+                            auto const jj = indx2(j, k, nb, nblocks);
 
-                       auto const ii = indx2(i,k, nb,nblocks) + nb;
-                       auto const jj = indx2(j,k, nb,nblocks);
+                            M(ii, jj) = aij;
+                        };
 
+                        // upper-diagonal block
+                        {
+                            T const cij = hC(b, i, j, k);
 
-                       M(ii,jj) = aij;
-                       };
-                       
+                            auto const ii = indx2(i, k, nb, nblocks);
+                            auto const jj = indx2(j, k, nb, nblocks) + nb;
 
-                       // upper-diagonal block
-                       {
-                       T const cij = hC(b,i,j,k);
-
-                       auto const ii = indx2(i,k,  nb, nblocks);
-                       auto const jj = indx2(j,k,  nb, nblocks) + nb;
-        
-                       M(ii,jj) = cij;
-                       };
-
-                     };
-                     };
-                  }; // end for k
-                    
-  
-
-
-
+                            M(ii, jj) = cij;
+                        };
+                    };
+                };
+            }; // end for k
 
             // move blocks of X to full matrix XX
-            for(rocblas_int irhs = 0; irhs < nrhs; irhs++) {
-            for(rocblas_int k = 0; k < nblocks; k++) {
-            for(rocblas_int i = 0; i < nb; i++) {
-
-                 T const x_ik_irhs =  hX( b, i, k, irhs );
-                 rocblas_int const ii = indx2(i,k,   nb, nblocks );
-                 XX( ii, irhs ) = x_ik_irhs;
-                 };
-                 };
-                 };
-                 
+            for(rocblas_int irhs = 0; irhs < nrhs; irhs++)
+            {
+                for(rocblas_int k = 0; k < nblocks; k++)
+                {
+                    for(rocblas_int i = 0; i < nb; i++)
+                    {
+                        T const x_ik_irhs = hX(b, i, k, irhs);
+                        rocblas_int const ii = indx2(i, k, nb, nblocks);
+                        XX(ii, irhs) = x_ik_irhs;
+                    };
+                };
+            };
 
             // generate the full matrix of right-hand-side vectors XB by computing M * XX
             {
-            rocblas_int const mm = n;
-            rocblas_int const nn = nrhs;
-            rocblas_int const kk = n;
-            T const alpha = 1;
-            T const beta = 0;
+                rocblas_int const mm = n;
+                rocblas_int const nn = nrhs;
+                rocblas_int const kk = n;
+                T const alpha = 1;
+                T const beta = 0;
 
-            T * Ap = &(M(0,0));  rocblas_int const ld1 = ldM;
-            T * Bp = &(XX(0,0)); rocblas_int const ld2 = ldXX;
-            T * Cp = &(XB(0,0)); rocblas_int const ld3 = ldXB;
+                T* Ap = &(M(0, 0));
+                rocblas_int const ld1 = ldM;
+                T* Bp = &(XX(0, 0));
+                rocblas_int const ld2 = ldXX;
+                T* Cp = &(XB(0, 0));
+                rocblas_int const ld3 = ldXB;
 
-            cpu_gemm(rocblas_operation_none, rocblas_operation_none, 
-                       mm, nn, kk,
-                       alpha, Ap, ld1, 
-                              Bp, ld2,
-                       beta,  Cp, ld3 );
+                cpu_gemm(rocblas_operation_none, rocblas_operation_none, mm, nn, kk, alpha, Ap, ld1,
+                         Bp, ld2, beta, Cp, ld3);
             };
 
             // move XB to block format in hRHS
-            for(rocblas_int irhs = 0; irhs < nrhs; irhs++) {
-            for(rocblas_int k = 0; k < nblocks; k++) {
-            for(rocblas_int i = 0; i < nb; i++) {
+            for(rocblas_int irhs = 0; irhs < nrhs; irhs++)
+            {
+                for(rocblas_int k = 0; k < nblocks; k++)
+                {
+                    for(rocblas_int i = 0; i < nb; i++)
+                    {
+                        rocblas_int const ii = indx2(i, k, nb, nblocks);
+                        T const xb_ik_irhs = XB(ii, irhs);
+                        hRHS(b, i, k, irhs) = xb_ik_irhs;
+                    };
+                };
+            };
 
-                 rocblas_int const ii = indx2(i,k,  nb, nblocks);
-                 T const xb_ik_irhs = XB( ii, irhs );
-                 hRHS( b, i, k, irhs ) = xb_ik_irhs;
-                 };
-                 };
-                 };
-
-
-             }; // end for b
-
-        };
+        }; // end for b
+    };
 
     // now copy data to the GPU
     if(GPU)
@@ -329,7 +330,6 @@ void geblttrs_npvt_interleaved_initData(const rocblas_handle handle,
 
         // copy hRHS to dX
         CHECK_HIP_ERROR(dX.transfer_from(hRHS_));
-
     };
 }
 #undef hA
@@ -362,38 +362,35 @@ void geblttrs_npvt_interleaved_getError(const rocblas_handle handle,
                                         Th& hXRes_,
                                         double* max_err)
 {
-
-#define  hA(b,i,j,k) hA_[0][indx4(b,i,j,k, bc,lda,nb,nblocks-1)]
-#define  hB(b,i,j,k) hB_[0][indx4(b,i,j,k, bc,ldb,nb,nblocks)]
-#define  hC(b,i,j,k) hC_[0][indx4(b,i,j,k, bc,ldc,nb,nblocks-1)]
-#define hX(b,i,k,irhs) hX_[0][ indx4(b,i,k,irhs,   bc,ldx, nblocks, nrhs) ]
-#define hXRes(b,i,k,irhs) hXRes_[0][ indx4(b,i,k,irhs,   bc,ldx, nblocks, nrhs) ]
-
+#define hA(b, i, j, k) hA_[0][indx4(b, i, j, k, bc, lda, nb, nblocks - 1)]
+#define hB(b, i, j, k) hB_[0][indx4(b, i, j, k, bc, ldb, nb, nblocks)]
+#define hC(b, i, j, k) hC_[0][indx4(b, i, j, k, bc, ldc, nb, nblocks - 1)]
+#define hX(b, i, k, irhs) hX_[0][indx4(b, i, k, irhs, bc, ldx, nblocks, nrhs)]
+#define hXRes(b, i, k, irhs) hXRes_[0][indx4(b, i, k, irhs, bc, ldx, nblocks, nrhs)]
 
     size_t const n = nb * nblocks;
     size_t const ldXX = n;
     size_t const ldXXRes = n;
-     
+
     std::vector<T> XX_(ldXX * nrhs);
     std::vector<T> XXRes_(ldXXRes * nrhs);
 
-#define XX(ii,irhs) XX_[ indx2(ii,irhs, ldXX,nrhs) ]
-#define XXRes(ii,irhs) XXRes_[ indx2(ii,irhs, ldXXRes, nrhs) ]
-
+#define XX(ii, irhs) XX_[indx2(ii, irhs, ldXX, nrhs)]
+#define XXRes(ii, irhs) XXRes_[indx2(ii, irhs, ldXXRes, nrhs)]
 
     // input data initialization
-    geblttrs_npvt_interleaved_initData<true, true, T>(handle, nb, nblocks, nrhs, dA, lda, dB, ldb,
-                                                      dC, ldc, dX, ldx, bc, hA_, hB_, hC_, hX_, hXRes_);
+    geblttrs_npvt_interleaved_initData<true, true, T>(handle, nb, nblocks, nrhs, dA, lda, dB, ldb, dC,
+                                                      ldc, dX, ldx, bc, hA_, hB_, hC_, hX_, hXRes_);
 
     // execute computations
     // GPU lapack
 
     {
-    device_strided_batch_vector<rocblas_int> dInfo(1, 1, 1, bc);
-    CHECK_HIP_ERROR(dInfo.memcheck());
-    // perform factorization
-    CHECK_ROCBLAS_ERROR(rocsolver_geblttrf_npvt_interleaved(
-        handle, nb, nblocks, dA.data(), lda, dB.data(), ldb, dC.data(), ldc, dInfo.data(), bc));
+        device_strided_batch_vector<rocblas_int> dInfo(1, 1, 1, bc);
+        CHECK_HIP_ERROR(dInfo.memcheck());
+        // perform factorization
+        CHECK_ROCBLAS_ERROR(rocsolver_geblttrf_npvt_interleaved(
+            handle, nb, nblocks, dA.data(), lda, dB.data(), ldb, dC.data(), ldc, dInfo.data(), bc));
     };
 
     // perform solve
@@ -411,7 +408,6 @@ void geblttrs_npvt_interleaved_getError(const rocblas_handle handle,
     double err = 0;
     *max_err = 0;
 
-
     // error is ||hX - hXRes|| / ||hX||
     // (THIS DOES NOT ACCOUNT FOR NUMERICAL REPRODUCIBILITY ISSUES.
     // IT MIGHT BE REVISITED IN THE FUTURE)
@@ -419,24 +415,26 @@ void geblttrs_npvt_interleaved_getError(const rocblas_handle handle,
     for(rocblas_int b = 0; b < bc; ++b)
     {
         // move blocks of X to full matrix XX
-	for(rocblas_int irhs = 0; irhs < nrhs; irhs++) {
-        for(rocblas_int k = 0; k < nblocks; k++)       {
-        for(rocblas_int i = 0; i < nb; i++)            {
+        for(rocblas_int irhs = 0; irhs < nrhs; irhs++)
+        {
+            for(rocblas_int k = 0; k < nblocks; k++)
+            {
+                for(rocblas_int i = 0; i < nb; i++)
+                {
+                    auto const ii = indx2(i, k, nb, nblocks);
 
-                auto const ii = indx2(i,k, nb,nblocks);
+                    T const x_ik = hX(b, i, k, irhs);
+                    XX(ii, irhs) = x_ik;
 
-                T const x_ik = hX(b,i,k,irhs);
-                XX( ii, irhs ) = x_ik;
-                
-                T const xres_ik = hXRes(b,i,k,irhs);
-                XXRes(ii,irhs) = xres_ik;
+                    T const xres_ik = hXRes(b, i, k, irhs);
+                    XXRes(ii, irhs) = xres_ik;
+                };
             };
-            };
-            };
+        };
 
-        err = norm_error('F', n, nrhs, n, &(XX(0,0)), &(XXRes(0,0)) );
+        err = norm_error('F', n, nrhs, n, &(XX(0, 0)), &(XXRes(0, 0)));
         *max_err = err > *max_err ? err : *max_err;
-     };
+    };
 }
 
 #undef hA
@@ -446,8 +444,6 @@ void geblttrs_npvt_interleaved_getError(const rocblas_handle handle,
 #undef hXRes
 #undef XX
 #undef XXRes
-
-
 
 template <typename T, typename Td, typename Th>
 void geblttrs_npvt_interleaved_getPerfData(const rocblas_handle handle,
@@ -554,13 +550,12 @@ void testing_geblttrs_npvt_interleaved(Arguments& argus)
     // N/A
 
     // determine sizes
-    size_t const size_A = max(1,bc*size_t(lda) * nb * (nblocks-1));
-    size_t const size_B = max(1,bc*size_t(ldb) * nb * nblocks);
-    size_t const size_C = max(1,bc*size_t(ldc) * nb * (nblocks-1));
-    size_t const size_X = max(1,bc*size_t(ldx) * nblocks * nrhs) ;
+    size_t const size_A = max(1, bc * size_t(lda) * nb * (nblocks - 1));
+    size_t const size_B = max(1, bc * size_t(ldb) * nb * nblocks);
+    size_t const size_C = max(1, bc * size_t(ldc) * nb * (nblocks - 1));
+    size_t const size_X = max(1, bc * size_t(ldx) * nblocks * nrhs);
     size_t const size_XRes = size_X;
     double max_error = 0, gpu_time_used = 0, cpu_time_used = 0;
-
 
     // check invalid sizes
     bool invalid_size = (nb < 0 || nblocks < 0 || nrhs < 0 || lda < nb || ldb < nb || ldc < nb
@@ -602,7 +597,7 @@ void testing_geblttrs_npvt_interleaved(Arguments& argus)
     host_strided_batch_vector<T> hB(size_B, 1, size_B, 1);
     host_strided_batch_vector<T> hC(size_C, 1, size_C, 1);
     host_strided_batch_vector<T> hX(size_X, 1, size_X, 1);
-    host_strided_batch_vector<T> hXRes(size_XRes, 1, size_XRes,1); 
+    host_strided_batch_vector<T> hXRes(size_XRes, 1, size_XRes, 1);
     device_strided_batch_vector<T> dA(size_A, 1, size_A, 1);
     device_strided_batch_vector<T> dB(size_B, 1, size_B, 1);
     device_strided_batch_vector<T> dC(size_C, 1, size_C, 1);
