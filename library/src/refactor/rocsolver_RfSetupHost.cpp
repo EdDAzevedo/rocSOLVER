@@ -23,24 +23,26 @@
  * ************************************************************************ */
 #include "rocsolver_RfSetupDevice.hpp"
 
-extern "C" rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
-                                                  const int n,
-                                                  const int nnzA,
-                                                  int* h_csrRowPtrA,
-                                                  int* h_csrColIndA,
-                                                  double* h_csrValA,
-                                                  const int nnzL,
-                                                  int* h_csrRowPtrL,
-                                                  int* h_csrColIndL,
-                                                  double* h_csrValL,
-                                                  const int nnzU,
-                                                  int* h_csrRowPtrU,
-                                                  int* h_csrColIndU,
-                                                  double* h_csrValU,
-                                                  int* h_P,
-                                                  int* h_Q,
-                                                  /* Output */
-                                                  rocsolverRfHandle_t handle)
+extern "C" {
+
+rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
+                                       const int n,
+                                       const int nnzA,
+                                       int* h_csrRowPtrA,
+                                       int* h_csrColIndA,
+                                       double* h_csrValA,
+                                       const int nnzL,
+                                       int* h_csrRowPtrL,
+                                       int* h_csrColIndL,
+                                       double* h_csrValL,
+                                       const int nnzU,
+                                       int* h_csrRowPtrU,
+                                       int* h_csrColIndU,
+                                       double* h_csrValU,
+                                       int* h_P,
+                                       int* h_Q,
+                                       /* Output */
+                                       rocsolverRfHandle_t handle)
 {
     rocsolverStatus_t istat = rocsolver_RfSetup_checkargs(
         n, nnzA, h_csrRowPtrA, h_csrColIndA, h_csrValA, nnzL, h_csrRowPtrL, h_csrColIndL, h_csrValL,
@@ -130,4 +132,5 @@ extern "C" rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) 
     return (rocsolverRfSetupDevice_impl<MAKE_COPY>(
         n, nnzA, d_csrRowPtrA, d_csrColIndA, d_csrValA, nnzL, d_csrRowPtrL, d_csrColIndL, d_csrValL,
         nnzU, d_csrRowPtrU, d_csrColIndU, d_csrValU, d_P, d_Q, handle));
-}
+};
+};

@@ -38,6 +38,8 @@ It may be called once prior to rocsolverRfAnalyze() routine.
  -----------------------------------------------------------
 */
 
+extern "C" {
+
 rocsolverStatus_t rocsolverRfGetResetValuesFastMode(rocsolverRfHandle_t handle,
                                                     rocsolverRfResetValuesFastMode_t* fast_mode)
 {
@@ -54,4 +56,5 @@ rocsolverStatus_t rocsolverRfGetResetValuesFastMode(rocsolverRfHandle_t handle,
     *fast_mode = handle->fast_mode;
 
     return (ROCSOLVER_STATUS_SUCCESS);
+};
 };

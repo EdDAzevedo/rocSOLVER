@@ -34,6 +34,8 @@
 #include "assert.h"
 #include "rf_pqrlusolve.h"
 
+extern "C" {
+
 rocsolverStatus_t rocsolverRfSolve(
     /* Input (in the device memory) */
     rocsolverRfHandle_t handle,
@@ -45,12 +47,10 @@ rocsolverStatus_t rocsolverRfSolve(
 
     /* Input/Output (in the device memory) */
 
-    /* 
-               -----------------------------------------
-               dense matrix that contains right-hand side F
-               and solutions X of size (ldxf * nrhs)
-               -----------------------------------------
-              */
+    // -----------------------------------------
+    // dense matrix that contains right-hand side F
+    // and solutions X of size (ldxf * nrhs)
+    // -----------------------------------------
     double* XF,
 
     /* Input */
@@ -62,8 +62,14 @@ rocsolverStatus_t rocsolverRfSolve(
     };
 
     int const n = handle->n;
-    if(n <= 0)
+    if((n < 0) || (nrhs < 0))
     {
+        return (ROCSOLVER_STATUS_INVALUE_VALUE);
+    };
+
+    if((n == 0) || (nrhs == 0))
+    {
+        // no work
         return (ROCSOLVER_STATUS_SUCCESS);
     };
 
@@ -98,4 +104,5 @@ rocsolverStatus_t rocsolverRfSolve(
     };
 
     return (ROCSOLVER_STATUS_SUCCESS);
-}
+};
+};

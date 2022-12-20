@@ -31,6 +31,9 @@
  This routine performs the LU re-factorization
  ---------------------------------------------
  */
+
+extern "C" {
+
 rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
 {
     if(handle == nullptr)
@@ -126,4 +129,5 @@ rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
     HIPSPARSE_CHECK(hipsparseDestroyCsrilu02Info(info), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     return (ROCSOLVER_STATUS_SUCCESS);
-}
+};
+};

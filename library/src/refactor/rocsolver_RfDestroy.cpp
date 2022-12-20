@@ -24,7 +24,9 @@
 
 #include "rf_common.hpp"
 
-extern "C" rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
+extern "C" {
+
+rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
 {
     if(handle == nullptr)
     {
@@ -97,4 +99,5 @@ extern "C" rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
     handle = nullptr;
 
     return (ROCSOLVER_STATUS_SUCCESS);
-}
+};
+};

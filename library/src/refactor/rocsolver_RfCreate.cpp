@@ -26,7 +26,9 @@
 #include "hipsparse_check.h"
 #include "rocsolver_refactor.h"
 
-extern "C" rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
+extern "C" {
+
+rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
 {
     rocsolverRfHandle_t handle;
 
@@ -77,4 +79,5 @@ extern "C" rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
 
     *p_handle = handle;
     return (ROCSOLVER_STATUS_SUCCESS);
-}
+};
+};

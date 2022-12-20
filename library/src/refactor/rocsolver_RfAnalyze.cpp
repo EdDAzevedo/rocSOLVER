@@ -27,6 +27,21 @@
 
 #include "rocsolver_refactor.h"
 
+/*
+--------------------------------------------------------------------------
+This routine performs the appropriate analysis of parallelism available in
+the LU re-factorization depending upon the algorithm chosen by the user.
+
+   A = L * U
+
+It is assumed that a prior call to rocsolverRfSetupHost() or
+rocsolverRfSetupDevice() was done in order to create internal data
+structures needed for the analysis.
+
+This routine needs to be called only once for a single linear system.
+--------------------------------------------------------------------------
+*/
+
 extern "C" {
 
 rocsolverStatus_t rocsolverRfAnalyze(rocsolverRfHandle_t handle)

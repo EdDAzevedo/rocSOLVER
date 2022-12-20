@@ -25,9 +25,11 @@
 
 #include "rf_common.hpp"
 
-extern "C" rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
-                                                gluFactorization_t fact_alg,
-                                                gluTriangularSolve_t solve_alg)
+extern "C" {
+
+rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
+                                     gluFactorization_t fact_alg,
+                                     gluTriangularSolve_t solve_alg)
 {
     // not fully implemented yet
     if(handle == nullptr)
@@ -39,4 +41,5 @@ extern "C" rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
     handle->solve_alg = solve_alg;
 
     return (ROCSOLVER_STATUS_SUCCESS);
-}
+};
+};

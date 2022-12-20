@@ -24,6 +24,8 @@
  * ************************************************************************ */
 #include "rocsolver_refactor.h"
 
+extern "C" {
+
 rocsolverStatus_t rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle,
                                                   double effective_zero,
                                                   double boost_val)
@@ -37,4 +39,5 @@ rocsolverStatus_t rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle,
     handle->boost_val = boost_val;
 
     return (ROCSOLVER_STATUS_SUCCESS);
-}
+};
+};

@@ -24,28 +24,31 @@
  * ************************************************************************ */
 #include "rocsolver_RfSetupDevice.hpp"
 
-extern "C" rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
-                                                    int n,
-                                                    int nnzA,
-                                                    int* csrRowPtrA_in,
-                                                    int* csrColIndA_in,
-                                                    double* csrValA_in,
-                                                    int nnzL,
-                                                    int* csrRowPtrL_in,
-                                                    int* csrColIndL_in,
-                                                    double* csrValL_in,
-                                                    int nnzU,
-                                                    int* csrRowPtrU_in,
-                                                    int* csrColIndU_in,
-                                                    double* csrValU_in,
-                                                    int* P_in,
-                                                    int* Q_in,
+extern "C" {
 
-                                                    /* Output */
-                                                    rocsolverRfHandle_t handle)
+rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
+                                         int n,
+                                         int nnzA,
+                                         int* csrRowPtrA_in,
+                                         int* csrColIndA_in,
+                                         double* csrValA_in,
+                                         int nnzL,
+                                         int* csrRowPtrL_in,
+                                         int* csrColIndL_in,
+                                         double* csrValL_in,
+                                         int nnzU,
+                                         int* csrRowPtrU_in,
+                                         int* csrColIndU_in,
+                                         double* csrValU_in,
+                                         int* P_in,
+                                         int* Q_in,
+
+                                         /* Output */
+                                         rocsolverRfHandle_t handle)
 {
     bool constexpr MAKE_COPY = true;
     return (rocsolverRfSetupDevice_impl<MAKE_COPY>(
         n, nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_in, nnzL, csrRowPtrL_in, csrColIndL_in,
         csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, P_in, Q_in, handle));
+};
 };

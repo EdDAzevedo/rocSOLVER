@@ -40,6 +40,8 @@
  -----------------------------------------------------------
 */
 
+extern "C" {
+
 rocsolverStatus_t rocsolverRfSetMatrixFormat(rocsolverRfHandle_t handle,
                                              rocsolverRfMatrixFormat_t matrix_format,
                                              rocsolverRfUnitDiagonal_t diag_format)
@@ -73,4 +75,5 @@ rocsolverStatus_t rocsolverRfSetMatrixFormat(rocsolverRfHandle_t handle,
     handle->diag_format = diag_format;
 
     return (ROCSOLVER_STATUS_SUCCESS);
+};
 };
