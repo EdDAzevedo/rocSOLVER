@@ -39,7 +39,7 @@ typedef enum
     ROCSOLVERRF_RESET_VALUES_FAST_MODE_ON = 1
 } rocsolverRfResetValuesFastMode_t;
 
-typedef rocsolverRfResetValuesFastMode_t gluResetValuesFastMode_t; 
+typedef rocsolverRfResetValuesFastMode_t gluResetValuesFastMode_t;
 
 /* ROCSOLVERRF matrix format */
 typedef enum

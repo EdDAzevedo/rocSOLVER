@@ -24,9 +24,9 @@
 #ifndef ROCSOLVERRF_H
 #define ROCSOLVERRF_H
 
+#include "rocsolver_refactor.h"
 #include <rocblas/rocblas.h>
 #include <rocsolver/rocsolver.h>
-#include "rocsolver_refactor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -101,11 +101,9 @@ rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
                                        /* Output */
                                        rocsolverRfHandle_t handle);
 
-
-rocsolverStatus_t rocsolverRfSetAlgs(
-                         rocsolverRfHandle_t handle,
-                         rocsolverRfFactorization_t fact_alg,
-                         rocsolverRfTriangularSolve_t alg );
+rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
+                                     rocsolverRfFactorization_t fact_alg,
+                                     rocsolverRfTriangularSolve_t alg);
 
 #ifdef __cplusplus
 };
