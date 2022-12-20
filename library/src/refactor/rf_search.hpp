@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-
+#pragma once
 /*
  -------------------------------------------------
  inline lambda function to perform search in array
@@ -44,47 +44,40 @@ auto rf_search = [](Iint const len, Iint const* const arr, Iint const key) -> Ii
         return (ipos = len);
     };
 
-    if(len <= small_len)
-    {
-        /*  
-            -----------------
-            use simple linear search  
-            -----------------
-           */
-        for(Iint k = 0; k < len; k++)
-        {
-            bool const is_found = (arr[k] == key);
-            if(is_found)
-            {
-                ipos = k;
-                break;
-            };
-        };
-    }
-    else
-    {
-        /*
+    /*
           -----------------
           use binary search
           -----------------
           */
-        Iint lo = 0;
-        Iint hi = len;
+    Iint lo = 0;
+    Iint hi = len;
 
-        for(int i = 0; i < 32; i++)
+    for(int i = 0; i < 32; i++)
+    {
+        Iint const len_remain = hi - lo;
+        if(len_remain <= small_len)
         {
-            Iint const len_remain = hi - lo;
-            if(len_remain <= 0)
+            /*
+                 ------------------------
+                 use simple linear search
+                 ------------------------
+                */
+            for(int k = 0; k < len; k++)
             {
-                break;
+                bool const is_found = (arr[k] == key);
+                if(is_found)
+                {
+                    return (ipos = k);
+                };
             };
-
-            Iint mid = (lo + hi) / 2;
+        }
+        else
+        {
+            Iint const mid = (lo + hi) / 2;
             bool const is_found = (arr[mid] == key);
             if(is_found)
             {
-                ipos = mid;
-                break;
+                return (ipos = mid);
             };
 
             if(arr[mid] < key)
