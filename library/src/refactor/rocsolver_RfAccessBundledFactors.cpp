@@ -27,6 +27,16 @@
 #include "hipsparse_check.h"
 #include "rocsolver_refactor.h"
 
+/*
+-----------------------------------------------------------------------
+This routine allows direct access to the lower L and upper U triangular
+factors stored in the rocSolverRF library handle. The factors are
+compressed into a single matrix M = (L-I) + U, where the unitary
+diagonal of L is not stored.  It is assumed that a prior call to the
+rocsolverRfRefactor() was done in order to generate these triangular
+factors.
+-----------------------------------------------------------------------
+*/
 extern "C" {
 
 rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */

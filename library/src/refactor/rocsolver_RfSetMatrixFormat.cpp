@@ -30,13 +30,13 @@
 
 /*
  -----------------------------------------------------------
- This routine sets the matrix format used in rocsolverRfSetupDevice(),
- rocsolverRfSetupHost(), rocsolverRfResetValues(),
- rocsolverRfExtractBundledFactorsHost(),
- rocsolverRfExtractSplitFactorsHost() routines.
+This routine sets the matrix format used in
+rocsolverRfSetupDevice(), rocsolverRfSetupHost(),
+rocsolverRfResetValues(), rocsolverRfExtractBundledFactorsHost(),
+rocsolverRfExtractSplitFactorsHost() routines.
 
- It may be called once prior to rocsolverRfSetupDevice() and
- rocsolverRfSetupHost() routines.
+It may be called once prior to rocsolverRfSetupDevice() and
+rocsolverRfSetupHost() routines.
  -----------------------------------------------------------
 */
 

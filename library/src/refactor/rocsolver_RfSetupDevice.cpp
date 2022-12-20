@@ -24,19 +24,53 @@
  * ************************************************************************ */
 #include "rocsolver_RfSetupDevice.hpp"
 
+/*
+----------------------------------------------------------------------
+This routine assembles the internal data structures of the rocSolverRF
+library.  It is often the first routine to be called after the call to
+the rocsolverRfCreate() routine.
+
+This routine accepts as input (on the device) the original matrix A,
+the lower L and upper U triangular factors, as well as the left (P)
+and right (Q) permutations resulting from the full LU factorization of
+the first (i=1) linear system
+
+   A_i x_i = f_i
+
+The permutations P and Q represent the final composition of all the left
+and right reordering applied to the original matrix A, respectively.
+However, these permutations are often associated with partial pivoting
+and reordering to minimize fill-in, respectively.
+
+This routine needs to be called only for a single linear system
+
+  
+   A_i x_i = f_i
+
+
+----------------------------------------------------------------------
+*/
+
 extern "C" {
 
-rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
-                                         int n,
-                                         int nnzA,
+rocsolverStatus_t rocsolverRfSetupDevice(int n, // host input
+                                         int nnzA, // host input
+
+                                         /* Input (in the device memory) */
                                          int* csrRowPtrA_in,
                                          int* csrColIndA_in,
                                          double* csrValA_in,
-                                         int nnzL,
+
+                                         int nnzL, // host input
+
+                                         /* Input (in the device memory) */
                                          int* csrRowPtrL_in,
                                          int* csrColIndL_in,
                                          double* csrValL_in,
-                                         int nnzU,
+
+                                         int nnzU, // host input
+
+                                         /* Input (in the device memory) */
                                          int* csrRowPtrU_in,
                                          int* csrColIndU_in,
                                          double* csrValU_in,

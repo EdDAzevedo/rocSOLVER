@@ -22,14 +22,26 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "hip_check.h"
-#include "hipsparse_check.h"
 
-#include "rocsolver_refactor.h"
+#include "rf_common.hpp"
+
 /*
- ---------------------------------------------
- This routine performs the LU re-factorization
- ---------------------------------------------
+---------------------------------------------
+This routine performs the LU re-factorization
+    A = L * U
+uses the available parallelism on the GPU.  It is assumed that a prior
+call to rocsolverRfAnalyze() was done in order to find the available
+parallelism.
+
+This routine may be called multiple times, once for each of the linear
+systems:
+   A_i  x_i = f_i
+
+There are some constraints to the combination of algorithms used
+for refactorization and solving routines, rocsolverRfRefactor() and
+rocsolverRfSolve().  The wrong combination generates the error code
+ROCSOLVER_STATUS_INVALID_VALUE.
+---------------------------------------------
  */
 
 extern "C" {

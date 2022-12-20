@@ -24,6 +24,13 @@
 
 #include "rf_common.hpp"
 
+/*
+-----------------------------------------------------------------------
+This routine shuts down the rocSolverRF library.  It releases acquired
+resources and must be called after all the rocsolverRF library routines.
+-----------------------------------------------------------------------
+*/
+
 extern "C" {
 
 rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)

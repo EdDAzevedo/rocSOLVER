@@ -25,6 +25,17 @@
 
 #include "rf_common.hpp"
 
+/*
+---------------------------------------------------------------------- 
+This routine sets the algorithm used for the refactorization in
+rocsolverRfRefactor() and the triangular solve in rocsolverRfSolve().
+It may be called once prior to rocsolverRfAnalyze() routine.
+
+Note the factorization algorithm need to be compatible with the solver
+algorithm.
+---------------------------------------------------------------------- 
+*/
+
 extern "C" {
 
 rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
@@ -35,6 +46,45 @@ rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
     if(handle == nullptr)
     {
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+    };
+
+    {
+        bool const is_valid_fact_alg = (fact_alg == ROCSOLVERRF_FACTORIZATION_ALG0)
+            || (fact_alg == ROCSOLVERRF_FACTORIZATION_ALG1)
+            || (fact_alg == ROCSOLVERRF_FACTORIZATION_ALG2);
+
+        bool const is_valid_solve_alg = (solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1)
+            || (solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG2)
+            || (solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG3);
+
+        bool const is_valid = (is_valid_fact_alg && is_valid_solve_alg);
+
+        if(!is_valid)
+        {
+            return (ROCSOLVER_STATUS_INVALID_VALUE);
+        };
+    };
+
+    // ------------------------
+    // check compatible options
+    // ------------------------
+    {
+        bool const is_compatible_case1 = ((fact_alg == ROCSOLVERRF_FACTORIZATION_ALG0)
+                                          && (solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1));
+
+        bool const is_compatible_case2 = ((fact_alg == ROCSOLVERRF_FACTORIZATION_ALG1)
+                                          && ((solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG2)
+                                              || (solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG3)));
+
+        bool const is_compatible_case3 = ((fact_alg == ROCSOLVERRF_FACTORIZATION_ALG2)
+                                          && ((solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG2)
+                                              || (solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG3)));
+
+        bool const is_compatible = is_compatible_case1 || is_compatible_case2 || is_compatible_case3;
+        if(!is_compatible)
+        {
+            return (ROCSOLVER_STATUS_INVALID_VALUE);
+        };
     };
 
     handle->fact_alg = fact_alg;

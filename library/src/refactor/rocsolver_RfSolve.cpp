@@ -24,9 +24,19 @@
  * ************************************************************************ */
 /*
  -------------------------------------------------------------
- This routine performs the forward and backward solve with the 
- upper and lower triangular factors computed from 
- rocsolverRfRefactor()
+This routine performs the forward and backward solve with the upper
+and lower triangular factors computed from the LU re-factorization
+rocsolverRfRefactor() routine.
+
+The routine can solve linear systems with multiple right-hand-sides (RHS):
+
+  solve F = A X = (L U) X = L (U X) or   L Y = F, where Y = U X
+
+This routine may be called multiple times, once for each of the linear
+systems:
+
+   A_i x_i = f_i
+
  -------------------------------------------------------------
 */
 
@@ -61,10 +71,18 @@ rocsolverStatus_t rocsolverRfSolve(
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
+    {
+        bool const isok = (P != nullptr) && (Q != nullptr) && (Temp != nullptr) && (XF != nullptr);
+        if(!isok)
+        {
+            return (ROCSOLVER_STATUS_INVALID_VALUE);
+        };
+    };
+
     int const n = handle->n;
     if((n < 0) || (nrhs < 0))
     {
-        return (ROCSOLVER_STATUS_INVALUE_VALUE);
+        return (ROCSOLVER_STATUS_INVALID_VALUE);
     };
 
     if((n == 0) || (nrhs == 0))

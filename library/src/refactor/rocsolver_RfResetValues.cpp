@@ -25,12 +25,34 @@
 #include "rocsolver_RfResetValues.hpp"
 #include "rocsolver_refactor.h"
 
+/*
+-----------------------------------------------------------------------
+This routine updates the internal data structures with the values of the
+new coefficient matrix.  It is assumed that the arrays csrRowPtrA[],
+csrColIndA[], P[] and Q[] have not changed since the last call to
+the rocsolverRfSetupHost() or rocsolverRfSetupDevice() routine. This
+assumption reflects the fact that the sparsity pattern of coefficient
+matrices as well as reordering to minimize fill-in and pivoting remain
+the same in the set of linear systems
+
+    A_i x_i = f_i
+
+This routine may be called multiple times, once for each of the linear
+systems:
+
+    A_i x_i = f_i
+
+-----------------------------------------------------------------------
+*/
+
 extern "C" {
 
 rocsolverStatus_t rocsolverRfResetValues(
-    /* Input (in the device memory) */
+    /* Input (in host memory) */
     int n,
     int nnzA,
+
+    /* Input (in the device memory) */
     int* csrRowPtrA,
     int* csrColIndA,
     double* csrValA,

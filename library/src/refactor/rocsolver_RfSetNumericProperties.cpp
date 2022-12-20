@@ -24,6 +24,16 @@
  * ************************************************************************ */
 #include "rocsolver_refactor.h"
 
+/*
+-----------------------------------------------------------------------
+This routine sets the numeric values used for checking for "zero" pivot
+and for boosting it in the rocsolverRfRefactor() and rocsolverRfSolve()
+routines. It may be called multiple times prior to rocsolverRfRefactor()
+and rocsolverRfSolve() routines.  The numeric boosting will be used only
+if boost > 0.0
+-----------------------------------------------------------------------
+*/
+
 extern "C" {
 
 rocsolverStatus_t rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle,

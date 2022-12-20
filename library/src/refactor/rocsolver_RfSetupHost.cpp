@@ -23,6 +23,33 @@
  * ************************************************************************ */
 #include "rocsolver_RfSetupDevice.hpp"
 
+/*
+----------------------------------------------------------------------
+This routine assembles the internal data structures of the rocSolverRF
+library.  It is often the first routine to be called after the call to
+the rocsolverRfCreate() routine.
+
+This routine accepts as input (on the device) the original matrix A,
+the lower L and upper U triangular factors, as well as the left (P)
+and right (Q) permutations resulting from the full LU factorization of
+the first (i=1) linear system
+
+   A_i x_i = f_i
+
+The permutations P and Q represent the final composition of all the left
+and right reordering applied to the original matrix A, respectively.
+However, these permutations are often associated with partial pivoting
+and reordering to minimize fill-in, respectively.
+
+This routine needs to be called only for a single linear system
+
+  
+   A_i x_i = f_i
+
+
+----------------------------------------------------------------------
+*/
+
 extern "C" {
 
 rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */

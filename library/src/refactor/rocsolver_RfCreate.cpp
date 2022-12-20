@@ -26,6 +26,14 @@
 #include "hipsparse_check.h"
 #include "rocsolver_refactor.h"
 
+/*
+------------------------------------------------------------------------
+This routine initializes the rocSolverRF library.  It allocates required
+resources and must be called prior to any other rocSolverRF library
+routine.
+------------------------------------------------------------------------
+*/
+
 extern "C" {
 
 rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
@@ -45,11 +53,9 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
 
     HIPSPARSE_CHECK(hipsparseCreate(&(handle->hipsparse_handle)), ROCSOLVER_STATUS_NOT_INITIALIZED);
 
-    /*
-  --------------------
-  setup default values
-  --------------------
-*/
+    //--------------------
+    //setup default values
+    //--------------------
     handle->fast_mode = ROCSOLVERRF_RESET_VALUES_FAST_MODE_ON;
     handle->matrix_format = ROCSOLVERRF_MATRIX_FORMAT_CSR;
     handle->diag_format = ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_L;
@@ -57,6 +63,9 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->triangular_solve = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
     handle->numeric_boost = ROCSOLVERRF_NUMERIC_BOOST_NOT_USED;
 
+    // -----------------------------------------------------------------
+    // note require  compatible algorithms for  factorization and solver
+    // -----------------------------------------------------------------
     handle->fact_alg = ROCSOLVERRF_FACTORIZATION_ALG0;
     handle->solve_alg = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
 
