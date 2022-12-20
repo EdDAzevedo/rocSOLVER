@@ -55,6 +55,7 @@ rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
     int const nnz = handle->nnz_LU;
     hipsparseMatDescr_t const descrA = handle->descrLU;
 
+    int BufferSizeInBytes_int = 0;
     HIPSPARSE_CHECK(hipsparseDcsrilu02_bufferSize(handle->hipsparse_handle, n, nnz, descrA,
                                                   csrSortedValA, csrSortedRowPtrA, csrSortedColIndA,
                                                   info, &BufferSizeInBytes_int),
@@ -63,7 +64,7 @@ rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
     double* pBuffer = nullptr;
     {
         size_t const BufferSizeInBytes = BufferSizeInBytes_int;
-        HIP_CHECK(hipMalloc((void**)&pBuffer, BufferSizeInBytes), ROCSOLVER_STATUS_ALLOC_ERROR);
+        HIP_CHECK(hipMalloc((void**)&pBuffer, BufferSizeInBytes), ROCSOLVER_STATUS_ALLOC_FAILED);
     };
 
     /*
@@ -88,10 +89,10 @@ rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
          */
         double effective_zero = handle->effective_zero;
         double boost_val = handle->boost_val;
-        int enable_boost = (boost_val > 0.0);
+        int enable_boost = (boost_val > 0.0) ? 1 : 0;
 
         HIPSPARSE_CHECK(hipsparseDcsrilu02_numericBoost(handle->hipsparse_handle, info,
-                                                        enable_boost, effective_zero, boost_val),
+                                                        enable_boost, &effective_zero, &boost_val),
                         ROCSOLVER_STATUS_EXECUTION_FAILED);
     };
 
@@ -104,7 +105,7 @@ rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
                                        csrSortedRowPtrA, csrSortedColIndA, info, policy, pBuffer),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-    HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_ALLOC_ERROR);
+    HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_ALLOC_FAILED);
     /*
 	 --------------------
 	 check for zero pivot

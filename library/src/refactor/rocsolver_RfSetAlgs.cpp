@@ -1,3 +1,4 @@
+
 /*! \file */
 /* ************************************************************************
  * Copyright (C) 2022 Advanced Micro Devices, Inc. All rights Reserved.
@@ -21,18 +22,21 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#pragma once
-#ifndef RF_COMMON_HPP
-#define RF_COMMON_HPP
 
-#include <hip/hip_runtime.h>
-#include <hip/hip_runtime_api.h>
-#include <hipsparse/hipsparse.h>
+#include "rf_common.hpp"
 
-#include "rocsolverRf.h"
-#include "rocsolver_status.h"
+extern "C" rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
+                                                gluFactorization_t fact_alg,
+                                                gluTriangularSolve_t solve_alg)
+{
+    // not fully implemented yet
+    if(handle == nullptr)
+    {
+        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+    };
 
-#include "hip_check.h"
-#include "hipsparse_check.h"
+    handle->fact_alg = fact_alg;
+    handle->solve_alg = solve_alg;
 
-#endif
+    return (ROCSOLVER_STATUS_SUCCESS);
+}

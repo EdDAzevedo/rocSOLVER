@@ -1,3 +1,4 @@
+
 /*! \file */
 /* ************************************************************************
  * Copyright (C) 2022 Advanced Micro Devices, Inc. All rights Reserved.
@@ -21,18 +22,36 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#pragma once
-#ifndef RF_COMMON_HPP
-#define RF_COMMON_HPP
-
-#include <hip/hip_runtime.h>
-#include <hip/hip_runtime_api.h>
-#include <hipsparse/hipsparse.h>
-
-#include "rocsolverRf.h"
-#include "rocsolver_status.h"
 
 #include "hip_check.h"
 #include "hipsparse_check.h"
 
-#endif
+#include "rocsolver_refactor.h"
+
+/*
+ -----------------------------------------------------------
+This routine sets the mode used in the rocsolverRfResetValues() routine.
+The fast mode may require extra memory and is recommended only if very
+fast calls to rocsolverRfResetValues() are needed.
+
+It may be called once prior to rocsolverRfAnalyze() routine.
+ -----------------------------------------------------------
+*/
+
+rocsolverStatus_t rocsolverRfGetResetValuesFastMode(rocsolverRfHandle_t handle,
+                                                    rocsolverRfResetValuesFastMode_t* fast_mode)
+{
+    if(handle == nullptr)
+    {
+        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+    };
+
+    if(fast_mode == nullptr)
+    {
+        return (ROCSOLVER_STATUS_INVALID_VALUE);
+    };
+
+    *fast_mode = handle->fast_mode;
+
+    return (ROCSOLVER_STATUS_SUCCESS);
+};

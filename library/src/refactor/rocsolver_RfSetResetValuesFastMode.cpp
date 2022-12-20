@@ -21,18 +21,38 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#pragma once
-#ifndef RF_COMMON_HPP
-#define RF_COMMON_HPP
-
-#include <hip/hip_runtime.h>
-#include <hip/hip_runtime_api.h>
-#include <hipsparse/hipsparse.h>
-
-#include "rocsolverRf.h"
-#include "rocsolver_status.h"
 
 #include "hip_check.h"
 #include "hipsparse_check.h"
 
-#endif
+#include "rocsolver_refactor.h"
+
+/*
+ -----------------------------------------------------------
+This routine sets the mode used in the rocsolverRfResetValues() routine.
+The fast mode may require extra memory and is recommended only if very
+fast calls to rocsolverRfResetValues() are needed.
+
+It may be called once prior to rocsolverRfAnalyze() routine.
+ -----------------------------------------------------------
+*/
+
+rocsolverStatus_t rocsolverRfSetResetValuesFastMode(rocsolverRfHandle_t handle,
+                                                    gluResetValuesFastMode_t fast_mode)
+{
+    if(handle == nullptr)
+    {
+        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+    };
+
+    bool const isok = (fast_mode == ROCSOLVERRF_RESET_VALUES_FAST_MODE_OFF)
+        || (fast_mode == ROCSOLVERRF_RESET_VALUES_FAST_MODE_ON);
+    if(!isok)
+    {
+        return (ROCSOLVER_STATUS_INVALID_VALUE);
+    };
+
+    handle->fast_mode = fast_mode;
+
+    return (ROCSOLVER_STATUS_SUCCESS);
+};

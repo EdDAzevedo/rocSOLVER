@@ -28,32 +28,31 @@
 #include "rocsolver_RfResetValues.hpp"
 #include "rocsolver_ipvec.hpp"
 
-template<typename T>
-rocsolverStatus_t rocsolver_RfSetup_checkargs(
-                                                    int n,
-                                                    int nnzA,
-                                                    int* csrRowPtrA,
-                                                    int* csrColIndA,
-                                                    T* csrValA,
-                                                    int nnzL,
-                                                    int* csrRowPtrL,
-                                                    int* csrColIndL,
-                                                    T* csrValL,
-                                                    int nnzU,
-                                                    int* csrRowPtrU,
-                                                    int* csrColIndU,
-                                                    T* csrValU,
-                                                    int* P,
-                                                    int* Q,
-                                                    rocsolverRfHandle_t handle)
+template <typename T>
+rocsolverStatus_t rocsolver_RfSetup_checkargs(int n,
+                                              int nnzA,
+                                              int* csrRowPtrA,
+                                              int* csrColIndA,
+                                              T* csrValA,
+                                              int nnzL,
+                                              int* csrRowPtrL,
+                                              int* csrColIndL,
+                                              T* csrValL,
+                                              int nnzU,
+                                              int* csrRowPtrU,
+                                              int* csrColIndU,
+                                              T* csrValU,
+                                              int* P,
+                                              int* Q,
+                                              rocsolverRfHandle_t handle)
 {
-
     // ---------------
     // check arguments
     // ---------------
-        if (handle == nullptr) {
-           return( ROCSOLVER_STATUS_NOT_INITIALIZED );
-           };
+    if(handle == nullptr)
+    {
+        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+    };
 
     hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle;
     if(hipsparse_handle == nullptr)
@@ -61,20 +60,15 @@ rocsolverStatus_t rocsolver_RfSetup_checkargs(
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-
-
-        bool const isok_scalar = (n >= 0) && (nnzA >= 0) && (nnzL >= 0) && (nnzU >= 0);
-        bool const isok_A
-            = (csrRowPtrA != nullptr) && (csrColIndA != nullptr) && (csrValA != nullptr);
-        bool const isok_L
-            = (csrRowPtrL != nullptr) && (csrColIndL != nullptr) && (csrValL != nullptr);
-        bool const isok_U
-            = (csrRowPtrU != nullptr) && (csrColIndU != nullptr) && (csrValU != nullptr);
-        bool const isok_all = isok_scalar && isok_A && isok_L && isok_U;
-        if(!isok_all)
-        {
-            return (ROCSOLVER_STATUS_INVALID_VALUE);
-        };
+    bool const isok_scalar = (n >= 0) && (nnzA >= 0) && (nnzL >= 0) && (nnzU >= 0);
+    bool const isok_A = (csrRowPtrA != nullptr) && (csrColIndA != nullptr) && (csrValA != nullptr);
+    bool const isok_L = (csrRowPtrL != nullptr) && (csrColIndL != nullptr) && (csrValL != nullptr);
+    bool const isok_U = (csrRowPtrU != nullptr) && (csrColIndU != nullptr) && (csrValU != nullptr);
+    bool const isok_all = isok_scalar && isok_A && isok_L && isok_U;
+    if(!isok_all)
+    {
+        return (ROCSOLVER_STATUS_INVALID_VALUE);
+    };
 
     /*
      ------------
@@ -86,153 +80,125 @@ rocsolverStatus_t rocsolver_RfSetup_checkargs(
         return (ROCSOLVER_STATUS_SUCCESS);
     };
 
-  return( ROCSOLVER_STATUS_SUCCESS );
+    return (ROCSOLVER_STATUS_SUCCESS);
 };
 
-template<bool MAKE_COPY>
+template <bool MAKE_COPY>
 rocsolverStatus_t rocsolverRfSetupDevice_impl(/* Input (in the device memory) */
-                                                    int n,
-                                                    int nnzA,
-                                                    int* csrRowPtrA_in,
-                                                    int* csrColIndA_in,
-                                                    double* csrValA_in,
-                                                    int nnzL,
-                                                    int* csrRowPtrL_in,
-                                                    int* csrColIndL_in,
-                                                    double* csrValL_in,
-                                                    int nnzU,
-                                                    int* csrRowPtrU_in,
-                                                    int* csrColIndU_in,
-                                                    double* csrValU_in,
-                                                    int* P_in,
-                                                    int* Q_in,
+                                              int n,
+                                              int nnzA,
+                                              int* csrRowPtrA_in,
+                                              int* csrColIndA_in,
+                                              double* csrValA_in,
+                                              int nnzL,
+                                              int* csrRowPtrL_in,
+                                              int* csrColIndL_in,
+                                              double* csrValL_in,
+                                              int nnzU,
+                                              int* csrRowPtrU_in,
+                                              int* csrColIndU_in,
+                                              double* csrValU_in,
+                                              int* P_in,
+                                              int* Q_in,
 
-                                                    /* Output */
-                                                    rocsolverRfHandle_t handle)
+                                              /* Output */
+                                              rocsolverRfHandle_t handle)
 {
-
-   // check args
-   rocsolverStatus_t istat = rocsolver_RfSetup_checkargs(
-                                n,
-                                nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_in,
-                                nnzL, csrRowPtrL_in, csrColIndL_in, csrValL_in,
-                                nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in,
-                                P_in, Q_in,
-                                handle );
-   if (istat != ROCSOLVER_STATUS_SUCCESS ) {
-        return( istat );
-        };
-                
-
+    // check args
+    rocsolverStatus_t istat = rocsolver_RfSetup_checkargs(
+        n, nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_in, nnzL, csrRowPtrL_in, csrColIndL_in,
+        csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, P_in, Q_in, handle);
+    if(istat != ROCSOLVER_STATUS_SUCCESS)
+    {
+        return (istat);
+    };
 
     hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle;
     handle->boost_val = 0;
     handle->effective_zero = 0;
 
-    int *csrRowPtrA = csrRowPtrA_in;
-    int *csrColIndA = csrColIndA_in;
-    double *csrValA = csrValA_in;
+    int* csrRowPtrA = csrRowPtrA_in;
+    int* csrColIndA = csrColIndA_in;
+    double* csrValA = csrValA_in;
 
-    int *csrRowPtrL = csrRowPtrL_in;
-    int *csrColIndL = csrColIndL_in;
-    double *csrValL = csrValL_in;
+    int* csrRowPtrL = csrRowPtrL_in;
+    int* csrColIndL = csrColIndL_in;
+    double* csrValL = csrValL_in;
 
-    int *csrRowPtrU = csrRowPtrU_in;
-    int *csrColIndU = csrColIndU_in;
-    double *csrValU = csrValU_in;
+    int* csrRowPtrU = csrRowPtrU_in;
+    int* csrColIndU = csrColIndU_in;
+    double* csrValU = csrValU_in;
 
-    int *P = P_in;
-    int *Q = Q_in;
- 
-    if (MAKE_COPY) {
-       // allocate and copy P, Q
-       size_t const nbytes_PQ = sizeof(int)*n;
+    int* P = P_in;
+    int* Q = Q_in;
 
-       HIP_CHECK( hipMalloc( &P, nbytes_PQ ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+    if(MAKE_COPY)
+    {
+        // allocate and copy P, Q
+        size_t const nbytes_PQ = sizeof(int) * n;
 
-       HIP_CHECK( hipMalloc( &Q, nbytes_PQ ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMalloc(&P, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMemcpyDtoD( P, P_in, nbytes_PQ ),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
+        HIP_CHECK(hipMalloc(&Q, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMemcpyDtoD( Q, Q_in, nbytes_PQ ),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
+        HIP_CHECK(hipMemcpyDtoD(P, P_in, nbytes_PQ), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
+        HIP_CHECK(hipMemcpyDtoD(Q, Q_in, nbytes_PQ), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-       // allocate and copy A
-       size_t const nbytes_RowPtrA = sizeof(int)*(n+1);
-       size_t const nbytes_ColIndA = sizeof(int)*nnzA;
-       size_t const nbytes_ValA = sizeof(double)*nnzA;
+        // allocate and copy A
+        size_t const nbytes_RowPtrA = sizeof(int) * (n + 1);
+        size_t const nbytes_ColIndA = sizeof(int) * nnzA;
+        size_t const nbytes_ValA = sizeof(double) * nnzA;
 
-       HIP_CHECK( hipMalloc( &csrRowPtrA, nbytes_RowPtrA ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMalloc(&csrRowPtrA, nbytes_RowPtrA), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMalloc( &csrColIndA, nbytes_ColIndA ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMalloc(&csrColIndA, nbytes_ColIndA), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMalloc( &csrValA, nbytes_ValA ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMalloc(&csrValA, nbytes_ValA), ROCSOLVER_STATUS_ALLOC_FAILED);
 
+        HIP_CHECK(hipMemcpyDtoD(csrRowPtrA, csrRowPtrA_in, nbytes_RowPtrA),
+                  ROCSOLVER_STATUS_EXECUTION_FAILED);
+        HIP_CHECK(hipMemcpyDtoD(csrColIndA, csrColIndA_in, nbytes_ColIndA),
+                  ROCSOLVER_STATUS_EXECUTION_FAILED);
+        HIP_CHECK(hipMemcpyDtoD(csrValA, csrValA_in, nbytes_ValA), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-       HIP_CHECK( hipMemcpyDtoD( csrRowPtrA, csrRowPtrA_in, nbytes_RowPtrA),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-       HIP_CHECK( hipMemcpyDtoD( csrColIndA, csrColIndA_in, nbytes_ColIndA),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-       HIP_CHECK( hipMemcpyDtoD( csrValA, csrValA_in, nbytes_ValA),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-                  
+        // allocate and copy L
+        size_t const nbytes_RowPtrL = sizeof(int) * (n + 1);
+        size_t const nbytes_ColIndL = sizeof(int) * nnzL;
+        size_t const nbytes_ValL = sizeof(double) * nnzL;
 
-       // allocate and copy L
-       size_t const nbytes_RowPtrL = sizeof(int)*(n+1);
-       size_t const nbytes_ColIndL = sizeof(int)*nnzL;
-       size_t const nbytes_ValL = sizeof(double)*nnzL;
+        HIP_CHECK(hipMalloc(&csrRowPtrL, nbytes_RowPtrL), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMalloc( &csrRowPtrL, nbytes_RowPtrL ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMalloc(&csrColIndL, nbytes_ColIndL), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMalloc( &csrColIndL, nbytes_ColIndL ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMalloc(&csrValL, nbytes_ValL), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMalloc( &csrValL, nbytes_ValL ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMemcpyDtoD(csrRowPtrL, csrRowPtrL_in, nbytes_RowPtrL),
+                  ROCSOLVER_STATUS_EXECUTION_FAILED);
+        HIP_CHECK(hipMemcpyDtoD(csrColIndL, csrColIndL_in, nbytes_ColIndL),
+                  ROCSOLVER_STATUS_EXECUTION_FAILED);
+        HIP_CHECK(hipMemcpyDtoD(csrValL, csrValL_in, nbytes_ValL), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-       HIP_CHECK( hipMemcpyDtoD( csrRowPtrL, csrRowPtrL_in, nbytes_RowPtrL),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-       HIP_CHECK( hipMemcpyDtoD( csrColIndL, csrColIndL_in, nbytes_ColIndL),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-       HIP_CHECK( hipMemcpyDtoD( csrValL, csrValL_in, nbytes_ValL),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
+        // allocate and copy U
+        size_t const nbytes_RowPtrU = sizeof(int) * (n + 1);
+        size_t const nbytes_ColIndU = sizeof(int) * nnzU;
+        size_t const nbytes_ValU = sizeof(double) * nnzU;
 
+        HIP_CHECK(hipMalloc(&csrRowPtrU, nbytes_RowPtrU), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       // allocate and copy U
-       size_t const nbytes_RowPtrU = sizeof(int)*(n+1);
-       size_t const nbytes_ColIndU = sizeof(int)*nnzU;
-       size_t const nbytes_ValU = sizeof(double)*nnzU;
+        HIP_CHECK(hipMalloc(&csrColIndU, nbytes_ColIndU), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMalloc( &csrRowPtrU, nbytes_RowPtrU ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
+        HIP_CHECK(hipMalloc(&csrValU, nbytes_ValU), ROCSOLVER_STATUS_ALLOC_FAILED);
 
-       HIP_CHECK( hipMalloc( &csrColIndU, nbytes_ColIndU ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
-
-       HIP_CHECK( hipMalloc( &csrValU, nbytes_ValU ),
-                  ROCSOLVER_STATUS_ALLOC_FAILED );
-
-
-       HIP_CHECK( hipMemcpyDtoD( csrRowPtrU, csrRowPtrU_in, nbytes_RowPtrU),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-       HIP_CHECK( hipMemcpyDtoD( csrColIndU, csrColIndU_in, nbytes_ColIndU),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-       HIP_CHECK( hipMemcpyDtoD( csrValU, csrValU_in, nbytes_ValU),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED );
-        };
-    
+        HIP_CHECK(hipMemcpyDtoD(csrRowPtrU, csrRowPtrU_in, nbytes_RowPtrU),
+                  ROCSOLVER_STATUS_EXECUTION_FAILED);
+        HIP_CHECK(hipMemcpyDtoD(csrColIndU, csrColIndU_in, nbytes_ColIndU),
+                  ROCSOLVER_STATUS_EXECUTION_FAILED);
+        HIP_CHECK(hipMemcpyDtoD(csrValU, csrValU_in, nbytes_ValU), ROCSOLVER_STATUS_EXECUTION_FAILED);
+    };
 
     int* P_new2old = P;
     int* Q_new2old = Q;
-
 
     /*
     ---------------------------------
@@ -446,8 +412,6 @@ rocsolverStatus_t rocsolverRfSetupDevice_impl(/* Input (in the device memory) */
   -----------------------------
   */
 
-    
-        return( rocsolver_RfResetValues_template<int,int,double>(n, 
-                    nnzA, csrRowPtrA, csrColIndA, csrValA, P, Q, handle) );
-
+    return (rocsolver_RfResetValues_template<int, int, double>(n, nnzA, csrRowPtrA, csrColIndA,
+                                                               csrValA, P, Q, handle));
 }

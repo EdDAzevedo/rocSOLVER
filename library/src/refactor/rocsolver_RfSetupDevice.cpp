@@ -24,7 +24,6 @@
  * ************************************************************************ */
 #include "rocsolver_RfSetupDevice.hpp"
 
-
 extern "C" rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
                                                     int n,
                                                     int nnzA,
@@ -45,14 +44,8 @@ extern "C" rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memo
                                                     /* Output */
                                                     rocsolverRfHandle_t handle)
 {
- bool constexpr MAKE_COPY = true;
- return( rocsolverRfSetupDevice_impl<MAKE_COPY>(
-                         n, 
-                         nnzA,  csrRowPtrA_in, csrColIndA_in, csrValA_in,
-                         nnzL,  csrRowPtrL_in, csrColIndL_in, csrValL_in,
-                         nnzU,  csrRowPtrU_in, csrColIndU_in, csrValU_in,
-                         P_in,  Q_in,
-                         handle )
-       );
+    bool constexpr MAKE_COPY = true;
+    return (rocsolverRfSetupDevice_impl<MAKE_COPY>(
+        n, nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_in, nnzL, csrRowPtrL_in, csrColIndL_in,
+        csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, P_in, Q_in, handle));
 };
-

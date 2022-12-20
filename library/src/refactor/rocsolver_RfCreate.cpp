@@ -29,7 +29,12 @@
 extern "C" rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
 {
     rocsolverRfHandle_t handle;
-    HIP_CHECK(hipMalloc((void**)&handle, sizeof(*handle)), ROCSOLVER_STATUS_ALLOC_FAILED);
+
+    {
+        unsigned int const flags = hipHostMallocPortable;
+        HIP_CHECK(hipHostMalloc((void**)&handle, sizeof(*handle), flags),
+                  ROCSOLVER_STATUS_ALLOC_FAILED);
+    };
 
     if(handle == nullptr)
     {
@@ -45,8 +50,13 @@ extern "C" rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
 */
     handle->fast_mode = ROCSOLVERRF_RESET_VALUES_FAST_MODE_ON;
     handle->matrix_format = ROCSOLVERRF_MATRIX_FORMAT_CSR;
+    handle->diag_format = ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_L;
+
     handle->triangular_solve = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
     handle->numeric_boost = ROCSOLVERRF_NUMERIC_BOOST_NOT_USED;
+
+    handle->fact_alg = ROCSOLVERRF_FACTORIZATION_ALG0;
+    handle->solve_alg = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
 
     handle->descrL = nullptr;
     handle->descrU = nullptr;

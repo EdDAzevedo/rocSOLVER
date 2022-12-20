@@ -57,7 +57,7 @@ rocsolverStatus_t rocsolver_RfResetValues_template(Iint n,
     };
 
     bool const isok_scalar = (n >= 0) && (nnzA >= 0);
-    if(!isok_scalar) 
+    if(!isok_scalar)
     {
         return (ROCSOLVER_STATUS_INVALID_VALUE);
     };
