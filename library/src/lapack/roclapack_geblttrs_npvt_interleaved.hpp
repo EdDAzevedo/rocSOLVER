@@ -103,7 +103,7 @@ __global__
             T* Ap = &(D(iv, 1, 1, k));
             T* Bp = &(y(iv, 1, k, 1));
             rocblas_int linfo = 0;
-            getrs_npvt_bf<T>(batch_count, nn, nrhs, Ap, ld1, Bp, ld2, &linfo);
+            getrs_npvt_bf<T>(batch_count, nn, nrhs, Ap, ld1, Bp, ld2);
 
             info = (linfo != 0) && (info == 0) ? (k - 1) * nb + linfo : info;
         };
@@ -185,7 +185,7 @@ rocblas_status rocsolver_geblttrs_npvt_interleaved_argCheck(rocblas_handle handl
                                                             U B,
                                                             U C,
                                                             U X,
-                                                            const rocblas_int batch_count )
+                                                            const rocblas_int batch_count)
 {
     // order is important for unit tests:
 

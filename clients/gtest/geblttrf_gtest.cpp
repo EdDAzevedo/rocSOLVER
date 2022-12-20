@@ -22,6 +22,9 @@ typedef vector<int> geblttrf_tuple;
 
 // for checkin_lapack tests
 const vector<vector<int>> matrix_size_range = {
+    // debug
+    {3, 3, 3, 3, 3, 0},
+
     // quick return
     {0, 1, 1, 1, 1, 0},
     {1, 0, 1, 1, 1, 0},
@@ -33,16 +36,16 @@ const vector<vector<int>> matrix_size_range = {
     {32, 1, 32, 32, 32, 0},
     {32, 1, 32, 32, 32, 1},
 
-    {1,  2, 1, 1, 1, 0},
-    {1,  2, 1, 1, 1, 1},
-    {1,  2, 2, 3, 4, 0},
-    {1,  2, 2, 3, 4, 1},
+    {1, 2, 1, 1, 1, 0},
+    {1, 2, 1, 1, 1, 1},
+    {1, 2, 2, 3, 4, 0},
+    {1, 2, 2, 3, 4, 1},
 
-    {2,  2, 2, 2, 2, 0},
-    {2,  2, 2, 2, 2, 1},
-    {2,  3, 2, 2, 2, 0},
-    {2,  3, 2, 2, 2, 1},
-    
+    {2, 2, 2, 2, 2, 0},
+    {2, 2, 2, 2, 2, 1},
+    {2, 3, 2, 2, 2, 0},
+    {2, 3, 2, 2, 2, 1},
+
     {16, 2, 20, 16, 16, 1},
     {16, 2, 20, 16, 16, 1},
     {10, 7, 10, 20, 10, 0},
@@ -113,6 +116,7 @@ protected:
             testing_geblttrf_npvt_interleaved_bad_arg<T>();
 
         arg.batch_count = 3;
+        // arg.batch_count = 1;
         if(arg.singular == 1)
             testing_geblttrf_npvt_interleaved<T>(arg);
 

@@ -4,8 +4,6 @@
 
 #pragma once
 
-#define USE_FLAT
-
 #include "client_util.hpp"
 #include "clientcommon.hpp"
 #include "lapack_host_reference.hpp"
@@ -15,6 +13,44 @@
 #include "rocsolver_test.hpp"
 
 #include <cassert>
+
+#ifndef INDX_H
+#define INDX_H
+
+static int64_t indx4(int i1, int i2, int i3, int i4, int n1_in, int n2, int n3, int n4)
+{
+    int64_t const n1 = n1_in;
+
+    assert((0 <= i1) && (i1 < n1));
+    assert((0 <= i2) && (i2 < n2));
+    assert((0 <= i3) && (i3 < n3));
+    assert((0 <= i4) && (i4 < n4));
+
+    return (i1 + i2 * n1 + i3 * (n1 * n2) + i4 * (n1 * n2 * n3));
+};
+
+static int64_t indx3(int i1, int i2, int i3, int n1_in, int n2, int n3)
+{
+    int64_t const n1 = n1_in;
+
+    assert((0 <= i1) && (i1 < n1));
+    assert((0 <= i2) && (i2 < n2));
+    assert((0 <= i3) && (i3 < n3));
+
+    return (i1 + i2 * n1 + i3 * (n1 * n2));
+};
+
+static int64_t indx2(int i1, int i2, int n1_in, int n2)
+{
+    int64_t const n1 = n1_in;
+
+    assert((0 <= i1) && (i1 < n1));
+    assert((0 <= i2) && (i2 < n2));
+
+    return (i1 + i2 * n1);
+};
+
+#endif
 
 template <typename T, typename U>
 void geblttrf_npvt_interleaved_checkBadArgs(const rocblas_handle handle,
@@ -115,32 +151,9 @@ void geblttrf_npvt_interleaved_initData(const rocblas_handle handle,
                                         Th& hC_,
                                         const bool singular)
 {
-    auto indx4 = [](int i1, int i2, int i3, int i4, int n1, int n2, int n3, int n4) -> int {
-        assert((0 <= i1) && (i1 < n1));
-        assert((0 <= i2) && (i2 < n2));
-        assert((0 <= i3) && (i3 < n3));
-        assert((0 <= i4) && (i4 < n4));
-
-        return (i1 + i2 * n1 + i3 * (n1 * n2) + i4 * (n1 * n2 * n3));
-    };
-
-    auto indx3 = [](int i1, int i2, int i3, int n1, int n2, int n3) -> int {
-        assert((0 <= i1) && (i1 < n1));
-        assert((0 <= i2) && (i2 < n2));
-        assert((0 <= i3) && (i3 < n3));
-
-        return (i1 + i2 * n1 + i3 * (n1 * n2));
-    };
-
-#ifdef USE_FLAT
 #define hB(ibatch, i, j, iblock) hB_[0][indx4(ibatch, i, j, iblock, bc, ldb, nb, nblocks)]
 #define hA(ibatch, i, j, iblock) hA_[0][indx4(ibatch, i, j, iblock, bc, lda, nb, nblocks - 1)]
 #define hC(ibatch, i, j, iblock) hC_[0][indx4(ibatch, i, j, iblock, bc, ldc, nb, nblocks - 1)]
-#else
-#define hB(ibatch, i, j, iblock) hB_[iblock][indx3(ibatch, i, j, bc, ldb, nb)]
-#define hA(ibatch, i, j, iblock) hA_[iblock][indx3(ibatch, i, j, bc, lda, nb)]
-#define hC(ibatch, i, j, iblock) hC_[iblock][indx3(ibatch, i, j, bc, ldc, nb)]
-#endif
 
     if(CPU)
     {
@@ -149,7 +162,7 @@ void geblttrf_npvt_interleaved_initData(const rocblas_handle handle,
         rocblas_init<T>(hB_, false);
         rocblas_init<T>(hC_, false);
 
-        rocblas_int n = nb * nblocks;
+        size_t const n = nb * nblocks;
 
         for(rocblas_int b = 0; b < bc; ++b)
         {
@@ -163,20 +176,16 @@ void geblttrf_npvt_interleaved_initData(const rocblas_handle handle,
                     {
                         if(i == j)
                         {
-                            // hB[k][b + i * bc + j * bc * ldb] += 400;
                             hB(b, i, j, k) += 400;
                         }
                         else
                         {
-                            // hB[k][b + i * bc + j * bc * ldb] -= 4;
                             hB(b, i, j, k) -= 4;
                         };
                     }
 
                     for(rocblas_int k = 0; k < nblocks - 1; k++)
                     {
-                        // hA[k][b + i * bc + j * bc * lda] -= 4;
-                        // hC[k][b + i * bc + j * bc * ldc] -= 4;
                         hA(b, i, j, k) -= 4;
                         hC(b, i, j, k) -= 4;
                     }
@@ -262,6 +271,9 @@ void geblttrf_npvt_interleaved_initData(const rocblas_handle handle,
         CHECK_HIP_ERROR(dC.transfer_from(hC_));
     }
 }
+#undef hA
+#undef hB
+#undef hC
 
 template <typename T, typename Td, typename Ud, typename Th, typename Uh>
 void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
@@ -285,46 +297,44 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                                         double* max_err,
                                         const bool singular)
 {
-    auto indx4 = [](int i1, int i2, int i3, int i4, int n1, int n2, int n3, int n4) -> int {
-        assert((0 <= i1) && (i1 < n1));
-        assert((0 <= i2) && (i2 < n2));
-        assert((0 <= i3) && (i3 < n3));
-        assert((0 <= i4) && (i4 < n4));
+    // -----------------------------------------
+    // set idebug = 1 to turn on debug messages
+    // -----------------------------------------
+    int constexpr idebug = 0;
 
-        return (i1 + i2 * n1 + i3 * (n1 * n2) + i4 * (n1 * n2 * n3));
-    };
+#define hB(ibatch, i, j, iblock) hB_[0][indx4(ibatch, i, j, iblock, bc, ldb, nb, nblocks)]
+#define hA(ibatch, i, j, iblock) hA_[0][indx4(ibatch, i, j, iblock, bc, lda, nb, nblocks - 1)]
+#define hC(ibatch, i, j, iblock) hC_[0][indx4(ibatch, i, j, iblock, bc, ldc, nb, nblocks - 1)]
 
-    auto indx3 = [](int i1, int i2, int i3, int n1, int n2, int n3) -> int {
-        assert((0 <= i1) && (i1 < n1));
-        assert((0 <= i2) && (i2 < n2));
-        assert((0 <= i3) && (i3 < n3));
-
-        return (i1 + i2 * n1 + i3 * (n1 * n2));
-    };
-#ifdef USE_FLAT
 #define hBRes(b, i, j, k) hBRes_[0][indx4(b, i, j, k, bc, ldb, nb, nblocks)]
 #define hCRes(b, i, j, k) hCRes_[0][indx4(b, i, j, k, bc, ldc, nb, nblocks)]
-#else
-#define hBRes(b, i, j, k) hBRes_[k][indx3(b, i, j, bc, ldb, nb)]
-#define hCRes(b, i, j, k) hCRes_[k][indx3(b, i, j, bc, ldc, nb)]
-#endif
-    rocblas_int const n = nb * nblocks;
+    size_t const n = nb * nblocks;
 
-    rocblas_int const ldLk = nb;
-    rocblas_int const ldUk = nb;
-    rocblas_int const ldDk = nb;
-    std::vector<T> Lk(ldLk * nb);
-    std::vector<T> Uk(ldUk * nb);
-    std::vector<T> Dk(ldDk * nb);
+    size_t const ldLk = nb;
+    size_t const ldUk = nb;
+    size_t const ldDk = nb;
+    std::vector<T> Lk_(ldLk * nb);
+    std::vector<T> Uk_(ldUk * nb);
+    std::vector<T> Dk_(ldDk * nb);
+
+#define Lk(i, j) Lk_[indx2(i, j, ldLk, nb)]
+#define Uk(i, j) Uk_[indx2(i, j, ldUk, nb)]
+#define Dk(i, j) Dk_[indx2(i, j, ldDk, nb)]
 
     rocblas_int const ldL = n;
     rocblas_int const ldU = n;
     rocblas_int const ldM = n;
     rocblas_int const ldMRes = n;
-    std::vector<T> L(ldL * n);
-    std::vector<T> U(ldU * n);
-    std::vector<T> M(ldM * n);
-    std::vector<T> MRes(ldMRes * n);
+
+    std::vector<T> L_(ldL * n);
+    std::vector<T> U_(ldU * n);
+    std::vector<T> M_(ldM * n);
+    std::vector<T> MRes_(ldMRes * n);
+
+#define L(i, j) L_[indx2(i, j, ldL, n)]
+#define U(i, j) U_[indx2(i, j, ldU, n)]
+#define M(i, j) M_[indx2(i, j, ldM, n)]
+#define MRes(i, j) MRes_[indx2(i, j, ldM, n)]
 
     // input data initialization
     geblttrf_npvt_interleaved_initData<true, true, T>(handle, nb, nblocks, dA, lda, dB, ldb, dC,
@@ -423,7 +433,7 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
             {
                 for(rocblas_int i = 0; i < n; i++)
                 {
-                    L[i + j * ldL] = 0;
+                    L(i, j) = 0;
                 };
             };
 
@@ -438,12 +448,14 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                         bool const is_lower = (i > j);
                         bool const is_upper = (i < j);
                         bool const is_diag = (i == j);
+
                         T const dij = hBRes(b, i, j, k);
 
-                        Lk[i + j * ldLk] = (is_lower) ? dij : (is_diag) ? 1 : 0;
-                        Uk[i + j * ldUk] = (is_upper || is_diag) ? dij : 0;
+                        Lk(i, j) = (is_lower) ? dij : (is_diag) ? 1 : 0;
 
-                        Dk[i + j * ldDk] = 0;
+                        Uk(i, j) = (is_upper || is_diag) ? dij : 0;
+
+                        Dk(i, j) = 0;
                     };
                 };
 
@@ -454,25 +466,27 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                     rocblas_int const kk = nb;
                     T const alpha = 1;
                     T const beta = 0;
-                    T* Ap = &(Lk[0]);
+                    T* Ap = &(Lk(0, 0));
                     rocblas_int const ld1 = ldLk;
-                    T* Bp = &(Uk[0]);
+                    T* Bp = &(Uk(0, 0));
                     rocblas_int const ld2 = ldUk;
-                    T* Cp = &(Dk[0]);
+                    T* Cp = &(Dk(0, 0));
                     rocblas_int const ld3 = ldDk;
 
                     cpu_gemm(rocblas_operation_none, rocblas_operation_none, mm, nn, kk, alpha, Ap,
                              ld1, Bp, ld2, beta, Cp, ld3);
                 };
-                // copy Dk into Lk
+                // copy Dk into diagonal blocks of L
                 {
                     for(rocblas_int j = 0; j < nb; j++)
                     {
                         for(rocblas_int i = 0; i < nb; i++)
                         {
-                            rocblas_int const ii = i + k * nb;
-                            rocblas_int const jj = j + k * nb;
-                            L[ii + jj * ldL] = Dk[i + j * ldDk];
+                            T const dij = Dk(i, j);
+
+                            auto const ii = indx2(i, k, nb, nblocks);
+                            auto const jj = indx2(j, k, nb, nblocks);
+                            L(ii, jj) = dij;
                         };
                     };
                 };
@@ -485,7 +499,7 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                 for(rocblas_int ii = 0; ii < n; ii++)
                 {
                     bool const is_diag = (ii == jj);
-                    U[ii + jj * ldU] = (is_diag) ? 1 : 0;
+                    U(ii, jj) = (is_diag) ? 1 : 0;
                 };
             };
 
@@ -496,18 +510,20 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                 {
                     for(rocblas_int i = 0; i < nb; i++)
                     {
+                        // lower diagonal block
                         {
                             T const aij = hA(b, i, j, k);
-                            rocblas_int const ii = i + k * nb + nb;
-                            rocblas_int const jj = j + k * nb;
-                            L[ii + jj * ldL] = aij;
+                            auto const ii = indx2(i, k, nb, nblocks) + nb;
+                            auto const jj = indx2(j, k, nb, nblocks);
+                            L(ii, jj) = aij;
                         };
 
+                        // upper diagonal block
                         {
                             T const cij = hCRes(b, i, j, k);
-                            rocblas_int const ii = i + k * nb;
-                            rocblas_int const jj = j + k * nb + nb;
-                            U[ii + jj * ldU] = cij;
+                            auto const ii = indx2(i, k, nb, nblocks);
+                            auto const jj = indx2(j, k, nb, nblocks) + nb;
+                            U(ii, jj) = cij;
                         };
                     };
                 };
@@ -520,11 +536,11 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                 rocblas_int const kk = n;
                 T const alpha = 1;
                 T const beta = 0;
-                T* Ap = &(L[0]);
+                T* Ap = &(L(0, 0));
                 rocblas_int const ld1 = ldL;
-                T* Bp = &(U[0]);
+                T* Bp = &(U(0, 0));
                 rocblas_int const ld2 = ldU;
-                T* Cp = &(MRes[0]);
+                T* Cp = &(MRes(0, 0));
                 rocblas_int const ld3 = ldMRes;
 
                 cpu_gemm(rocblas_operation_none, rocblas_operation_none, mm, nn, kk, alpha, Ap, ld1,
@@ -532,7 +548,14 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
             };
 
             // form original matrix from original blocks
-            std::fill(M.begin(), M.end(), 0);
+            for(auto j = 0; j < n; j++)
+            {
+                for(auto i = 0; i < n; i++)
+                {
+                    M(i, j) = 0;
+                };
+            };
+
             for(rocblas_int k = 0; k < nblocks; k++)
             {
                 // diagonal blocks
@@ -540,10 +563,10 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                 {
                     for(rocblas_int i = 0; i < nb; i++)
                     {
-                        rocblas_int const ii = i + k * nb;
-                        rocblas_int const jj = j + k * nb;
                         T const bij = hB(b, i, j, k);
-                        M[ii + jj * ldM] = bij;
+                        auto const ii = indx2(i, k, nb, nblocks);
+                        auto const jj = indx2(j, k, nb, nblocks);
+                        M(ii, jj) = bij;
                     };
                 };
                 if(k < (nblocks - 1))
@@ -556,31 +579,31 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                                 // sub-diagonal block
                                 T const aij = hA(b, i, j, k);
 
-                                rocblas_int const ii = i + k * nb + nb;
-                                rocblas_int const jj = j + k * nb;
-                                M[ii + jj * ldM] = aij;
+                                auto const ii = indx2(i, k, nb, nblocks) + nb;
+                                auto const jj = indx2(j, k, nb, nblocks);
+                                M(ii, jj) = aij;
                             };
 
                             {
                                 // super-diagonal block
                                 T const cij = hC(b, i, j, k);
-                                rocblas_int const ii = i + k * nb;
-                                rocblas_int const jj = j + k * nb + nb;
-                                M[ii + jj * ldM] = cij;
+                                auto const ii = indx2(i, k, nb, nblocks);
+                                auto const jj = indx2(j, k, nb, nblocks) + nb;
+                                M(ii, jj) = cij;
                             };
                         };
                     };
                 }
-            }; // for k
+            }; // end for k
 
-            err = norm_error('F', n, n, n, M.data(), MRes.data());
+            err = norm_error('F', n, n, n, M_.data(), MRes_.data());
             if(err > 0.1)
             {
                 printf("b=%d,err from M - Mres %e, singular=%d,nb=%d,nblocks=%d,bc=%d\n", b, err,
                        singular, nb, nblocks, bc);
             };
 
-            bool do_print = (err > 0.1) && (n < 32);
+            bool do_print = (idebug >= 1) && (err > 0.1) && (n < 32);
             if(do_print)
             {
                 print_mat("hA", nb, nblocks - 1, &(hA(0, 0, 0, 0)), lda, bc);
@@ -589,16 +612,25 @@ void geblttrf_npvt_interleaved_getError(const rocblas_handle handle,
                 print_mat("hBRes", nb, nblocks, &(hBRes(0, 0, 0, 0)), ldb, bc);
                 print_mat("hCRes", nb, nblocks - 1, &(hCRes(0, 0, 0, 0)), ldc, bc);
 
-                print_fullmat("M", n, n, M.data(), ldM);
-                print_fullmat("L", n, n, L.data(), ldL);
-                print_fullmat("U", n, n, U.data(), ldU);
-                print_fullmat("MRes", n, n, MRes.data(), ldMRes);
+                print_fullmat("M", n, n, M_.data(), ldM);
+                print_fullmat("L", n, n, L_.data(), ldL);
+                print_fullmat("U", n, n, U_.data(), ldU);
+                print_fullmat("MRes", n, n, MRes_.data(), ldMRes);
             };
 
             *max_err = err > *max_err ? err : *max_err;
         }
     }; // end for bc
 }
+
+#undef Lk
+#undef Uk
+#undef Dk
+
+#undef L
+#undef U
+#undef M
+#undef MRes
 
 #undef hA
 #undef hB
@@ -703,21 +735,12 @@ void testing_geblttrf_npvt_interleaved(Arguments& argus)
     // N/A
 
     // determine sizes
-#ifdef USE_FLAT
-    size_t size_A = bc * size_t(lda) * nb * (nblocks - 1);
-    size_t size_B = bc * size_t(ldb) * nb * nblocks;
-    size_t size_C = bc * size_t(ldc) * nb * (nblocks - 1);
-    size_t n4_A = 1;
-    size_t n4_B = 1;
-    size_t n4_C = 1;
-#else
-    size_t size_A = bc * size_t(lda) * nb;
-    size_t size_B = bc * size_t(ldb) * nb;
-    size_t size_C = bc * size_t(ldc) * nb;
-    size_t n4_A = nblocks - 1;
-    size_t n4_B = nblocks;
-    size_t n4_C = nblocks - 1;
-#endif
+    size_t const size_A = max(1, bc * size_t(lda) * nb * (nblocks - 1));
+    size_t const size_B = max(1, bc * size_t(ldb) * nb * nblocks);
+    size_t const size_C = max(1, bc * size_t(ldc) * nb * (nblocks - 1));
+    size_t const n4_A = 1;
+    size_t const n4_B = 1;
+    size_t const n4_C = 1;
     double max_error = 0, gpu_time_used = 0, cpu_time_used = 0;
 
     size_t size_BRes = (argus.unit_check || argus.norm_check) ? size_B : 0;

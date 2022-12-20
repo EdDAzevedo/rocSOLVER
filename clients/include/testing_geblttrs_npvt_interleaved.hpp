@@ -14,6 +14,9 @@
 #include "rocsolver_arguments.hpp"
 #include "rocsolver_test.hpp"
 
+#ifndef INDX_H
+#define INDX_H
+
 static int64_t indx2(rocblas_int i1, rocblas_int i2, rocblas_int n1_in, rocblas_int n2)
 {
     int64_t const n1 = n1_in;
@@ -41,6 +44,7 @@ static int64_t indx4(rocblas_int i1,
 
     return (i1 + i2 * n1 + i3 * (n1 * n2) + i4 * (n1 * n2 * n3));
 };
+#endif
 
 template <typename T>
 void geblttrs_npvt_interleaved_checkBadArgs(const rocblas_handle handle,
