@@ -26,13 +26,12 @@
 #ifndef ROCSOLVER_REFACTOR_H
 #define ROCSOLVER_REFACTOR_H
 
-#include "hip/hip_runtime.h"
-#include "hip/hip_runtime_api.h"
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime_api.h>
 
-#include "hipsparse/hipsparse.h"
+#include <hipsparse/hipsparse.h>
 
 #include "rocsolver_status.h"
-
 
 typedef enum
 {
@@ -40,12 +39,16 @@ typedef enum
     ROCSOLVERRF_RESET_VALUES_FAST_MODE_ON = 1
 } rocsolverRfResetValuesFastMode_t;
 
+typedef rocsolverRfResetValuesFastMode_t gluResetValuesFastMode_t; 
+
 /* ROCSOLVERRF matrix format */
 typedef enum
 {
     ROCSOLVERRF_MATRIX_FORMAT_CSR = 0, //default
     ROCSOLVERRF_MATRIX_FORMAT_CSC = 1
 } rocsolverRfMatrixFormat_t;
+
+typedef rocsolverRfMatrixFormat_t gluMatrixFormat_t;
 
 /* ROCSOLVERRF unit diagonal */
 typedef enum
@@ -56,6 +59,8 @@ typedef enum
     ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_U = 3
 } rocsolverRfUnitDiagonal_t;
 
+typedef rocsolverRfUnitDiagonal_t gluUnitDiagonal_t;
+
 /* ROCSOLVERRF factorization algorithm */
 typedef enum
 {
@@ -64,6 +69,8 @@ typedef enum
     ROCSOLVERRF_FACTORIZATION_ALG2 = 2,
 } rocsolverRfFactorization_t;
 
+typedef rocsolverRfFactorization_t gluFactorization_t;
+
 /* ROCSOLVERRF triangular solve algorithm */
 typedef enum
 {
@@ -71,6 +78,8 @@ typedef enum
     ROCSOLVERRF_TRIANGULAR_SOLVE_ALG2 = 2,
     ROCSOLVERRF_TRIANGULAR_SOLVE_ALG3 = 3
 } rocsolverRfTriangularSolve_t;
+
+typedef rocsolverRfTriangularSolve_t gluTriangularSolve_t;
 
 /* ROCSOLVERRF numeric boost report */
 typedef enum
@@ -84,8 +93,12 @@ struct rocsolverRfCommon
 {
     rocsolverRfResetValuesFastMode_t fast_mode;
     rocsolverRfMatrixFormat_t matrix_format;
+    rocsolverRfUnitDiagonal_t diag_format;
     rocsolverRfTriangularSolve_t triangular_solve;
     rocsolverRfNumericBoostReport_t numeric_boost;
+
+    rocsolverRfFactorization_t fact_alg;
+    rocsolverRfTriangularSolve_t solve_alg;
 
     hipsparseHandle_t hipsparse_handle;
 

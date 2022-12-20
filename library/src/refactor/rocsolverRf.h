@@ -24,8 +24,8 @@
 #ifndef ROCSOLVERRF_H
 #define ROCSOLVERRF_H
 
-#include "rocblas/rocblas.h"
-#include "rocsolver/rocsolver.h"
+#include <rocblas/rocblas.h>
+#include <rocsolver/rocsolver.h>
 #include "rocsolver_refactor.h"
 
 #ifdef __cplusplus
@@ -81,28 +81,31 @@ rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
                                          /* Output */
                                          rocsolverRfHandle_t handle);
 
-
-
-
 rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
-                                         int n,
-                                         int nnzA,
-                                         int* csrRowPtrA,
-                                         int* csrColIndA,
-                                         double* csrValA,
-                                         int nnzL,
-                                         int* csrRowPtrL,
-                                         int* csrColIndL,
-                                         double* csrValL,
-                                         int nnzU,
-                                         int* csrRowPtrU,
-                                         int* csrColIndU,
-                                         double* csrValU,
-                                         int* P,
-                                         int* Q,
+                                       int n,
+                                       int nnzA,
+                                       int* csrRowPtrA,
+                                       int* csrColIndA,
+                                       double* csrValA,
+                                       int nnzL,
+                                       int* csrRowPtrL,
+                                       int* csrColIndL,
+                                       double* csrValL,
+                                       int nnzU,
+                                       int* csrRowPtrU,
+                                       int* csrColIndU,
+                                       double* csrValU,
+                                       int* P,
+                                       int* Q,
 
-                                         /* Output */
-                                         rocsolverRfHandle_t handle);
+                                       /* Output */
+                                       rocsolverRfHandle_t handle);
+
+
+rocsolverStatus_t rocsolverRfSetAlgs(
+                         rocsolverRfHandle_t handle,
+                         rocsolverRfFactorization_t fact_alg,
+                         rocsolverRfTriangularSolve_t alg );
 
 #ifdef __cplusplus
 };

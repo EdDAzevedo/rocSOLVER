@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
+#pragma once
 #ifndef HELPER_UTILITY_H
 #define HELPER_UTILITY_H
 
@@ -36,7 +37,7 @@
 #define __HIP_PLATFORM_AMD__
 #endif
 
-#include "hip/hip_runtime.h"
+#include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 #include <hipsparse/hipsparse.h>
 
