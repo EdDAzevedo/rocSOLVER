@@ -106,6 +106,8 @@ struct rocsolverRfCommon
     hipsparseMatDescr_t descrU;
     hipsparseMatDescr_t descrLU;
 
+    int batch_count;
+
     int* P_new2old;
     int* Q_new2old;
     int* Q_old2new;

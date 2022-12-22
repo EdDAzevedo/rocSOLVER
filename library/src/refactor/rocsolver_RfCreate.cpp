@@ -77,6 +77,8 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->Q_new2old = nullptr;
     handle->Q_old2new = nullptr;
 
+    handle->batch_count = 0;
+
     handle->n = 0;
     handle->nnz_LU = 0;
     handle->csrRowPtrLU = nullptr;
