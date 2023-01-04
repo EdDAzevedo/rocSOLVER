@@ -42,9 +42,9 @@ If position(j) is k >= 0, matrix "A(j)" is not LU factorizable and entry
 
 extern "C" {
 
-rocsolverStatus_t rocsolverRfBatchZeroPivot(rocsolverRfHandle_t handle, 
+rocsolverStatus_t rocsolverRfBatchZeroPivot(rocsolverRfHandle_t handle,
                                             /* host output */
-                                            int * position)
+                                            int* position)
 {
     if(handle == 0)
     {
@@ -56,29 +56,26 @@ rocsolverStatus_t rocsolverRfBatchZeroPivot(rocsolverRfHandle_t handle,
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-   int const batch_count = handle->batch_count;
+    int const batch_count = handle->batch_count;
 
-   for(int ibatch=0; ibatch < batch_count; ibatch++) {
-     int ipos = 0;
-     hipsparseStatus_t istat = hipsparseDcsrilu02_zeroPivot( 
-                 handle->hipsparse_handle, 
-                 handle->infoLU_array[ibatch],
-                 &ipos );
-     position[ibatch] = (istat == HIPSPARSE_STATUS_ZERO_PIVOT) ?  (ipos-1) : -1;
-     };
+    for(int ibatch = 0; ibatch < batch_count; ibatch++)
+    {
+        int ipos = 0;
+        hipsparseStatus_t istat = hipsparseXcsrilu02_zeroPivot(handle->hipsparse_handle,
+                                                               handle->infoLU_array[ibatch], &ipos);
+        position[ibatch] = (istat == HIPSPARSE_STATUS_ZERO_PIVOT) ? (ipos - 1) : -1;
+    };
 
+    int nerrors = 0;
+    for(int ibatch = 0; ibatch < batch_count; ibatch++)
+    {
+        bool const is_ok = (position[ibatch] == -1);
+        if(!is_ok)
+        {
+            nerrors++;
+        };
+    };
 
-
-   int nerrors = 0;
-   for(int ibatch=0; ibatch < batch_count; ibatch++) {
-
-      bool const is_ok = (position[ibatch] == -1);
-      if (!is_ok) { nerrors++; };
-      };
-       
-  
-   return(  (nerrors == 0) ? ROCSOVLER_STATUS_SUCCESS :
-                             ROCSOLVER_STATUS_ZERO_PIVOT );
-
+    return ((nerrors == 0) ? ROCSOLVER_STATUS_SUCCESS : ROCSOLVER_STATUS_ZERO_PIVOT);
 };
 };

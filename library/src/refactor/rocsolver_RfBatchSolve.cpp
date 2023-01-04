@@ -39,9 +39,9 @@ systems:
  -------------------------------------------------------------
 */
 
-#include "rocsolver_RfSolve.hpp"
 #include "assert.h"
 #include "rf_pqrlusolve.h"
+#include "rocsolver_RfSolve.hpp"
 
 extern "C" {
 
@@ -73,17 +73,20 @@ rocsolverStatus_t rocsolverRfBatchSolve(
     auto batch_count = handle->batch_count;
 
     {
-        bool const isok = (P != nullptr) && (Q != nullptr) && (Temp != nullptr) && (XF_array != nullptr);
+        bool const isok
+            = (P != nullptr) && (Q != nullptr) && (Temp != nullptr) && (XF_array != nullptr);
         if(!isok)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
 
-        for(auto ibatch=0; ibatch < batch_count; ibatch++) {
-          if (XF_array[ibatch] == 0) {
-             return( ROCSOLVER_STATUS_INVALID_VALUE );
-             };
-          };
+        for(auto ibatch = 0; ibatch < batch_count; ibatch++)
+        {
+            if(XF_array[ibatch] == nullptr)
+            {
+                return (ROCSOLVER_STATUS_INVALID_VALUE);
+            };
+        };
     };
 
     int const n = handle->n;
@@ -112,24 +115,25 @@ rocsolverStatus_t rocsolverRfBatchSolve(
     assert(P_new2old == handle->P_new2old);
     assert(Q_new2old == handle->Q_new2old);
 
-    for(int ibatch=0; ibatch < batch_count; ibatch++)  {
-      double *XF = XF_array[ibatch];
-      for(int irhs = 0; irhs < nrhs; irhs++)
-      {
-        double* const Rs = nullptr;
-        double* const brhs = &(XF[ldxf * irhs]);
-        int* const LUp = handle->csrRowPtrLU;
-        int* const LUi = handle->csrColIndLU;
-        double* const LUx = handle->csrValLU;
-
-        int isok = rf_pqrlusolve(handle->hipsparse_handle, n, P_new2old, Q_new2old, Rs,
-                                 handle->csrRowPtrLU, handle->csrColIndLU, handle->csrValLU, brhs);
-        if(!isok)
+    for(int ibatch = 0; ibatch < batch_count; ibatch++)
+    {
+        double* XF = XF_array[ibatch];
+        for(int irhs = 0; irhs < nrhs; irhs++)
         {
-            return (ROCSOLVER_STATUS_INTERNAL_ERROR);
+            double* const Rs = nullptr;
+            double* const brhs = &(XF[ldxf * irhs]);
+            int* const LUp = handle->csrRowPtrLU;
+            int* const LUi = handle->csrColIndLU;
+            double* const LUx = handle->csrValLU_array[ibatch];
+
+            int isok = rf_pqrlusolve(handle->hipsparse_handle, n, P_new2old, Q_new2old, Rs, LUp,
+                                     LUi, LUx, brhs);
+            if(!isok)
+            {
+                return (ROCSOLVER_STATUS_INTERNAL_ERROR);
+            };
         };
-    };
-   }; // end for ibatch
+    }; // end for ibatch
 
     return (ROCSOLVER_STATUS_SUCCESS);
 };
