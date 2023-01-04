@@ -35,8 +35,7 @@
 #endif
 
 template <typename I>
-__global__
-    __launch_bounds__(IPVEC_BLOCKSIZE) void rocsolver_ipvec_kernel(I const n,
+static __global__ __launch_bounds__(IPVEC_BLOCKSIZE) void rocsolver_ipvec_kernel(I const n,
                                                                    I const* const Q_new2old, /* input */
                                                                    I* const Q_old2new /* output */
     )
@@ -53,6 +52,7 @@ __global__
 }
 
 template <typename I>
+static 
 void rocsolver_ipvec_template(hipStream_t stream, I const n, I const* const Q_new2old, I* const Q_old2new)
 {
     if(n <= 0)

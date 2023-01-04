@@ -30,7 +30,7 @@
 #endif
 
 template <typename Iint, typename Ilong, typename T>
-__global__ __launch_bounds__(AXPBY_MAX_THDS) void rocsolver_aXpbY_kernel(Iint const nrow,
+static __global__ __launch_bounds__(AXPBY_MAX_THDS) void rocsolver_aXpbY_kernel(Iint const nrow,
                                                                          Iint const ncol,
                                                                          T const alpha,
                                                                          Iint const* const Xp,

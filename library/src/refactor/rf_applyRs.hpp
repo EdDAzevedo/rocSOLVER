@@ -35,7 +35,7 @@
 #endif
 
 template <typename T>
-__global__ void rf_applyRs_kernel(int const n, T const* const Rs, T* const b)
+static __global__ void rf_applyRs_kernel(int const n, T const* const Rs, T* const b)
 {
     if((n <= 0) || (Rs == NULL))
     {

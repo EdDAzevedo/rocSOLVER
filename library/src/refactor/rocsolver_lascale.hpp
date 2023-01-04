@@ -37,11 +37,11 @@
 #endif
 
 template <typename Iint, typename Ilong, typename T>
-__device__ void rocsolver_scale_device(Iint const nrow,
+__device__ static void rocsolver_scale_device(Iint const nrow,
                                        Iint const ncol,
                                        T const* const drow,
                                        T const* const dcol,
-                                       Iint const* const Ap,
+                                       Ilong const* const Ap,
                                        Iint const* const Ai,
                                        T* const Ax)
 {
@@ -71,12 +71,13 @@ __device__ void rocsolver_scale_device(Iint const nrow,
     Iint const irow_start = wid;
     Iint const irow_inc = (hipBlockDim_x * hipGridDim_x) / warpSize;
 
+    T const one = 1;
     for(Iint irow = irow_start; irow < nrow; irow += irow_inc)
     {
         Ilong const kstart = Ap[irow];
         Ilong const kend = Ap[irow + 1];
 
-        T const drow_i = (drow == nullptr) ? 1 : drow[irow];
+        T const drow_i = (drow == nullptr) ? one : drow[irow];
         Iint const nz = (kend - kstart);
 
         for(Iint ik = lid; ik < nz; ik += warpSize)
@@ -87,7 +88,7 @@ __device__ void rocsolver_scale_device(Iint const nrow,
             T aij = Ax[k];
             aij = (drow_i == 0) ? 0 : drow_i * aij;
 
-            T const dcol_j = (dcol == nullptr) ? 1 : dcol[jcol];
+            T const dcol_j = (dcol == nullptr) ? one : dcol[jcol];
             aij = (dcol_j == 0) ? 0 : aij * dcol_j;
 
             Ax[k] = aij;
@@ -96,24 +97,25 @@ __device__ void rocsolver_scale_device(Iint const nrow,
 }
 
 template <typename Iint, typename Ilong, typename T>
-__global__ void __launch_bounds__(LASCALE_MAX_THDS) rocsolver_scale_kernel(Iint const nrow,
+static __global__ void __launch_bounds__(LASCALE_MAX_THDS) rocsolver_scale_kernel(Iint const nrow,
                                                                            Iint const ncol,
                                                                            T const* const drow,
                                                                            T const* const dcol,
-                                                                           Iint const* const Ap,
+                                                                           Ilong const* const Ap,
                                                                            Iint const* const Ai,
                                                                            T* const Ax)
 {
     rocsolver_scale_device<Iint, Ilong, T>(nrow, ncol, drow, dcol, Ap, Ai, Ax);
 }
 
-template <typename Iint, typename T>
+
+template <typename Iint, typename Ilong, typename T>
 void rocsolver_scale_template(hipStream_t const stream,
                               Iint const nrow,
                               Iint const ncol,
                               T const* const drow,
                               T const* const dcol,
-                              Iint const* const Ap,
+                              Ilong const* const Ap,
                               Iint const* const Ai,
                               T* const Ax)
 {
@@ -124,6 +126,55 @@ void rocsolver_scale_template(hipStream_t const stream,
 
     rocsolver_scale_kernel<Iint, Iint, T>
         <<<dim3(nblocks), dim3(nthreads), 0, stream>>>(nrow, ncol, drow, dcol, Ap, Ai, Ax);
+}
+
+// -------------
+// batch version
+// -------------
+
+template <typename Iint, typename Ilong, typename T>
+static __global__ void __launch_bounds__(LASCALE_MAX_THDS) rocsolver_batch_scale_kernel(
+                                                                           Iint const batch_count,
+                                                                           Iint const nrow,
+                                                                           Iint const ncol,
+                                                                           T const* const drow,
+                                                                           T const* const dcol,
+                                                                           Ilong const* const Ap,
+                                                                           Iint const* const Ai,
+                                                                           T* Ax_array[])
+{
+  Iint const ibatch_start = hipBlockIdx_z;
+  Iint const ibatch_inc =   hipGridDim_z;
+  for(Iint  ibatch=ibatch_start; ibatch < batch_count; ibatch += ibatch_inc) {
+    T * Ax = Ax_array[ibatch];
+    rocsolver_scale_device<Iint, Ilong, T>(nrow, ncol, drow, dcol, Ap, Ai, Ax);
+    };
+}
+
+
+template <typename Iint, typename Ilong, typename T>
+void rocsolver_batch_scale_template(hipStream_t const stream,
+                              Iint const batch_count,
+                              Iint const nrow,
+                              Iint const ncol,
+                              T const* const drow,
+                              T const* const dcol,
+                              Ilong const* const Ap,
+                              Iint const* const Ai,
+                              T* const Ax_array[])
+{
+    Iint constexpr nthreads = LASCALE_MAX_THDS;
+    Iint constexpr nwaves = LASCALE_MAX_THDS / warpSize;
+
+    Iint const nblocks = (nrow + (nwaves - 1)) / nwaves;
+
+    Iint const max_nblocks_z = 64 * 1024 - 1;
+    Iint const nblocks_z = min( batch_count, max_nblocks_z );
+
+    rocsolver_batch_scale_kernel<Iint, Iint, T>
+        <<<dim3(nblocks,1,nblocks_z), dim3(nthreads), 0, stream>>>(batch_count,
+                   nrow, ncol, drow, dcol, Ap, Ai, Ax_array );
+       };
 }
 
 #endif

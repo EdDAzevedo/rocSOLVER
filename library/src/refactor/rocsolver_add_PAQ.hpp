@@ -33,8 +33,7 @@
 #endif
 
 template <typename Iint, typename Ilong, typename T>
-__global__
-    __launch_bounds__(ADD_PAQ_MAX_THDS) void rocsolver_add_PAQ_kernel(Iint const nrow,
+static __global__ __launch_bounds__(ADD_PAQ_MAX_THDS) void rocsolver_add_PAQ_kernel(Iint const nrow,
                                                                       Iint const ncol,
                                                                       Iint const* const P_new2old,
                                                                       Iint const* const Q_old2new,

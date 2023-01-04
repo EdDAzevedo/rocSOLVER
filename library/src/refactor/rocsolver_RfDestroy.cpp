@@ -102,9 +102,46 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
         handle->csrValLU = nullptr;
     };
 
+
+    int const batch_count = handle->batch_count;
+    handle->batch_count = 0;
+
+    {
+    double ** const csrValLU_array = handle->csrValLU_array;
+    if (csrValLU_array != nullptr) {
+      for(auto ibatch=0; ibatch < batch_count; ibatch++) {
+        if (csrValLU_array[ibatch] != nullptr) {
+           HIP_CHECK( hipFree( csrValLU_array[ibatch]),
+                    ROCSOLVER_STATUS_INTERNAL_ERROR );
+         };
+        };
+      HIP_CHECK( hipFree( csrValLU_array ), ROCSOLVER_STATUS_INTERNAL_ERROR );
+      handle->csrValLU_array = nullptr;
+     };
+    };
+
+
+
+
+    {
+    double ** const csrValA_array = handle->csrValA_array; 
+    if (csrValA_array != nullptr) {
+      for(auto ibatch=0; ibatch < batch_count; ibatch++ ) {
+        if (csrValA_array[ibatch] != nullptr) {
+           HIP_CHECK( hipFree( csrValA_array[ibatch]),
+                    ROCSOLVER_STATUS_INTERNAL_ERROR );
+         };
+        };
+      HIP_CHECK( hipFree( handle->csrValA_array ), ROCSOLVER_STATUS_INTERNAL_ERROR );
+      handle->csrValA_array = nullptr;
+     };
+    };
+                     
+
+
+    // finally free the handle
     HIP_CHECK(hipHostFree(handle), ROCSOLVER_STATUS_INTERNAL_ERROR);
     handle = nullptr;
-
     return (ROCSOLVER_STATUS_SUCCESS);
 };
 };

@@ -29,23 +29,56 @@
 
 /*
 --------------------------------------------------------------------------
-This routine performs the appropriate analysis of parallelism available in
-the LU re-factorization depending upon the algorithm chosen by the user.
+The user can query which matrix failed LU refactorization by checking
+corresponding value in "position" array. The input parameter "position" is an
+integer array of size "batchSize".
 
-   A = L * U
-
-It is assumed that a prior call to rocsolverRfSetupHost() or
-rocsolverRfSetupDevice() was done in order to create internal data
-structures needed for the analysis.
-
-This routine needs to be called only once for a single linear system.
+The j-th component denotes the refactorization result of matrix "A(j)".
+If position(j) is -1, the LU refactorization of matrix "A(j)" is successful.
+If position(j) is k >= 0, matrix "A(j)" is not LU factorizable and entry
+"U(j,j)" is zero.
 --------------------------------------------------------------------------
 */
 
 extern "C" {
 
-rocsolverStatus_t rocsolverRfAnalyze(rocsolverRfHandle_t handle)
+rocsolverStatus_t rocsolverRfBatchZeroPivot(rocsolverRfHandle_t handle, 
+                                            /* host output */
+                                            int * position)
 {
- return(    rocsolverRfBatchAnalyze( handle ) );
+    if(handle == 0)
+    {
+        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+    };
+
+    if(handle->hipsparse_handle == 0)
+    {
+        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+    };
+
+   int const batch_count = handle->batch_count;
+
+   for(int ibatch=0; ibatch < batch_count; ibatch++) {
+     int ipos = 0;
+     hipsparseStatus_t istat = hipsparseDcsrilu02_zeroPivot( 
+                 handle->hipsparse_handle, 
+                 handle->infoLU_array[ibatch],
+                 &ipos );
+     position[ibatch] = (istat == HIPSPARSE_STATUS_ZERO_PIVOT) ?  (ipos-1) : -1;
+     };
+
+
+
+   int nerrors = 0;
+   for(int ibatch=0; ibatch < batch_count; ibatch++) {
+
+      bool const is_ok = (position[ibatch] == -1);
+      if (!is_ok) { nerrors++; };
+      };
+       
+  
+   return(  (nerrors == 0) ? ROCSOVLER_STATUS_SUCCESS :
+                             ROCSOLVER_STATUS_ZERO_PIVOT );
+
 };
-}
+};

@@ -44,11 +44,12 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
         unsigned int const flags = hipHostMallocPortable;
         HIP_CHECK(hipHostMalloc((void**)&handle, sizeof(*handle), flags),
                   ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
 
-    if(handle == nullptr)
+    if(handle == 0)
     {
         return (ROCSOLVER_STATUS_ALLOC_FAILED);
+    };
+
     };
 
     HIPSPARSE_CHECK(hipsparseCreate(&(handle->hipsparse_handle)), ROCSOLVER_STATUS_NOT_INITIALIZED);
@@ -60,7 +61,6 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->matrix_format = ROCSOLVERRF_MATRIX_FORMAT_CSR;
     handle->diag_format = ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_L;
 
-    handle->triangular_solve = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
     handle->numeric_boost = ROCSOLVERRF_NUMERIC_BOOST_NOT_USED;
 
     // -----------------------------------------------------------------
@@ -69,24 +69,35 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->fact_alg = ROCSOLVERRF_FACTORIZATION_ALG0;
     handle->solve_alg = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
 
-    handle->descrL = nullptr;
-    handle->descrU = nullptr;
-    handle->descrLU = nullptr;
+    handle->descrL = 0;
+    handle->descrU = 0;
+    handle->descrLU = 0;
 
-    handle->P_new2old = nullptr;
-    handle->Q_new2old = nullptr;
-    handle->Q_old2new = nullptr;
+    handle->infoL = 0;
+    handle->infoU = 0;
+    handle->infoLU_array = 0;
+
+    handle->P_new2old = 0;
+    handle->Q_new2old = 0;
+    handle->Q_old2new = 0;
 
     handle->batch_count = 0;
+    handle->csrValA_array = 0;
+    handle->csrValLU_array = 0;
 
     handle->n = 0;
     handle->nnz_LU = 0;
-    handle->csrRowPtrLU = nullptr;
-    handle->csrColIndLU = nullptr;
-    handle->csrValLU = nullptr;
+    handle->csrRowPtrLU = 0;
+    handle->csrColIndLU = 0;
+    handle->csrValLU = 0;
+
+   
 
     handle->effective_zero = 0;
     handle->boost_val = 0;
+
+    handle->buffer = 0;
+    handle->buffer_size = 0;
 
     *p_handle = handle;
     return (ROCSOLVER_STATUS_SUCCESS);

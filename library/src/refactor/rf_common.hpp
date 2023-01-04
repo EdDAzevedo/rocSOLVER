@@ -35,4 +35,6 @@
 #include "hip_check.h"
 #include "hipsparse_check.h"
 
+
+#include "rocsolver_refactor.h"
 #endif
