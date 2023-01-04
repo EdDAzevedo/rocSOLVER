@@ -29,7 +29,7 @@
 #include "rocsolver_ipvec.hpp"
 
 template <typename T>
-rocsolverStatus_t rocsolver_RfSetup_checkargs(
+rocsolverStatus_t rocsolver_RfBatchSetup_checkargs(
                                               int batch_count,
                                               int n,
                                               int nnzA,
@@ -125,6 +125,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
 
     int* csrRowPtrA = csrRowPtrA_in;
     int* csrColIndA = csrColIndA_in;
+    double **csrValA_array = csrValA_array_in;
 
     int* csrRowPtrL = csrRowPtrL_in;
     int* csrColIndL = csrColIndL_in;
@@ -145,10 +146,18 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     // setup storage for csrValLU_array
     // --------------------------------
     handle->batch_count = batch_count;
-    if (handle->csrvalLU_array != nullptr) {
-        HIP_CHECK( hipFree(handle->csrvalLU_array),
+    if (handle->csrValLU_array != nullptr) {
+        for(int ibatch=0; ibatch < batch_count; ibatch++) {
+           if (handle->csrValLU_array[ibatch] != nullptr) {
+             HIP_CHECK( hipFree( handle->csrValLU_array[ibatch]), 
+                        ROCSOLVER_STATUS_INTERNAL_ERROR );
+             handle->csrValLU_array[ibatch] = nullptr;
+             };
+         };
+     
+        HIP_CHECK( hipFree(handle->csrValLU_array),
                    ROCSOLVER_STATUS_INTERNAL_ERROR );
-        handle->csrvalLU_array = nullptr;
+        handle->csrValLU_array = nullptr;
         };
 
 
@@ -156,21 +165,29 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                                  sizeof(double*) * batch_count,
 			         hipHostMallocPortable   ),
                   ROCSOLVER_STATUS_ALLOC_FAILED );
+    if (handle->csrValLU_array == nullptr) {
+          return( ROCSOLVER_STATUS_ALLOC_FAILED  );
+          };
+
+
     for(int ibatch=0; ibatch < batch_count; ibatch++) {
-        double * csrVal_LU = nullptr;
+        double * csrValLU = nullptr;
         size_t const nbytes_L = sizeof(double)*nnzL;
         size_t const nbytes_U = sizeof(double)*nnzU; 
         size_t const nbytes_LU = nbytes_L + nbytes_U;
-        HIP_CHECK( hipMalloc(  &csrVal_LU, nbytes_LU ),
+        HIP_CHECK( hipMalloc(  &csrValLU, nbytes_LU ),
                    ROCSOLVER_STATUS_ALLOC_FAILED );
+        if (csrValLU == nullptr) {
+             return( ROCSOLVER_STATUS_ALLOC_FAILED );
+             };
 
         handle->csrValLU_array[ ibatch ] = csrValLU;
         {
-        void * dst = csrVal_LU;
+        void * dst = csrValLU;
         int const value = 0;
-        size_t sizeBytes = nbytes_LU;
+        size_t const sizeBytes = nbytes_LU;
         HIP_CHECK( hipMemset( dst, value, sizeBytes ),
-                   ROCSOLVER_STATUS_EXECUTION_FAILURE);
+                   ROCSOLVER_STATUS_EXECUTION_FAILED);
         };
 
       };
@@ -183,8 +200,10 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         size_t const nbytes_PQ = sizeof(int) * n;
 
         HIP_CHECK(hipMalloc(&P, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
+        if (P == nullptr) { return( ROCSOLVER_STATUS_ALLOC_FAILED ); };
 
         HIP_CHECK(hipMalloc(&Q, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
+        if (Q == nullptr) { return( ROCSOLVER_STATUS_ALLOC_FAILED ); };
 
         HIP_CHECK(hipMemcpyDtoD(P, P_in, nbytes_PQ), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
@@ -198,8 +217,10 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
 
 
         HIP_CHECK(hipMalloc(&csrRowPtrA, nbytes_RowPtrA), ROCSOLVER_STATUS_ALLOC_FAILED);
+        if (csrRowPtrA == nullptr) { return(ROCSOLVER_STATUS_ALLOC_FAILED); };
 
         HIP_CHECK(hipMalloc(&csrColIndA, nbytes_ColIndA), ROCSOLVER_STATUS_ALLOC_FAILED);
+        if (csrColIndA == nullptr) { return(ROCSOLVER_STATUS_ALLOC_FAILED); };
 
 
 
@@ -207,9 +228,39 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
         HIP_CHECK(hipMemcpyDtoD(csrColIndA, csrColIndA_in, nbytes_ColIndA),
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
-        HIP_CHECK(hipMemcpyDtoD(csrValA, csrValA_in, nbytes_ValA), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
+
+        // -------------------------------
+        // allocate and copy csrValA_array
+        // -------------------------------
+        {
+        size_t const nbytes_csrValA_array = sizeof(T *) * batch_count;
+        HIP_CHECK( hipMalloc( &csrValA_array, nbytes_csrValA_array ),
+                   ROCSOLVER_STATUS_ALLOC_FAILED );
+        if (csrValA_array == nullptr) {
+            return( ROCSOLVER_STATUS_ALLOC_FAILED );
+            };
+
+        for(int ibatch=0; ibatch < batch_count; ibatch++) {
+           T * csrValA = nullptr;
+           size_t const nbytes_ValA = nnzA * sizeof(T);
+
+           HIP_CHECK( hipMalloc( &csrValA, nbytes_ValA ),
+                   ROCSOLVER_STATUS_ALLOC_FAILED );
+           if (csrValA == nullptr) {
+                   return( ROCSOLVER_STATUS_ALLOC_FAILED );
+                   };
+           csrValA_array[ibatch] = csrValA;
+               
+           T * csrValA_in = csrValA_array_in[ibatch];
+           HIP_CHECK(hipMemcpyDtoD(csrValA, csrValA_in, nbytes_ValA), 
+                   ROCSOLVER_STATUS_EXECUTION_FAILED);
+           };
+
+         };
+        // -------------------
         // allocate and copy L
+        // -------------------
         size_t const nbytes_RowPtrL = sizeof(int) * (n + 1);
         size_t const nbytes_ColIndL = sizeof(int) * nnzL;
         size_t const nbytes_ValL = sizeof(double) * nnzL;
@@ -286,46 +337,63 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         descrLU = nullptr;
     };
 
-    hipsparseMatDescr_t descrL;
-    hipsparseMatDescr_t descrU;
-    csrsv2Info_t infoL;
-    csrsv2Info_t infoU;
+    hipsparseMatDescr_t descrL = handle->descrL;
+    hipsparseMatDescr_t descrU = handle->descrU;
+    csrsv2Info_t infoL = handle->infoL;
+    csrsv2Info_t infoU = handle->infoU;
+
 
     {
-        /*
-   -------------
-   setup descrL
-   -------------
-  */
+   // -------------
+   // setup descrL and infoL
+   // -------------
+     if (descrL == nullptr) {
         HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrL), ROCSOLVER_STATUS_INTERNAL_ERROR);
         HIPSPARSE_CHECK(hipsparseSetMatType(descrL, HIPSPARSE_MATRIX_TYPE_GENERAL),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
         HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrL, HIPSPARSE_INDEX_BASE_ZERO),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
+        };
+      if (infoL == nullptr) {
         HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoL), ROCSOLVER_STATUS_INTERNAL_ERROR);
+        };
 
-        /*
-   -------------
-   setup descrU
-   -------------
-  */
+   // -------------
+   // setup descrU and infoU
+   // -------------
+      if (descrU == nullptr) {
         HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
         HIPSPARSE_CHECK(hipsparseSetMatType(descrU, HIPSPARSE_MATRIX_TYPE_GENERAL),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
         HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrU, HIPSPARSE_INDEX_BASE_ZERO),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
+        };
+       if (infoU == nullptr) {
         HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+        };
 
    // -------------
-   // setup descrLU
+   // setup descrLU and infoLU_array
    // -------------
+      if (descrLU == nullptr) {
         HIPSPARSE_CHECK(hipsparseCreateMatDescr(&descrLU), ROCSOLVER_STATUS_INTERNAL_ERROR);
         HIPSPARSE_CHECK(hipsparseSetMatType(descrLU, HIPSPARSE_MATRIX_TYPE_GENERAL),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
         HIPSPARSE_CHECK(hipsparseSetMatIndexBase(descrLU, HIPSPARSE_INDEX_BASE_ZERO),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
-        HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoL), ROCSOLVER_STATUS_INTERNAL_ERROR);
-    }
+        };
+
+      for(int ibatch=0; ibatch < batch_count; ibatch++) {
+        
+        csrsv2Info_t infoLU = handle->infoLU_array[ibatch];
+        if (infoLU == nullptr) {
+          HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&infoLU), ROCSOLVER_STATUS_INTERNAL_ERROR);
+          };
+        handle->infoLU_array[ibatch] = infoLU;
+        };
+
+
+    };
 
     HIP_CHECK(hipMalloc((void**)&csrRowPtrLU, sizeof(int) * (n + 1)), ROCSOLVER_STATUS_ALLOC_FAILED);
     if(csrRowPtrLU == nullptr)
@@ -350,7 +418,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         // setup buffer
         // ------------
         void* pBuffer = nullptr;
-        size_t bufferSizeInBytes = 0;
+        size_t bufferSizeInBytes = 1;
 
         HIPSPARSE_CHECK(hipsparseDcsrgeam2_bufferSizeExt(
                             hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL, csrValL, csrRowPtrL,
@@ -379,12 +447,33 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             return (ROCSOLVER_STATUS_ALLOC_FAILED);
         };
 
-        HIP_CHECK(hipMalloc((void**)&csrValLU, sizeof(double) * nnz_LU),
+
+        // -----------------------------------
+        // allocate storage for csrValLU_array
+        // -----------------------------------
+        {
+        HIP_CHECK(hipMalloc((void**)&(handle->csrValLU_array), sizeof(T *)*batch_count ),
                   ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(csrValLU == nullptr)
+        if(handle->csrValLU_array == nullptr)
         {
             return (ROCSOLVER_STATUS_ALLOC_FAILED);
         };
+
+
+        for(int ibatch=0; ibatch < batch_count; ibatch++) {
+           T * csrValLU = nullptr;
+           HIP_CHECK( hipMalloc( (void **) &csrValLU, sizeof(T)*nnz_LU ),
+                      ROCSOLVER_STATUS_ALLOC_FAILED );
+           if (csrValLU == nullptr) {
+                 return( ROCSOLVER_STATUS_ALLOC_FAILED );
+                 };
+           handle->csrValLU_array[ibatch] = csrValLU;
+           };
+
+        };
+
+
+
 
         handle->n = n;
         handle->nnz_LU = nnz_LU;
@@ -392,22 +481,33 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
      // Perform sparse matrix addition, LU = L + U
      // -------------------------------------------
 
-        HIPSPARSE_CHECK(hipsparseDcsrgeam2(hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL,
+        for(int ibatch=0; ibatch < batch_count; ibatch++) {
+
+          T * csrValLU = handle->csrValLU[ibatch];
+
+          HIPSPARSE_CHECK(hipsparseDcsrgeam2(hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL,
                                            csrValL, csrRowPtrL, csrColIndL, &beta, descrU, nnzU,
                                            csrValU, csrRowPtrU, csrColIndU, descrLU, csrValLU,
                                            csrRowPtrLU, csrColIndLU, pBuffer),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
+          };
+
+
+
 
         HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_INTERNAL_ERROR);
         pBuffer = nullptr;
 
-        HIPSPARSE_CHECK(hipsparseDestroyMatDescr(descrL), ROCSOLVER_STATUS_INTERNAL_ERROR);
-        HIPSPARSE_CHECK(hipsparseDestroyMatDescr(descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
 
+        handle->descrL = descrL;
+        handle->descrU = descrU;
         handle->descrLU = descrLU;
         handle->csrValLU = csrValLU;
         handle->csrRowPtrLU = csrRowPtrLU;
         handle->csrColIndLU = csrColIndLU;
+
+        handle->infoL = infoL;
+        handle->infoU = infoU;
     };
 
     // ---------------------------------
@@ -435,7 +535,6 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     handle->P_new2old = P_new2old;
     handle->Q_new2old = Q_new2old;
 
-    handle->csrValA_array = csrValA_array;
 
     {
     // -------------------------
@@ -469,7 +568,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                         nnzA,
                         csrRowPtrA,
                         csrColIndA,
-                        csrVal_array,
+                        csrValA_array,
                         P,
                         Q,
                         handle ) );

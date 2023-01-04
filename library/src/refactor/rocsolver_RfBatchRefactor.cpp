@@ -58,96 +58,98 @@ rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle)
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-    csrilu02Info_t info;
 
-    HIPSPARSE_CHECK(hipsparseCreateCsrilu02Info(&info), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     int* csrSortedRowPtrA = handle->csrRowPtrLU;
     int* csrSortedColIndA = handle->csrColIndLU;
 
-    double* csrSortedValA = handle->csrValLU_array[0];
     int const batch_count = handle->batch_count;
 
     int const n = handle->n;
     int const nnz = handle->nnz_LU;
     hipsparseMatDescr_t const descrA = handle->descrLU;
 
-    int BufferSizeInBytes_int = 0;
-    HIPSPARSE_CHECK(hipsparseDcsrilu02_bufferSize(handle->hipsparse_handle, n, nnz, descrA,
+    int BufferSizeInBytes_int = 1;
+    for(int ibatch=0; ibatch < batch_count; ibatch++) {
+      int isize = 1;
+      double* csrSortedValA = handle->csrValLU_array[ibatch];
+
+      HIPSPARSE_CHECK(hipsparseDcsrilu02_bufferSize(handle->hipsparse_handle, n, nnz, descrA,
                                                   csrSortedValA, csrSortedRowPtrA, csrSortedColIndA,
-                                                  info, &BufferSizeInBytes_int),
+                                                  handle->infoLU_array[ibatch], &isize),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
+      BufferSizeInBytes_int = max( isize, BufferSizeInBytes_int );
+      };
 
     double* pBuffer = nullptr;
     {
         size_t const BufferSizeInBytes = BufferSizeInBytes_int;
         HIP_CHECK(hipMalloc((void**)&pBuffer, BufferSizeInBytes), ROCSOLVER_STATUS_ALLOC_FAILED);
+        if (pBuffer == nullptr) {
+             return( ROCSOLVER_STATUS_ALLOC_FAILED );
+             };
     };
 
-    /*
-	 ---------------------------------------------------------------------------------
-	 perform analysis
-
-	 note policy = HIPSPARSE_SOLVE_POLICY_USE_LEVEL or HIPSPARSE_SOLVE_POLICY_NO_LEVEL
-	 ---------------------------------------------------------------------------------
-	 */
+	 // ---------------------------------------------------------------------------------
+	 // perform analysis
+         //
+	 // note policy = HIPSPARSE_SOLVE_POLICY_USE_LEVEL or HIPSPARSE_SOLVE_POLICY_NO_LEVEL
+	 // ---------------------------------------------------------------------------------
     hipsparseSolvePolicy_t policy = HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
 
-    HIPSPARSE_CHECK(hipsparseDcsrilu02_analysis(handle->hipsparse_handle, n, nnz, descrA,
+    for(int ibatch=0; ibatch < batch_count; ibatch++) {
+       double* csrSortedValA = handle->csrValLU_array[ibatch];
+       HIPSPARSE_CHECK(hipsparseDcsrilu02_analysis(handle->hipsparse_handle, n, nnz, descrA,
                                                 csrSortedValA, csrSortedRowPtrA, csrSortedColIndA,
-                                                info, policy, pBuffer),
+                                                handle->infoLU_array[ibatch], policy, pBuffer),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
+       };
 
-    {
-        /* 
-          ----------------------------------------------------
-          numerical boost is disabled by default in cusolverRF
-          ----------------------------------------------------
-         */
+        //  ----------------------------------------------------
+        //  numerical boost is disabled by default in cusolverRF
+        //  ----------------------------------------------------
         double effective_zero = handle->effective_zero;
         double boost_val = handle->boost_val;
-        int enable_boost = (boost_val > 0.0) ? 1 : 0;
 
-        HIPSPARSE_CHECK(hipsparseDcsrilu02_numericBoost(handle->hipsparse_handle, info,
-                                                        enable_boost, &effective_zero, &boost_val),
-                        ROCSOLVER_STATUS_EXECUTION_FAILED);
-    };
+        // -------------------------------------------------------------
+        // set enable_boost to 1 or disable by setting enable_boost to 0
+        // -------------------------------------------------------------
+        int const enable_boost = (boost_val > 0.0) ? 1 : 0;
 
-    /*
-	 ---------------------
-	 perform factorization
-	 ---------------------
-	 */
+
+	 // ---------------------
+	 // perform factorization
+	 // ---------------------
 
     for(int ibatch=0; ibatch < batch_count; ibatch++) {
+        double* csrSortedValA = handle->csrValLU_array[ibatch];
+
+        HIPSPARSE_CHECK(hipsparseDcsrilu02_numericBoost(handle->hipsparse_handle, 
+                        handle->infoLU_array[ibatch],
+			enable_boost, &effective_zero, &boost_val),
+                        ROCSOLVER_STATUS_EXECUTION_FAILED);
+
         HIPSPARSE_CHECK(hipsparseDcsrilu02(
                             handle->hipsparse_handle, 
                             n, 
                             nnz, descrA, csrSortedValA, csrSortedRowPtrA, csrSortedColIndA, 
-                            info, policy, pBuffer),
+                            handle->infoLU_array[ibatch], policy, pBuffer),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    /*
-	 --------------------
-	 check for zero pivot
-	 --------------------
-         */
-    int pivot = -(n + 1);
-
-    HIPSPARSE_CHECK(hipsparseXcsrilu02_zeroPivot(handle, info, &pivot),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
+        };
 
 
-    HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_ALLOC_FAILED);
+    // ----------------------------------------------------------------------
+    // note, there is no checking for zero pivot
+    // the user has to call "RfBatchZeroPivot()" to know which matrix failed
+    // the LU factorization
+    // ----------------------------------------------------------------------
 
-    bool isok = (pivot == -1);
-    if(!isok)
-    {
-        return (ROCSOLVER_STATUS_ZERO_PIVOT);
-    };
+    HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-    HIPSPARSE_CHECK(hipsparseDestroyCsrilu02Info(info), ROCSOLVER_STATUS_EXECUTION_FAILED);
+
+
 
     return (ROCSOLVER_STATUS_SUCCESS);
 };
+
 };

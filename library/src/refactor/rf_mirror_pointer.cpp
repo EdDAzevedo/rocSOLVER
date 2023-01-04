@@ -32,10 +32,16 @@ void* rf_mirror_pointer(void* const h_ptr, size_t const nbytes)
     };
 
     void* d_ptr = NULL;
-    HIP_CHECK(hipMalloc((void**)&d_ptr, nbytes));
-    assert(d_ptr != NULL);
+    if (hipMalloc( (void **) &d_ptr, nbytes) != HIP_SUCCESS) {
+        return( nullptr );
+        };
+    if (d_ptr == nullptr) {
+        return( nullptr );
+        };
 
-    HIP_CHECK(hipMemcpy(d_ptr, h_ptr, nbytes, hipMemcpyHostToDevice));
+    if (hipMemcpy(d_ptr, h_ptr, nbytes, hipMemcpyHostToDevice) != HIP_SUCCESS) {
+              return( nullptr );
+              };
 
     return (d_ptr);
 }

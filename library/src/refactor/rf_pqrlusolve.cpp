@@ -92,7 +92,7 @@ rocsolverStatus_t rf_pqrlusolve(hipsparseHandle_t handle,
     double* d_bhat = NULL;
     {
         size_t nbytes = sizeof(double) * n;
-        HIP_CHECK(hipMalloc((void**)&d_bhat, nbytes), ROCSOLVER_STATUS_ALLOC_ERROR);
+        HIP_CHECK(hipMalloc((void**)&d_bhat, nbytes), ROCSOLVER_STATUS_ALLOC_FAILED);
         assert(d_bhat != NULL);
 
         int const value = 0xff;
@@ -116,7 +116,7 @@ rocsolverStatus_t rf_pqrlusolve(hipsparseHandle_t handle,
 
         if(alloc_P_new2old)
         {
-            HIP_CHECK(hipFree((void*)d_P_new2old), ROCSOLVER_STATUS_ALLOC_ERROR);
+            HIP_CHECK(hipFree((void*)d_P_new2old), ROCSOLVER_STATUS_ALLOC_FAILED);
             d_P_new2old = NULL;
         };
     }
@@ -139,7 +139,7 @@ rocsolverStatus_t rf_pqrlusolve(hipsparseHandle_t handle,
 
         if(alloc_Rs)
         {
-            HIP_CHECK(hipFree((void*)d_Rs), ROCSOLVER_STATUS_ALLOC_ERROR);
+            HIP_CHECK(hipFree((void*)d_Rs), ROCSOLVER_STATUS_ALLOC_FAILED);
             d_Rs = NULL;
         };
     };
@@ -184,17 +184,17 @@ rocsolverStatus_t rf_pqrlusolve(hipsparseHandle_t handle,
    */
         if(allocate_LUp)
         {
-            HIP_CHECK(hipFree((void*)d_LUp), ROCSOLVER_STATUS_ALLOC_ERROR);
+            HIP_CHECK(hipFree((void*)d_LUp), ROCSOLVER_STATUS_ALLOC_FAILED);
             d_LUp = NULL;
         };
         if(allocate_LUi)
         {
-            HIP_CHECK(hipFree((void*)d_LUi), ROCSOLVER_STATUS_ALLOC_ERROR);
+            HIP_CHECK(hipFree((void*)d_LUi), ROCSOLVER_STATUS_ALLOC_FAILED);
             d_LUi = NULL;
         };
         if(allocate_LUx)
         {
-            HIP_CHECK(hipFree((void*)d_LUx), ROCSOLVER_STATUS_ALLOC_ERROR);
+            HIP_CHECK(hipFree((void*)d_LUx), ROCSOLVER_STATUS_ALLOC_FAILED);
             d_LUx = NULL;
         };
     };
@@ -214,7 +214,7 @@ rocsolverStatus_t rf_pqrlusolve(hipsparseHandle_t handle,
 
         if(alloc_Q_new2old)
         {
-            HIP_CHECK(hipFree((void*)d_Q_new2old), ROCSOLVER_STATUS_ALLOC_ERROR);
+            HIP_CHECK(hipFree((void*)d_Q_new2old), ROCSOLVER_STATUS_ALLOC_FAILED);
             d_Q_new2old = NULL;
         };
     }
@@ -241,13 +241,13 @@ rocsolverStatus_t rf_pqrlusolve(hipsparseHandle_t handle,
         HIP_CHECK(hipMemcpy(dest, src, nbytes, hipMemcpyDeviceToHost),
                   ROCSOLVER_STATUS_INTERNAL_ERROR);
 
-        HIP_CHECK(hipFree((void*)d_brhs), ROCSOLVER_STATUS_ALLOC_ERROR);
+        HIP_CHECK(hipFree((void*)d_brhs), ROCSOLVER_STATUS_ALLOC_FAILED);
         d_brhs = NULL;
     };
 
     if(d_bhat != NULL)
     {
-        HIP_CHECK(hipFree((void*)d_bhat), ROCSOLVER_STATUS_ALLOC_ERROR);
+        HIP_CHECK(hipFree((void*)d_bhat), ROCSOLVER_STATUS_ALLOC_FAILED);
         d_bhat = NULL;
     };
 

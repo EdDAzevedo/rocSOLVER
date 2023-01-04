@@ -121,7 +121,7 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
 
     if (handle->infoLU_array != 0) {
      for(int ibatch=0; ibatch < handle->batch_count; ibatch++) {
-       if (handle_infoLU_array[ibatch] != 0) {
+       if (handle->infoLU_array[ibatch] != 0) {
          HIPSPARSE_CHECK( hipsparseDestroyCsrilu02Info( handle->infoLU_array[ibatch] ),
                           ROCSOLVER_STATUS_INTERNAL_ERROR );
          };

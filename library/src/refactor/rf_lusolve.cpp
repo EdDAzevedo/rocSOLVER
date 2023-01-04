@@ -130,14 +130,14 @@ rocsolverStatus_t rf_lusolve(hipsparseHandle_t handle,
     }
 
     void* buffer = nullptr;
-    HIP_CHECK(hipMalloc(&buffer, bufferSize), ROCSOLVER_STATUS_ALLOC_ERROR);
+    HIP_CHECK(hipMalloc(&buffer, bufferSize), ROCSOLVER_STATUS_ALLOC_FAILED);
 
     double* d_x = d_b;
     double* d_y = nullptr;
-    HIP_CHECK(hipMalloc((void**)&d_y, sizeof(double) * m), ROCSOLVER_STATUS_ALLOC_ERROR);
+    HIP_CHECK(hipMalloc((void**)&d_y, sizeof(double) * m), ROCSOLVER_STATUS_ALLOC_FAILED);
     if(d_y == nullptr)
     {
-        return (ROCSOLVER_STATUS_ALLOC_ERROR);
+        return (ROCSOLVER_STATUS_ALLOC_FAILED);
     };
 
     /*
@@ -198,8 +198,8 @@ rocsolverStatus_t rf_lusolve(hipsparseHandle_t handle,
 
     HIPSPARSE_CHECK(hipsparseDestroyMatDescr(descrU), ROCSOLVER_STATUS_INTERNAL_ERROR);
 
-    HIP_CHECK(hipFree((void*)buffer), ROCSOLVER_STATUS_ALLOC_ERROR);
-    HIP_CHECK(hipFree((void*)d_y), ROCSOLVER_STATUS_ALLOC_ERROR);
+    HIP_CHECK(hipFree((void*)buffer), ROCSOLVER_STATUS_ALLOC_FAILED);
+    HIP_CHECK(hipFree((void*)d_y), ROCSOLVER_STATUS_ALLOC_FAILED);
 
     return (ROCSOLVER_STATUS_SUCCESS);
 }
