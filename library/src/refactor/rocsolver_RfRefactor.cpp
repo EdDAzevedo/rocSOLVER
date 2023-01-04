@@ -58,13 +58,17 @@ rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-    csrilu02Info_t info;
+    int const ibatch = 0;
+    csrilu02Info_t info = handle->infoLU_array[ibatch];
 
-    HIPSPARSE_CHECK(hipsparseCreateCsrilu02Info(&info), ROCSOLVER_STATUS_EXECUTION_FAILED);
+    if(info == 0)
+    {
+        HIPSPARSE_CHECK(hipsparseCreateCsrilu02Info(&info), ROCSOLVER_STATUS_EXECUTION_FAILED);
+    };
 
     int* csrSortedRowPtrA = handle->csrRowPtrLU;
     int* csrSortedColIndA = handle->csrColIndLU;
-    double* csrSortedValA = handle->csrValLU;
+    double* csrSortedValA = handle->csrValLU_array[ibatch];
 
     int const n = handle->n;
     int const nnz = handle->nnz_LU;
@@ -131,14 +135,15 @@ rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle)
     HIPSPARSE_CHECK(hipsparseXcsrilu02_zeroPivot(handle, info, &pivot),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-    bool isok = (pivot == -1);
+    handle->infoLU_array[ibatch] = info;
 
-    if(!isok)
     {
-        return (ROCSOLVER_STATUS_ZERO_PIVOT);
+        bool isok = (pivot == -1);
+        if(!isok)
+        {
+            return (ROCSOLVER_STATUS_ZERO_PIVOT);
+        };
     };
-
-    HIPSPARSE_CHECK(hipsparseDestroyCsrilu02Info(info), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     return (ROCSOLVER_STATUS_SUCCESS);
 };
