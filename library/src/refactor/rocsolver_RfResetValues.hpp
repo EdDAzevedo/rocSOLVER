@@ -80,6 +80,8 @@ rocsolverStatus_t rocsolver_RfResetValues_template(Iint n,
         return (ROCSOLVER_STATUS_INTERNAL_ERROR);
     };
 
+    int const ibatch = 0;
+
     hipStream_t stream;
     HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &stream),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
@@ -102,7 +104,8 @@ rocsolverStatus_t rocsolver_RfResetValues_template(Iint n,
 
         int const* const Yp = handle->csrRowPtrLU;
         int const* const Yi = handle->csrColIndLU;
-        double* const Yx = handle->csrValLU;
+
+        double* const Yx = handle->csrValLU_array[ibatch];
         rocsolver_aXpbY_template<Iint, Ilong, T>(stream,
 
                                                  nrow, ncol, alpha, Xp, Xi, Xx, beta, Yp, Yi, Yx);
@@ -118,7 +121,7 @@ rocsolverStatus_t rocsolver_RfResetValues_template(Iint n,
 
         int const* const LUp = handle->csrRowPtrLU;
         int const* const LUi = handle->csrColIndLU;
-        double* const LUx = handle->csrValLU;
+        double* const LUx = handle->csrValLU_array[ibatch];
 
         rocsolver_add_PAQ<Iint, Ilong, T>(stream,
 
