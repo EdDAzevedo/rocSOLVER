@@ -25,7 +25,6 @@
 #pragma once
 #include "rf_common.hpp"
 
-#include "rocsolver_RfResetValues.hpp"
 #include "rocsolver_ipvec.hpp"
 
 template <typename T>
