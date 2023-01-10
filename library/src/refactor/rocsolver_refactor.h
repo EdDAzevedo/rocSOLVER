@@ -94,7 +94,6 @@ struct rocsolverRfCommon
     rocsolverRfResetValuesFastMode_t fast_mode;
     rocsolverRfMatrixFormat_t matrix_format;
     rocsolverRfUnitDiagonal_t diag_format;
-    rocsolverRfTriangularSolve_t triangular_solve;
     rocsolverRfNumericBoostReport_t numeric_boost;
 
     rocsolverRfFactorization_t fact_alg;
@@ -106,6 +105,10 @@ struct rocsolverRfCommon
     hipsparseMatDescr_t descrU;
     hipsparseMatDescr_t descrLU;
 
+    csrsv2Info_t infoL;
+    csrsv2Info_t infoU;
+    csrilu02Info_t* infoLU_array;
+
     int batch_count;
 
     int* P_new2old;
@@ -116,10 +119,14 @@ struct rocsolverRfCommon
     int nnz_LU;
     int* csrRowPtrLU;
     int* csrColIndLU;
-    double* csrValLU;
+    // double* csrValLU;
+    double** csrValLU_array;
 
     double effective_zero;
     double boost_val;
+
+    void* buffer;
+    size_t buffer_size;
 };
 typedef struct rocsolverRfCommon* rocsolverRfHandle_t;
 
