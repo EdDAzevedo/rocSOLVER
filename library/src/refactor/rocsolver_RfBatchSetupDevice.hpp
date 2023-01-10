@@ -77,16 +77,14 @@ rocsolverStatus_t rocsolver_RfBatchSetup_checkargs(Iint batch_count,
     };
 
     {
-    for(Iint ibatch=0; ibatch < batch_count; ibatch++) {
-         if (csrValA_array[ibatch] == nullptr) {
-            return( ROCSOLVER_STATUS_INVALID_VALUE );
+        for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
+        {
+            if(csrValA_array[ibatch] == nullptr)
+            {
+                return (ROCSOLVER_STATUS_INVALID_VALUE);
             };
-          };
-     };
-          
-    
-
-
+        };
+    };
 
     return (ROCSOLVER_STATUS_SUCCESS);
 };
@@ -99,7 +97,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                                                    Ilong nnzA,
                                                    Ilong* csrRowPtrA_in,
                                                    Iint* csrColIndA_in,
-                                                   T**csrValA_array_in,
+                                                   T** csrValA_array_in,
 
                                                    Ilong nnzL,
                                                    Ilong* csrRowPtrL_in,
@@ -118,16 +116,16 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                                                    rocsolverRfHandle_t handle)
 {
     // check args
-  {
-    rocsolverStatus_t istat = rocsolver_RfBatchSetup_checkargs(
-        batch_count, n, nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_array_in, nnzL, csrRowPtrL_in,
-        csrColIndL_in, csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, P_in, Q_in,
-        handle);
-    if(istat != ROCSOLVER_STATUS_SUCCESS)
     {
-        return (istat);
+        rocsolverStatus_t istat = rocsolver_RfBatchSetup_checkargs(
+            batch_count, n, nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_array_in, nnzL,
+            csrRowPtrL_in, csrColIndL_in, csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in,
+            csrValU_in, P_in, Q_in, handle);
+        if(istat != ROCSOLVER_STATUS_SUCCESS)
+        {
+            return (istat);
+        };
     };
-  };
 
     hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle;
     handle->boost_val = 0;
@@ -560,9 +558,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     // -----------------------------
 
     rocsolverStatus_t const istat = rocsolverRfBatchResetValues(
-                                        batch_count, n, 
-                                        nnzA, csrRowPtrA, csrColIndA, csrValA_array,
-                                        P, Q, handle);
+        batch_count, n, nnzA, csrRowPtrA, csrColIndA, csrValA_array, P, Q, handle);
 
     // clean up
 

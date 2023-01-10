@@ -54,15 +54,11 @@ rocsolverStatus_t rocsolver_RfSetup_checkargs(Iint n,
         return (ROCSOLVER_STATUS_INVALID_VALUE);
     };
 
-      
     Iint constexpr batch_count = 1;
 
-    return (rocsolver_RfBatchSetup_checkargs(
-                                        batch_count, n, 
-                                        nnzA, csrRowPtrA, csrColIndA, &csrValA, 
-                                        nnzL, csrRowPtrL, csrColIndL, csrValL, 
-                                        nnzU, csrRowPtrU, csrColIndU, csrValU, 
-                                        P, Q, handle));
+    return (rocsolver_RfBatchSetup_checkargs(batch_count, n, nnzA, csrRowPtrA, csrColIndA, &csrValA,
+                                             nnzL, csrRowPtrL, csrColIndL, csrValL, nnzU,
+                                             csrRowPtrU, csrColIndU, csrValU, P, Q, handle));
 };
 
 template <bool MAKE_COPY, typename Iint, typename Ilong, typename T>
@@ -90,7 +86,6 @@ rocsolverStatus_t rocsolverRfSetupDevice_impl(/* Input (in the device memory) */
                                               /* Output */
                                               rocsolverRfHandle_t handle)
 {
-
     if(csrValA_in == nullptr)
     {
         return (ROCSOLVER_STATUS_INVALID_VALUE);
@@ -98,10 +93,8 @@ rocsolverStatus_t rocsolverRfSetupDevice_impl(/* Input (in the device memory) */
 
     Iint constexpr batch_count = 1;
 
-    return (rocsolverRfBatchSetupDevice_imp<MAKE_COPY,Iint,Ilong,T>(
-                                            batch_count, n, 
-                                            nnzA, csrRowPtrA_in, csrColIndA_in, &csrValA_in, 
-                                            nnzL, csrRowPtrL_in, csrColIndL_in, csrValL_in, 
-                                            nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, 
-                                            P_in, Q_in, handle));
+    return (rocsolverRfBatchSetupDevice_imp<MAKE_COPY, Iint, Ilong, T>(
+        batch_count, n, nnzA, csrRowPtrA_in, csrColIndA_in, &csrValA_in, nnzL, csrRowPtrL_in,
+        csrColIndL_in, csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, P_in, Q_in,
+        handle));
 }

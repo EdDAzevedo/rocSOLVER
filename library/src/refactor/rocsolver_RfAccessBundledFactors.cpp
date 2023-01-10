@@ -107,7 +107,6 @@ rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
     };
 
     {
- 
         void* dst = Mx;
         int const ibatch = 0;
         const void* src = &(handle->csrValLU_array[ibatch]);

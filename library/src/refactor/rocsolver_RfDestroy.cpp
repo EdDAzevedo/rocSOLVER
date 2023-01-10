@@ -45,10 +45,6 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-
-
-    
-
     // deallocate Mat Descr
     if(handle->descrL != nullptr)
     {
@@ -107,77 +103,75 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
     int const batch_count = handle->batch_count;
     handle->batch_count = 0;
 
-
     {
-    if(handle->csrValLU_array != nullptr)
-    {
-        for(int ibatch=0; ibatch < batch_count; ibatch++) {
-          if (handle->csrValLU_array[ibatch] != nullptr) {
-            HIP_CHECK( hipFree( handle->csrValLU_array[ibatch] ), ROCSOLVER_STATUS_INTERNAL_ERROR );
-            handle->csrValLU_array[ibatch] = nullptr;
+        if(handle->csrValLU_array != nullptr)
+        {
+            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            {
+                if(handle->csrValLU_array[ibatch] != nullptr)
+                {
+                    HIP_CHECK(hipFree(handle->csrValLU_array[ibatch]),
+                              ROCSOLVER_STATUS_INTERNAL_ERROR);
+                    handle->csrValLU_array[ibatch] = nullptr;
+                };
             };
-          };
-        
-        HIP_CHECK(hipFree(handle->csrValLU_array), ROCSOLVER_STATUS_INTERNAL_ERROR);
-        handle->csrValLU_array = nullptr;
+
+            HIP_CHECK(hipFree(handle->csrValLU_array), ROCSOLVER_STATUS_INTERNAL_ERROR);
+            handle->csrValLU_array = nullptr;
+        };
     };
-   };
-
-
 
     // ---------------
     // deallocate info
     // ---------------
 
     {
-     if (handle->infoL != 0) {
-       HIPSPARSE_CHECK( hipsparseDestroyCsrsv2Info( handle->infoL  ), 
-                      ROCSOLVER_STATUS_INTERNAL_ERROR );
-       handle->infoL = 0;
-       };
-
-     if (handle->infoU != 0) {
-       HIPSPARSE_CHECK( hipsparseDestroyCsrsv2Info( handle->infoU  ), 
-                      ROCSOLVER_STATUS_INTERNAL_ERROR );
-       handle->infoU = 0;
-       };
-     };
-       
-     {
- 
-     csrilu02Info_t *infoLU_array = handle->infoLU_array;
-     if (handle->infoLU_array != nullptr) {
-        for(int ibatch=0; ibatch < batch_count; ibatch++) {
-             csrilu02Info_t infoLU = infoLU_array[ibatch];
-             HIPSPARSE_CHECK( hipsparseDestroyCsrilu02Info( infoLU ),
-                              ROCSOLVER_STATUS_INTERNAL_ERROR );
-             infoLU_array[ibatch] = 0;
-             };
-
-        HIP_CHECK( hipFree( handle->infoLU_array ), 
-                              ROCSOLVER_STATUS_INTERNAL_ERROR );
-        handle->infoLU_array = nullptr;
+        if(handle->infoL != 0)
+        {
+            HIPSPARSE_CHECK(hipsparseDestroyCsrsv2Info(handle->infoL),
+                            ROCSOLVER_STATUS_INTERNAL_ERROR);
+            handle->infoL = 0;
         };
-            
+
+        if(handle->infoU != 0)
+        {
+            HIPSPARSE_CHECK(hipsparseDestroyCsrsv2Info(handle->infoU),
+                            ROCSOLVER_STATUS_INTERNAL_ERROR);
+            handle->infoU = 0;
+        };
     };
 
-   if (handle->buffer != nullptr) {
-     HIP_CHECK( hipFree( handle->buffer ), ROCSOLVER_STATUS_INTERNAL_ERROR );
-     handle->buffer = nullptr;
-     };
-        
+    {
+        csrilu02Info_t* infoLU_array = handle->infoLU_array;
+        if(handle->infoLU_array != nullptr)
+        {
+            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            {
+                csrilu02Info_t infoLU = infoLU_array[ibatch];
+                HIPSPARSE_CHECK(hipsparseDestroyCsrilu02Info(infoLU),
+                                ROCSOLVER_STATUS_INTERNAL_ERROR);
+                infoLU_array[ibatch] = 0;
+            };
+
+            HIP_CHECK(hipFree(handle->infoLU_array), ROCSOLVER_STATUS_INTERNAL_ERROR);
+            handle->infoLU_array = nullptr;
+        };
+    };
+
+    if(handle->buffer != nullptr)
+    {
+        HIP_CHECK(hipFree(handle->buffer), ROCSOLVER_STATUS_INTERNAL_ERROR);
+        handle->buffer = nullptr;
+    };
 
     handle->n = 0;
     handle->nnz_LU = 0;
-     
-
 
     // -------------------------
     // free the hipsparse handle
     // -------------------------
     {
-    HIPSPARSE_CHECK( hipsparseDestroy( handle->hipsparse_handle ),
-         ROCSOLVER_STATUS_INTERNAL_ERROR);
+        HIPSPARSE_CHECK(hipsparseDestroy(handle->hipsparse_handle), ROCSOLVER_STATUS_INTERNAL_ERROR);
     };
 
     // -------------------------------
