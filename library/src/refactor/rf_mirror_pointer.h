@@ -34,6 +34,7 @@
 #include <stdlib.h>
 
 #include "hip_check.h"
+#include "rocsolver_status.h"
 
 #ifdef __cplusplus
 extern "C" {

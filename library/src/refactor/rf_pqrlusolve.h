@@ -33,7 +33,7 @@
 #include "rf_applyRs.h"
 #include "rf_ipvec.h"
 #include "rf_lusolve.h"
-#include "rf_mirror_pointer.h"
+// #include "rf_mirror_pointer.h"
 #include "rf_pvec.h"
 
 rocsolverStatus_t rf_pqrlusolve(hipsparseHandle_t handle,
