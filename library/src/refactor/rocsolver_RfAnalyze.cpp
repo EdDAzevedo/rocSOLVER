@@ -46,6 +46,6 @@ extern "C" {
 
 rocsolverStatus_t rocsolverRfAnalyze(rocsolverRfHandle_t handle)
 {
- return(    rocsolverRfBatchAnalyze( handle ) );
+    return (rocsolverRfBatchAnalyze(handle));
 };
 }

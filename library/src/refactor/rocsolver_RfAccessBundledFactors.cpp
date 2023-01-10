@@ -68,7 +68,7 @@ rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
 
     {
         bool const isok = (handle->csrRowPtrLU != nullptr) && (handle->csrColIndLU != nullptr)
-            && (handle->csrValLU != nullptr);
+            && (handle->csrValLU_array != nullptr);
         if(!isok)
         {
             return (ROCSOLVER_STATUS_NOT_INITIALIZED);
@@ -107,8 +107,10 @@ rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
     };
 
     {
+ 
         void* dst = Mx;
-        const void* src = &(handle->csrValLU);
+        int const ibatch = 0;
+        const void* src = &(handle->csrValLU_array[ibatch]);
         size_t sizeBytes = sizeof(*Mx);
         hipMemcpyKind kind = hipMemcpyDeviceToDevice;
         HIP_CHECK(hipMemcpyAsync(dst, src, sizeBytes, kind, streamId),

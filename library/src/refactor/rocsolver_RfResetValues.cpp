@@ -22,7 +22,6 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "rocsolver_RfResetValues.hpp"
 #include "rocsolver_refactor.h"
 
 /*
@@ -61,7 +60,8 @@ rocsolverStatus_t rocsolverRfResetValues(
     /* Output */
     rocsolverRfHandle_t handle)
 {
-    return (rocsolver_RfResetValues_template<int, int, double>(n, nnzA, csrRowPtrA, csrColIndA,
-                                                               csrValA, P, Q, handle));
+    int const batch_count = 1;
+    return (rocsolverRfBatchResetValues(batch_count, n, nnzA, csrRowPtrA, csrColIndA, &csrValA, P,
+                                        Q, handle));
 };
 }

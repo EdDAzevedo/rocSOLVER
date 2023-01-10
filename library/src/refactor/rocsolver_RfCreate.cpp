@@ -45,11 +45,10 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
         HIP_CHECK(hipHostMalloc((void**)&handle, sizeof(*handle), flags),
                   ROCSOLVER_STATUS_ALLOC_FAILED);
 
-    if(handle == 0)
-    {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
-
+        if(handle == 0)
+        {
+            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+        };
     };
 
     HIPSPARSE_CHECK(hipsparseCreate(&(handle->hipsparse_handle)), ROCSOLVER_STATUS_NOT_INITIALIZED);
@@ -82,16 +81,12 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->Q_old2new = 0;
 
     handle->batch_count = 0;
-    handle->csrValA_array = 0;
     handle->csrValLU_array = 0;
 
     handle->n = 0;
     handle->nnz_LU = 0;
     handle->csrRowPtrLU = 0;
     handle->csrColIndLU = 0;
-    handle->csrValLU = 0;
-
-   
 
     handle->effective_zero = 0;
     handle->boost_val = 0;

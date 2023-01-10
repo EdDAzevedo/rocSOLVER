@@ -27,74 +27,81 @@
 
 #include "rocsolver_RfBatchSetupDevice.hpp"
 
+template <typename Iint, typename Ilong, typename T>
+rocsolverStatus_t rocsolver_RfSetup_checkargs(Iint n,
 
-template <typename T>
-rocsolverStatus_t rocsolver_RfSetup_checkargs(int n,
-                                              int nnzA,
-                                              int* csrRowPtrA,
-                                              int* csrColIndA,
+                                              Ilong nnzA,
+                                              Ilong* csrRowPtrA,
+                                              Iint* csrColIndA,
                                               T* csrValA,
-                                              int nnzL,
-                                              int* csrRowPtrL,
-                                              int* csrColIndL,
+
+                                              Ilong nnzL,
+                                              Ilong* csrRowPtrL,
+                                              Iint* csrColIndL,
                                               T* csrValL,
-                                              int nnzU,
-                                              int* csrRowPtrU,
-                                              int* csrColIndU,
+
+                                              Ilong nnzU,
+                                              Ilong* csrRowPtrU,
+                                              Iint* csrColIndU,
                                               T* csrValU,
+
                                               int* P,
                                               int* Q,
                                               rocsolverRfHandle_t handle)
 {
+    if(csrValA == 0)
+    {
+        return (ROCSOLVER_STATUS_INVALID_VALUE);
+    };
 
-   int const batch_count = 1;
-   if (csrValA == 0) {
-      return( ROCSOLVER_STATUS_INVALID_VALUE );
-      };
-   return( rocsolver_RfSetup_checkargs(
-                              batch_count
-                              n,
-                              nnzA, csrRowPtrA, csrColIndA, &csrValA,
-                              nnzL, csrRowPtrL, csrColIndL, csrValL,
-                              nnzU, csrRowPtrU, csrColIndU, csrValU,
-                              P, Q,
-                              handle ) );
+      
+    Iint constexpr batch_count = 1;
+
+    return (rocsolver_RfBatchSetup_checkargs(
+                                        batch_count, n, 
+                                        nnzA, csrRowPtrA, csrColIndA, &csrValA, 
+                                        nnzL, csrRowPtrL, csrColIndL, csrValL, 
+                                        nnzU, csrRowPtrU, csrColIndU, csrValU, 
+                                        P, Q, handle));
 };
 
-template <bool MAKE_COPY>
+template <bool MAKE_COPY, typename Iint, typename Ilong, typename T>
 rocsolverStatus_t rocsolverRfSetupDevice_impl(/* Input (in the device memory) */
-                                              int n,
-                                              int nnzA,
-                                              int* csrRowPtrA_in,
-                                              int* csrColIndA_in,
-                                              double* csrValA_in,
-                                              int nnzL,
-                                              int* csrRowPtrL_in,
-                                              int* csrColIndL_in,
-                                              double* csrValL_in,
-                                              int nnzU,
-                                              int* csrRowPtrU_in,
-                                              int* csrColIndU_in,
-                                              double* csrValU_in,
-                                              int* P_in,
-                                              int* Q_in,
+                                              Iint n,
+
+                                              Ilong nnzA,
+                                              Ilong* csrRowPtrA_in,
+                                              Iint* csrColIndA_in,
+                                              T* csrValA_in,
+
+                                              Ilong nnzL,
+                                              Ilong* csrRowPtrL_in,
+                                              Iint* csrColIndL_in,
+                                              T* csrValL_in,
+
+                                              Ilong nnzU,
+                                              Ilong* csrRowPtrU_in,
+                                              Iint* csrColIndU_in,
+                                              T* csrValU_in,
+
+                                              Iint* P_in,
+                                              Iint* Q_in,
 
                                               /* Output */
                                               rocsolverRfHandle_t handle)
 {
-    int const batch_count = 1;
 
-    if (csrValA_in == 0) {
-       return( ROCSOLVER_STATUS_INVALID_VALUE );
-       };
+    if(csrValA_in == nullptr)
+    {
+        return (ROCSOLVER_STATUS_INVALID_VALUE);
+    };
 
-    return( rocsolverRfBatchSetupDevice_imp(
-                    batch_count,
-                    n,
-                    nnzA, csrRowPtrA_in, csrColIndA_in, &csrValA_in,
-                    nnzL, csrRowPtrL_in, csrColIndL_in, csrValL_in,
-                    nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in,
-                    P_in, Q_in,
-                    handle ) );
+    Iint constexpr batch_count = 1;
 
+    return (rocsolverRfBatchSetupDevice_imp<MAKE_COPY,Iint,Ilong,T>(
+                                            batch_count, n, 
+                                            nnzA, csrRowPtrA_in, csrColIndA_in, &csrValA_in, 
+                                            nnzL, csrRowPtrL_in, csrColIndL_in, csrValL_in, 
+                                            nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, 
+                                            P_in, Q_in, handle));
 }

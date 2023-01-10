@@ -27,23 +27,27 @@
 
 #include "rocsolver_ipvec.hpp"
 
-template <typename T>
-rocsolverStatus_t rocsolver_RfBatchSetup_checkargs(int batch_count,
-                                                   int n,
-                                                   int nnzA,
-                                                   int* csrRowPtrA,
-                                                   int* csrColIndA,
+template <typename Iint, typename Ilong, typename T>
+rocsolverStatus_t rocsolver_RfBatchSetup_checkargs(Iint batch_count,
+                                                   Iint n,
+
+                                                   Ilong nnzA,
+                                                   Ilong* csrRowPtrA,
+                                                   Iint* csrColIndA,
                                                    T* csrValA_array[],
-                                                   int nnzL,
-                                                   int* csrRowPtrL,
-                                                   int* csrColIndL,
+
+                                                   Ilong nnzL,
+                                                   Ilong* csrRowPtrL,
+                                                   Iint* csrColIndL,
                                                    T* csrValL,
-                                                   int nnzU,
-                                                   int* csrRowPtrU,
-                                                   int* csrColIndU,
+
+                                                   Ilong nnzU,
+                                                   Ilong* csrRowPtrU,
+                                                   Iint* csrColIndU,
                                                    T* csrValU,
-                                                   int* P,
-                                                   int* Q,
+
+                                                   Iint* P,
+                                                   Iint* Q,
                                                    rocsolverRfHandle_t handle)
 {
     // ---------------
@@ -72,42 +76,49 @@ rocsolverStatus_t rocsolver_RfBatchSetup_checkargs(int batch_count,
         return (ROCSOLVER_STATUS_INVALID_VALUE);
     };
 
-    /*
-     ------------
-     Quick return
-     ------------
-     */
-    if((n == 0) || (nnzA == 0) || (nnzL == 0) || (nnzU == 0) || (batch_count == 0))
     {
-        return (ROCSOLVER_STATUS_SUCCESS);
-    };
+    for(Iint ibatch=0; ibatch < batch_count; ibatch++) {
+         if (csrValA_array[ibatch] == nullptr) {
+            return( ROCSOLVER_STATUS_INVALID_VALUE );
+            };
+          };
+     };
+          
+    
+
+
 
     return (ROCSOLVER_STATUS_SUCCESS);
 };
 
-template <bool MAKE_COPY>
+template <bool MAKE_COPY, typename Iint, typename Ilong, typename T>
 rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memory) */
-                                                   int batch_count,
-                                                   int n,
-                                                   int nnzA,
-                                                   int* csrRowPtrA_in,
-                                                   int* csrColIndA_in,
-                                                   double* csrValA_array_in[],
-                                                   int nnzL,
-                                                   int* csrRowPtrL_in,
-                                                   int* csrColIndL_in,
-                                                   double* csrValL_in,
-                                                   int nnzU,
-                                                   int* csrRowPtrU_in,
-                                                   int* csrColIndU_in,
-                                                   double* csrValU_in,
-                                                   int* P_in,
-                                                   int* Q_in,
+                                                   Iint batch_count,
+                                                   Iint n,
+
+                                                   Ilong nnzA,
+                                                   Ilong* csrRowPtrA_in,
+                                                   Iint* csrColIndA_in,
+                                                   T**csrValA_array_in,
+
+                                                   Ilong nnzL,
+                                                   Ilong* csrRowPtrL_in,
+                                                   Iint* csrColIndL_in,
+                                                   T* csrValL_in,
+
+                                                   Ilong nnzU,
+                                                   Ilong* csrRowPtrU_in,
+                                                   Iint* csrColIndU_in,
+                                                   T* csrValU_in,
+
+                                                   Iint* P_in,
+                                                   Iint* Q_in,
 
                                                    /* Output */
                                                    rocsolverRfHandle_t handle)
 {
     // check args
+  {
     rocsolverStatus_t istat = rocsolver_RfBatchSetup_checkargs(
         batch_count, n, nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_array_in, nnzL, csrRowPtrL_in,
         csrColIndL_in, csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, P_in, Q_in,
@@ -116,25 +127,26 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     {
         return (istat);
     };
+  };
 
     hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle;
     handle->boost_val = 0;
     handle->effective_zero = 0;
 
-    int* csrRowPtrA = csrRowPtrA_in;
-    int* csrColIndA = csrColIndA_in;
-    double** csrValA_array = csrValA_array_in;
+    Ilong* csrRowPtrA = csrRowPtrA_in;
+    Iint* csrColIndA = csrColIndA_in;
+    T** csrValA_array = csrValA_array_in;
 
-    int* csrRowPtrL = csrRowPtrL_in;
-    int* csrColIndL = csrColIndL_in;
-    double* csrValL = csrValL_in;
+    Ilong* csrRowPtrL = csrRowPtrL_in;
+    Iint* csrColIndL = csrColIndL_in;
+    T* csrValL = csrValL_in;
 
-    int* csrRowPtrU = csrRowPtrU_in;
-    int* csrColIndU = csrColIndU_in;
-    double* csrValU = csrValU_in;
+    Ilong* csrRowPtrU = csrRowPtrU_in;
+    Iint* csrColIndU = csrColIndU_in;
+    T* csrValU = csrValU_in;
 
-    int* P = P_in;
-    int* Q = Q_in;
+    Iint* P = P_in;
+    Iint* Q = Q_in;
 
     {
         // --------------------------------
@@ -143,7 +155,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         handle->batch_count = batch_count;
         if(handle->csrValLU_array != nullptr)
         {
-            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
             {
                 if(handle->csrValLU_array[ibatch] != nullptr)
                 {
@@ -157,7 +169,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             handle->csrValLU_array = nullptr;
         };
 
-        HIP_CHECK(hipHostMalloc(&(handle->csrValLU_array), sizeof(double*) * batch_count,
+        HIP_CHECK(hipHostMalloc(&(handle->csrValLU_array), sizeof(T*) * batch_count,
                                 hipHostMallocPortable),
                   ROCSOLVER_STATUS_ALLOC_FAILED);
         if(handle->csrValLU_array == nullptr)
@@ -165,11 +177,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             return (ROCSOLVER_STATUS_ALLOC_FAILED);
         };
 
-        for(int ibatch = 0; ibatch < batch_count; ibatch++)
+        for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
         {
-            double* csrValLU = nullptr;
-            size_t const nbytes_L = sizeof(double) * nnzL;
-            size_t const nbytes_U = sizeof(double) * nnzU;
+            T* csrValLU = nullptr;
+            size_t const nbytes_L = sizeof(T) * nnzL;
+            size_t const nbytes_U = sizeof(T) * nnzU;
             size_t const nbytes_LU = nbytes_L + nbytes_U;
             HIP_CHECK(hipMalloc(&csrValLU, nbytes_LU), ROCSOLVER_STATUS_ALLOC_FAILED);
             if(csrValLU == nullptr)
@@ -190,39 +202,23 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     if(MAKE_COPY)
     {
         // allocate and copy P, Q
-        size_t const nbytes_PQ = sizeof(int) * n;
+        size_t const nbytes_PQ = sizeof(Iint) * n;
 
         HIP_CHECK(hipMalloc(&P, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(P == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
 
         HIP_CHECK(hipMalloc(&Q, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(Q == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
 
         HIP_CHECK(hipMemcpyDtoD(P, P_in, nbytes_PQ), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
         HIP_CHECK(hipMemcpyDtoD(Q, Q_in, nbytes_PQ), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
         // allocate and copy A
-        size_t const nbytes_RowPtrA = sizeof(int) * (n + 1);
-        size_t const nbytes_ColIndA = sizeof(int) * nnzA;
+        size_t const nbytes_RowPtrA = sizeof(Ilong) * (n + 1);
+        size_t const nbytes_ColIndA = sizeof(Iint) * nnzA;
 
         HIP_CHECK(hipMalloc(&csrRowPtrA, nbytes_RowPtrA), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(csrRowPtrA == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
 
         HIP_CHECK(hipMalloc(&csrColIndA, nbytes_ColIndA), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(csrColIndA == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
 
         HIP_CHECK(hipMemcpyDtoD(csrRowPtrA, csrRowPtrA_in, nbytes_RowPtrA),
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
@@ -233,26 +229,18 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         // allocate and copy csrValA_array
         // -------------------------------
         {
-            size_t const nbytes_csrValA_array = sizeof(double*) * batch_count;
+            size_t const nbytes_csrValA_array = sizeof(T*) * batch_count;
             HIP_CHECK(hipMalloc(&csrValA_array, nbytes_csrValA_array), ROCSOLVER_STATUS_ALLOC_FAILED);
-            if(csrValA_array == nullptr)
-            {
-                return (ROCSOLVER_STATUS_ALLOC_FAILED);
-            };
 
-            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
             {
-                double* csrValA = nullptr;
-                size_t const nbytes_ValA = nnzA * sizeof(double);
+                T* csrValA = nullptr;
+                size_t const nbytes_ValA = nnzA * sizeof(T);
 
                 HIP_CHECK(hipMalloc(&csrValA, nbytes_ValA), ROCSOLVER_STATUS_ALLOC_FAILED);
-                if(csrValA == nullptr)
-                {
-                    return (ROCSOLVER_STATUS_ALLOC_FAILED);
-                };
                 csrValA_array[ibatch] = csrValA;
 
-                double* csrValA_in = csrValA_array_in[ibatch];
+                T* csrValA_in = csrValA_array_in[ibatch];
                 HIP_CHECK(hipMemcpyDtoD(csrValA, csrValA_in, nbytes_ValA),
                           ROCSOLVER_STATUS_EXECUTION_FAILED);
             };
@@ -260,9 +248,9 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         // -------------------
         // allocate and copy L
         // -------------------
-        size_t const nbytes_RowPtrL = sizeof(int) * (n + 1);
-        size_t const nbytes_ColIndL = sizeof(int) * nnzL;
-        size_t const nbytes_ValL = sizeof(double) * nnzL;
+        size_t const nbytes_RowPtrL = sizeof(Ilong) * (n + 1);
+        size_t const nbytes_ColIndL = sizeof(Iint) * nnzL;
+        size_t const nbytes_ValL = sizeof(T) * nnzL;
 
         HIP_CHECK(hipMalloc(&csrRowPtrL, nbytes_RowPtrL), ROCSOLVER_STATUS_ALLOC_FAILED);
 
@@ -277,9 +265,9 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         HIP_CHECK(hipMemcpyDtoD(csrValL, csrValL_in, nbytes_ValL), ROCSOLVER_STATUS_EXECUTION_FAILED);
 
         // allocate and copy U
-        size_t const nbytes_RowPtrU = sizeof(int) * (n + 1);
-        size_t const nbytes_ColIndU = sizeof(int) * nnzU;
-        size_t const nbytes_ValU = sizeof(double) * nnzU;
+        size_t const nbytes_RowPtrU = sizeof(Ilong) * (n + 1);
+        size_t const nbytes_ColIndU = sizeof(Iint) * nnzU;
+        size_t const nbytes_ValU = sizeof(T) * nnzU;
 
         HIP_CHECK(hipMalloc(&csrRowPtrU, nbytes_RowPtrU), ROCSOLVER_STATUS_ALLOC_FAILED);
 
@@ -294,8 +282,8 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         HIP_CHECK(hipMemcpyDtoD(csrValU, csrValU_in, nbytes_ValU), ROCSOLVER_STATUS_EXECUTION_FAILED);
     };
 
-    int* P_new2old = P;
-    int* Q_new2old = Q;
+    Iint* P_new2old = P;
+    Iint* Q_new2old = Q;
 
     /*
     ---------------------------------
@@ -303,14 +291,14 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     ---------------------------------
    */
 
-    int* csrRowPtrLU = handle->csrRowPtrLU;
-    int* csrColIndLU = handle->csrColIndLU;
+    Ilong* csrRowPtrLU = handle->csrRowPtrLU;
+    Iint* csrColIndLU = handle->csrColIndLU;
 
-    int const ibatch = 0;
-    double* csrValLU = handle->csrValLU_array[ibatch];
+    Iint const ibatch = 0;
+    T* csrValLU = handle->csrValLU_array[ibatch];
 
     hipsparseMatDescr_t descrLU = handle->descrLU;
-    int nnz_LU = 0;
+    Ilong nnz_LU = 0;
 
     if(csrRowPtrLU != nullptr)
     {
@@ -390,13 +378,13 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         {
             size_t const nbytes = batch_count * sizeof(csrilu02Info_t);
             HIP_CHECK(hipMalloc(&(handle->infoLU_array), nbytes), ROCSOLVER_STATUS_ALLOC_FAILED);
-            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
             {
                 handle->infoLU_array[ibatch] = 0;
             };
         };
 
-        for(int ibatch = 0; ibatch < batch_count; ibatch++)
+        for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
         {
             csrilu02Info_t infoLU = handle->infoLU_array[ibatch];
             if(infoLU == nullptr)
@@ -409,7 +397,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     };
 
     {
-        size_t const nbytes = sizeof(int) * (n + 1);
+        size_t const nbytes = sizeof(Ilong) * (n + 1);
         HIP_CHECK(hipMalloc((void**)&csrRowPtrLU, nbytes), ROCSOLVER_STATUS_ALLOC_FAILED);
     };
 
@@ -422,11 +410,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     //  Perform LU = L + U
     //  ------------------
     {
-        int nrow = n;
-        int ncol = n;
+        Iint nrow = n;
+        Iint ncol = n;
 
-        double alpha = 1;
-        double beta = 1;
+        T alpha = 1;
+        T beta = 1;
 
         HIPSPARSE_CHECK(hipsparseSetPointerMode(hipsparse_handle, HIPSPARSE_POINTER_MODE_HOST),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
@@ -457,7 +445,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                                               csrColIndU, descrLU, csrRowPtrLU, &nnz_LU, pBuffer),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
 
-        HIP_CHECK(hipMalloc((void**)&csrColIndLU, sizeof(int) * nnz_LU),
+        HIP_CHECK(hipMalloc((void**)&csrColIndLU, sizeof(Iint) * nnz_LU),
                   ROCSOLVER_STATUS_ALLOC_FAILED);
         if(csrColIndLU == nullptr)
         {
@@ -468,17 +456,17 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         // allocate storage for csrValLU_array
         // -----------------------------------
         {
-            HIP_CHECK(hipMalloc((void**)&(handle->csrValLU_array), sizeof(double*) * batch_count),
+            HIP_CHECK(hipMalloc((void**)&(handle->csrValLU_array), sizeof(T*) * batch_count),
                       ROCSOLVER_STATUS_ALLOC_FAILED);
             if(handle->csrValLU_array == nullptr)
             {
                 return (ROCSOLVER_STATUS_ALLOC_FAILED);
             };
 
-            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
             {
-                double* csrValLU = nullptr;
-                size_t const nbytes = sizeof(double) * nnz_LU;
+                T* csrValLU = nullptr;
+                size_t const nbytes = sizeof(T) * nnz_LU;
                 HIP_CHECK(hipMalloc((void**)&csrValLU, nbytes), ROCSOLVER_STATUS_ALLOC_FAILED);
                 if(csrValLU == nullptr)
                 {
@@ -494,9 +482,9 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         // Perform sparse matrix addition, LU = L + U
         // -------------------------------------------
 
-        for(int ibatch = 0; ibatch < batch_count; ibatch++)
+        for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
         {
-            double* csrValLU = handle->csrValLU_array[ibatch];
+            T* csrValLU = handle->csrValLU_array[ibatch];
 
             HIPSPARSE_CHECK(hipsparseDcsrgeam2(hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL,
                                                csrValL, csrRowPtrL, csrColIndL, &beta, descrU, nnzU,
@@ -552,8 +540,8 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         // inew = Q_new2old[ iold ]
         // Q_old2new[ iold ] = inew;
         // -------------------------
-        int* Q_old2new = nullptr;
-        HIP_CHECK(hipMalloc(&(Q_old2new), sizeof(int) * n), ROCSOLVER_STATUS_ALLOC_FAILED);
+        Iint* Q_old2new = nullptr;
+        HIP_CHECK(hipMalloc(&(Q_old2new), sizeof(Iint) * n), ROCSOLVER_STATUS_ALLOC_FAILED);
         if(Q_old2new == nullptr)
         {
             return (ROCSOLVER_STATUS_ALLOC_FAILED);
@@ -571,7 +559,9 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     // copy the values of A into L+U
     // -----------------------------
 
-    istat = rocsolverRfBatchResetValues(batch_count, n, nnzA, csrRowPtrA, csrColIndA, csrValA_array,
+    rocsolverStatus_t const istat = rocsolverRfBatchResetValues(
+                                        batch_count, n, 
+                                        nnzA, csrRowPtrA, csrColIndA, csrValA_array,
                                         P, Q, handle);
 
     // clean up
@@ -580,7 +570,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         bool const need_cleanup_csrValA_array = (csrValA_array != csrValA_array_in);
         if(need_cleanup_csrValA_array)
         {
-            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
             {
                 HIP_CHECK(hipFree(csrValA_array[ibatch]), ROCSOLVER_STATUS_INTERNAL_ERROR);
                 csrValA_array[ibatch] = nullptr;

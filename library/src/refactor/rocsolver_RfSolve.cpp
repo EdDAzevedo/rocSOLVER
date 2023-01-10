@@ -66,9 +66,13 @@ rocsolverStatus_t rocsolverRfSolve(
     /* Input */
     int ldxf)
 {
-    if(handle == nullptr)
+  
     {
+      bool const isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+      if( !isok)
+      {
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+      };
     };
 
     {
@@ -102,25 +106,39 @@ rocsolverStatus_t rocsolverRfSolve(
     int* const P_new2old = P;
     int* const Q_new2old = Q;
 
-    assert(P_new2old == handle->P_new2old);
-    assert(Q_new2old == handle->Q_new2old);
+    {
+    bool const isok_assumption = (P_new2old == handle->P_new2old) &&
+                                 (Q_new2old == handle->P_new2old);
+    if (!isok_assumption) {
+       return( ROCSOLVER_STATUS_INVALID_VALUE );
+       };
+    };
 
+
+
+
+
+    int nerrors = 0;
     for(int irhs = 0; irhs < nrhs; irhs++)
     {
         double* const Rs = nullptr;
         double* const brhs = &(XF[ldxf * irhs]);
+
+        int const ibatch = 0;
         int* const LUp = handle->csrRowPtrLU;
         int* const LUi = handle->csrColIndLU;
-        double* const LUx = handle->csrValLU;
+        double* const LUx = handle->csrValLU_array[ibatch];
 
         int isok = rf_pqrlusolve(handle->hipsparse_handle, n, P_new2old, Q_new2old, Rs,
-                                 handle->csrRowPtrLU, handle->csrColIndLU, handle->csrValLU, brhs);
+                                 LUp, LUi, LUx, brhs );
         if(!isok)
         {
-            return (ROCSOLVER_STATUS_INTERNAL_ERROR);
+            nerrors++;
         };
     };
 
-    return (ROCSOLVER_STATUS_SUCCESS);
+    return((nerrors == 0) ?  ROCSOLVER_STATUS_SUCCESS :
+                             ROCSOLVER_STATUS_INTERNAL_ERROR);
+  
 };
 };

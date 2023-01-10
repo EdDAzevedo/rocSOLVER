@@ -71,33 +71,19 @@ rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
                                        /* Output */
                                        rocsolverRfHandle_t handle)
 {
+    int const batch_count = 1;
+    return (rocsolverRfBatchSetupHost(batch_count, n,
 
-int const batch_count = 1;
-return(  
-    rocsolverRfBatchSetupHost(
-	batch_count,
-	n,
+                                      nnzA, h_csrRowPtrA, h_csrColIndA,
 
-	nnzA,
-	h_csrRowPtrA,
-	h_csrColIndA,
+                                      &h_csrValA,
 
-	&h_csrValA,
+                                      nnzL, h_csrRowPtrL, h_csrColIndL, h_csrValL,
 
-	nnzL,
-	h_csrRowPtrL,
-	h_csrColIndL,
-	h_csrValL,
+                                      nnzU, h_csrRowPtrU, h_csrColIndU, h_csrValU,
 
-	nnzU,
-	h_csrRowPtrU,
-	h_csrColIndU,
-	h_csrValU,
-
-	h_P,
-	h_Q,
-	/* Output */
-	handle) );
-
+                                      h_P, h_Q,
+                                      /* Output */
+                                      handle));
 };
 };

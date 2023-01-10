@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "rocsolver_RfSetupDevice.hpp"
+#include "rocsolver_RfBatchSetupDevice.hpp"
 
 /*
 ----------------------------------------------------------------------
@@ -81,8 +81,12 @@ rocsolverStatus_t rocsolverRfSetupDevice(int n, // host input
                                          rocsolverRfHandle_t handle)
 {
     bool constexpr MAKE_COPY = true;
-    return (rocsolverRfSetupDevice_impl<MAKE_COPY>(
-        n, nnzA, csrRowPtrA_in, csrColIndA_in, csrValA_in, nnzL, csrRowPtrL_in, csrColIndL_in,
-        csrValL_in, nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, P_in, Q_in, handle));
+    int const batch_count = 1;
+    return (rocsolverRfBatchSetupDevice_impl<MAKE_COPY,int,int,double>(
+        batch_count, n, 
+        nnzA, csrRowPtrA_in, csrColIndA_in, &csrValA_in, 
+        nnzL, csrRowPtrL_in, csrColIndL_in, csrValL_in, 
+        nnzU, csrRowPtrU_in, csrColIndU_in, csrValU_in, 
+        P_in, Q_in, handle));
 };
 };
