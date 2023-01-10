@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
+#pragma once
 #ifndef ROCSOLVER_ADD_PAQ_HPP
 #define ROCSOLVER_ADD_PAQ_HPP
 
@@ -32,31 +33,48 @@
 #define ADD_PAQ_MAX_THDS 256
 #endif
 
+/*
+-------------------------------------------
+Compute B = beta * B + alpha * (P * A * Q')
+as
+(1) B = beta * B
+(2) B += alpha * (P * A * Q')
+
+where sparsity pattern of reordered A is a proper subset 
+of sparsity pattern of B
+
+Further assume for each row, the column indices are 
+in increasing sorted order
+-------------------------------------------
+*/
 template <typename Iint, typename Ilong, typename T>
-static __global__ __launch_bounds__(ADD_PAQ_MAX_THDS) void rocsolver_add_PAQ_kernel(Iint const nrow,
+static __global__
+    __launch_bounds__(ADD_PAQ_MAX_THDS) void rocsolver_add_PAQ_kernel(Iint const nrow,
                                                                       Iint const ncol,
                                                                       Iint const* const P_new2old,
                                                                       Iint const* const Q_old2new,
-                                                                      Iint const* const Ap,
+
+                                                                      T const alpha,
+                                                                      Ilong const* const Ap,
                                                                       Iint const* const Ai,
                                                                       T const* const Ax,
-                                                                      Iint const* const LUp,
+
+                                                                      T const beta,
+                                                                      Ilong const* const LUp,
                                                                       Iint const* const LUi,
                                                                       T* const LUx)
 {
-/*
- ------------------------
- inline lambda expression
- ------------------------
-*/
+    //  ------------------------
+    // inline lambda expression
+    // ------------------------
 #include "rf_search.hpp"
 
-    /*
-     -------------------------------------------
-     If P_new2old, or Q_old2new is NULL, then treat as identity permutation
-     -------------------------------------------
-     */
+    T const zero = 0;
+    bool const is_beta_zero = (beta == zero);
 
+    // -------------------------------------------
+    // If P_new2old, or Q_old2new is NULL, then treat as identity permutation
+    // -------------------------------------------
     bool const has_P = (P_new2old != nullptr);
     bool const has_Q = (Q_old2new != nullptr);
     Iint const irow_start = threadIdx.x + blockIdx.x * blockDim.x;
@@ -68,15 +86,14 @@ static __global__ __launch_bounds__(ADD_PAQ_MAX_THDS) void rocsolver_add_PAQ_ker
         Ilong const kend_LU = LUp[irow + 1];
         Iint const nz_LU = kend_LU - kstart_LU;
 
-        /*
-         -------------------
-         initialize row to zeros
-         -------------------
-        */
+        // -------------------
+        // scale row by beta
+        // -------------------
         for(Iint k = 0; k < nz_LU; k++)
         {
             Ilong const k_lu = kstart_LU + k;
-            LUx[k_lu] = 0;
+            T const LUij = LUx[k_lu];
+            LUx[k_lu] = (is_beta_zero) ? zero : beta * LUij;
         };
 
         Iint const irow_old = (has_P) ? P_new2old[irow] : irow;
@@ -105,7 +122,7 @@ static __global__ __launch_bounds__(ADD_PAQ_MAX_THDS) void rocsolver_add_PAQ_ker
             Ilong const k_lu = kstart_LU + ipos;
 
             T const aij = Ax[ka];
-            LUx[k_lu] += aij;
+            LUx[k_lu] += alpha * aij;
         };
     };
 }
@@ -117,10 +134,14 @@ rocsolverStatus_t rocsolver_add_PAQ(hipStream_t stream,
                                     Iint const ncol,
                                     Iint const* const P_new2old,
                                     Iint const* const Q_old2new,
-                                    Iint const* const Ap,
+
+                                    T const alpha,
+                                    Ilong const* const Ap,
                                     Iint const* const Ai,
                                     T const* const Ax,
-                                    Iint const* const LUp,
+
+                                    T const beta,
+                                    Ilong const* const LUp,
                                     Iint const* const LUi,
                                     T* const LUx)
 {
@@ -128,7 +149,7 @@ rocsolverStatus_t rocsolver_add_PAQ(hipStream_t stream,
     int const nblocks = (nrow + (nthreads - 1)) / nthreads;
 
     rocsolver_add_PAQ_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, stream>>>(
-        nrow, ncol, P_new2old, Q_old2new, Ap, Ai, Ax, LUp, LUi, LUx);
+        nrow, ncol, P_new2old, Q_old2new, alpha, Ap, Ai, Ax, beta, LUp, LUi, LUx);
     return (ROCSOLVER_STATUS_SUCCESS);
 }
 #endif

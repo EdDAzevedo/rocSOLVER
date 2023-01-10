@@ -25,32 +25,39 @@
 #ifndef ROCSOLVER_AXPBY_HPP
 #define ROCSOLVER_AXPBY_HPP
 
+#include <cassert>
+
 #ifndef AXPBY_MAX_THDS
 #define AXPBY_MAX_THDS 256
 #endif
 
 template <typename Iint, typename Ilong, typename T>
 static __global__ __launch_bounds__(AXPBY_MAX_THDS) void rocsolver_aXpbY_kernel(Iint const nrow,
-                                                                         Iint const ncol,
-                                                                         T const alpha,
-                                                                         Iint const* const Xp,
-                                                                         Iint const* const Xi,
-                                                                         T const* const Xx,
-                                                                         T const beta,
-                                                                         Iint const* const Yp,
-                                                                         Iint const* const Yi,
-                                                                         T* const Yx)
+                                                                                Iint const ncol,
+
+                                                                                T const alpha,
+                                                                                Ilong const* const Xp,
+                                                                                Iint const* const Xi,
+                                                                                T const* const Xx,
+
+                                                                                T const beta,
+                                                                                Ilong const* const Yp,
+                                                                                Iint const* const Yi,
+                                                                                T* const Yx)
 {
-    /*
- ------------------------------------------------
- Perform  Y = alpha * X + beta * Y
- where sparsity pattern of matrix X is a subset of
- sparsity pattern of matrix Y
- ------------------------------------------------
-*/
+    T const zero = 0;
+
+    // ------------------------------------------------
+    // Perform  Y = alpha * X + beta * Y
+    // where sparsity pattern of matrix X is a subset of
+    // sparsity pattern of matrix Y
+    //
+    // Step (1) Y = beta * Y
+    // Step (2) Y += alpha * X
+    // ------------------------------------------------
     {
-        bool const isok = (nrow >= 1) && (ncol >= 1) && (Xp != NULL) && (Xi != NULL) && (Xx != NULL)
-            && (Yp != NULL) && (Yi != NULL) && (Yx != NULL);
+        bool const isok = (nrow >= 0) && (ncol >= 0) && (Xp != nullptr) && (Xi != nullptr)
+            && (Xx != nullptr) && (Yp != nullptr) && (Yi != nullptr) && (Yx != nullptr);
         if(!isok)
         {
             return;
@@ -62,6 +69,8 @@ static __global__ __launch_bounds__(AXPBY_MAX_THDS) void rocsolver_aXpbY_kernel(
     Iint const irow_start = threadIdx.x + blockIdx.x * blockDim.x;
     Iint const irow_inc = blockDim.x * gridDim.x;
 
+    bool const is_alpha_zero = (alpha == zero);
+    bool const is_beta_zero = (beta == zero);
     for(Iint irow = irow_start; irow < nrow; irow += irow_inc)
     {
         Ilong const kx_start = Xp[irow];
@@ -69,55 +78,49 @@ static __global__ __launch_bounds__(AXPBY_MAX_THDS) void rocsolver_aXpbY_kernel(
         Ilong const ky_start = Yp[irow];
         Ilong const ky_end = Yp[irow + 1];
 
-        if(beta == 0)
+        // ---------------
+        // scale Y by beta
+        // ---------------
+
         {
             for(Ilong ky = ky_start; ky < ky_end; ky++)
             {
-                Yx[ky] = 0;
+                T const Yxij = Yx[ky];
+                Yx[ky] = (is_beta_zero) ? zero : beta * Yxij;
             };
         };
 
-        if(alpha == 0)
+        if(is_alpha_zero)
         {
-            /*
-         -------------------
-         just scale matrix Y
-         -------------------
-         */
-            for(Ilong ky = ky_start; ky < ky_end; ky++)
-            {
-                Yx[ky] *= beta;
-            };
+            // ----------
+            // do nothing
+            // ----------
         }
         else
         {
             for(Ilong kx = kx_start; kx < kx_end; kx++)
             {
+                // ---------------------
+                // perform search
+                // ---------------------
                 Iint const jcol = Xi[kx];
+                Iint const key = jcol;
+                Iint const len = (ky_end - ky_start);
+                Iint const* const arr = &(Yi[ky_start]);
 
-                /*
-        ---------------------
-        perform search
-        ---------------------
-        */
-                bool is_found = false;
+                Iint const ipos = rf_search(len, arr, key);
+                bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
+                assert(is_found);
+
+                if(is_found)
                 {
-                    Iint const key = jcol;
-                    Iint const len = (ky_end - ky_start);
-                    Iint const* const arr = &(Yp[ky_start]);
-
-                    Iint const ipos = rf_search(len, arr, key);
-                    is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
-
-                    if(is_found)
-                    {
-                        Ilong const ky = ky_start + ipos;
-                        Yx[ky] = alpha * Xx[kx] + beta * Yx[ky];
-                    };
+                    Ilong const ky = ky_start + ipos;
+                    T const Xxij = Xx[kx];
+                    Yx[ky] += alpha * Xxij;
                 };
-            };
+            }; // for kx
         };
-    };
+    }; // for irow
 }
 
 template <typename Iint, typename Ilong, typename T>
@@ -125,10 +128,12 @@ void rocsolver_aXpbY_template(hipStream_t stream,
 
                               Iint const nrow,
                               Iint const ncol,
+
                               T const alpha,
                               Iint const* const Xp,
                               Iint const* const Xi,
                               T const* const Xx,
+
                               T const beta,
                               Iint const* const Yp,
                               Iint const* const Yi,
