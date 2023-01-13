@@ -42,97 +42,33 @@ systems:
 
 #include "rocsolver_RfSolve.hpp"
 #include "assert.h"
-#include "rf_pqrlusolve.h"
+#include "rf_pqrlusolve.hpp"
 
 extern "C" {
 
 rocsolverStatus_t rocsolverRfSolve(
-    /* Input (in the device memory) */
+    // Input (in the device memory) 
     rocsolverRfHandle_t handle,
-    int* P,
-    int* Q,
+    int* d_P,
+    int* d_Q,
     int nrhs,
-    double* Temp, /* dense matrix of size (ldt * nrhs), ldt >= n */
+    double* d_Temp, //  dense matrix of size (ldt * nrhs), ldt >= n 
     int ldt,
 
-    /* Input/Output (in the device memory) */
+    // Input/Output (in the device memory) 
 
     // -----------------------------------------
     // dense matrix that contains right-hand side F
     // and solutions X of size (ldxf * nrhs)
     // -----------------------------------------
-    double* XF,
+    double* d_XF,
 
-    /* Input */
+    // Input 
     int ldxf)
 {
-    {
-        bool const isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
-        if(!isok)
-        {
-            return (ROCSOLVER_STATUS_NOT_INITIALIZED);
-        };
-    };
 
-    {
-        bool const isok = (P != nullptr) && (Q != nullptr) && (Temp != nullptr) && (XF != nullptr);
-        if(!isok)
-        {
-            return (ROCSOLVER_STATUS_INVALID_VALUE);
-        };
-    };
+  return( rocsolverRfBatchSolve(
+                  handle, d_P, d_Q, nrhs, d_Temp, ldt, &d_XF, ldxf ) );
+}
 
-    int const n = handle->n;
-    if((n < 0) || (nrhs < 0))
-    {
-        return (ROCSOLVER_STATUS_INVALID_VALUE);
-    };
-
-    if((n == 0) || (nrhs == 0))
-    {
-        // no work
-        return (ROCSOLVER_STATUS_SUCCESS);
-    };
-
-    {
-        bool const isok_arguments = (XF != nullptr) && (ldxf >= n);
-        if(!isok_arguments)
-        {
-            return (ROCSOLVER_STATUS_INVALID_VALUE);
-        };
-    };
-
-    int* const P_new2old = P;
-    int* const Q_new2old = Q;
-
-    {
-        bool const isok_assumption
-            = (P_new2old == handle->P_new2old) && (Q_new2old == handle->P_new2old);
-        if(!isok_assumption)
-        {
-            return (ROCSOLVER_STATUS_INVALID_VALUE);
-        };
-    };
-
-    int nerrors = 0;
-    for(int irhs = 0; irhs < nrhs; irhs++)
-    {
-        double* const Rs = nullptr;
-        double* const brhs = &(XF[ldxf * irhs]);
-
-        int const ibatch = 0;
-        int* const LUp = handle->csrRowPtrLU;
-        int* const LUi = handle->csrColIndLU;
-        double* const LUx = handle->csrValLU_array[ibatch];
-
-        int isok = rf_pqrlusolve(handle->hipsparse_handle, n, P_new2old, Q_new2old, Rs, LUp, LUi,
-                                 LUx, brhs);
-        if(!isok)
-        {
-            nerrors++;
-        };
-    };
-
-    return ((nerrors == 0) ? ROCSOLVER_STATUS_SUCCESS : ROCSOLVER_STATUS_INTERNAL_ERROR);
-};
 };
