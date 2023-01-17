@@ -47,15 +47,15 @@ systems:
 extern "C" {
 
 rocsolverStatus_t rocsolverRfSolve(
-    // Input (in the device memory) 
+    // Input (in the device memory)
     rocsolverRfHandle_t handle,
     int* d_P,
     int* d_Q,
     int nrhs,
-    double* d_Temp, //  dense matrix of size (ldt * nrhs), ldt >= n 
+    double* d_Temp, //  dense matrix of size (ldt * nrhs), ldt >= n
     int ldt,
 
-    // Input/Output (in the device memory) 
+    // Input/Output (in the device memory)
 
     // -----------------------------------------
     // dense matrix that contains right-hand side F
@@ -63,12 +63,9 @@ rocsolverStatus_t rocsolverRfSolve(
     // -----------------------------------------
     double* d_XF,
 
-    // Input 
+    // Input
     int ldxf)
 {
-
-  return( rocsolverRfBatchSolve(
-                  handle, d_P, d_Q, nrhs, d_Temp, ldt, &d_XF, ldxf ) );
+    return (rocsolverRfBatchSolve(handle, d_P, d_Q, nrhs, d_Temp, ldt, &d_XF, ldxf));
 }
-
 };

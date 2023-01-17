@@ -61,12 +61,28 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->diag_format = ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_L;
 
     handle->numeric_boost = ROCSOLVERRF_NUMERIC_BOOST_NOT_USED;
+    handle->boost_val = 0;
+    handle->effective_zero = 0;
 
     // -----------------------------------------------------------------
     // note require  compatible algorithms for  factorization and solver
     // -----------------------------------------------------------------
     handle->fact_alg = ROCSOLVERRF_FACTORIZATION_ALG0;
     handle->solve_alg = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
+
+    handle->nnzL = 0;
+    handle->csrRowPtrL = 0;
+    handle->csrColIndL = 0;
+    handle->csrValL = 0;
+
+    handle->nnzU = 0;
+    handle->csrRowPtrU = 0;
+    handle->csrColIndU = 0;
+    handle->csrValU = 0;
+
+    handle->nnzA = 0;
+    handle->csrRowPtrA = 0;
+    handle->csrColIndA = 0;
 
     handle->descrL = 0;
     handle->descrU = 0;
@@ -87,9 +103,6 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->nnz_LU = 0;
     handle->csrRowPtrLU = 0;
     handle->csrColIndLU = 0;
-
-    handle->effective_zero = 0;
-    handle->boost_val = 0;
 
     handle->buffer = 0;
     handle->buffer_size = 0;

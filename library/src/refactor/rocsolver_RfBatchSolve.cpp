@@ -39,9 +39,9 @@ systems:
  -------------------------------------------------------------
 */
 
-#include <assert.h>
 #include "rf_pqrlusolve.hpp"
 #include "rocsolver_RfSolve.hpp"
+#include <assert.h>
 
 extern "C" {
 
@@ -115,13 +115,12 @@ rocsolverStatus_t rocsolverRfBatchSolve(
     int* const Q_new2old = Q;
 
     {
-    bool const isok = (P_new2old == handle->P_new2old) &&
-                      (Q_new2old == handle->Q_new2old);
-    if (!isok) {
-       return( ROCSOLVER_STATUS_INVALID_VALUE );
-       };
+        bool const isok = (P_new2old == handle->P_new2old) && (Q_new2old == handle->Q_new2old);
+        if(!isok)
+        {
+            return (ROCSOLVER_STATUS_INVALID_VALUE);
+        };
     };
-    
 
     for(int ibatch = 0; ibatch < batch_count; ibatch++)
     {
@@ -134,8 +133,8 @@ rocsolverStatus_t rocsolverRfBatchSolve(
             int* const LUi = handle->csrColIndLU;
             double* const LUx = handle->csrValLU_array[ibatch];
 
-            rocsolverStatus_t isok = rf_pqrlusolve(handle, n, P_new2old, Q_new2old, Rs, LUp,
-                                     LUi, LUx, brhs, d_Temp);
+            rocsolverStatus_t isok
+                = rf_pqrlusolve(handle, n, P_new2old, Q_new2old, Rs, LUp, LUi, LUx, brhs, d_Temp);
             if(!isok)
             {
                 return (ROCSOLVER_STATUS_INTERNAL_ERROR);

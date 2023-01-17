@@ -69,18 +69,20 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
     };
 
     {
-        bool const isok_assumption = (batch_count == handle->batch_count) && (n == handle->n);
-        if(!isok_assumption)
+        bool const isok
+            = (csrRowPtrA != nullptr) && (csrColIndA != nullptr) && (csrValA_array != nullptr);
+
+        if(!isok)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
     };
 
     {
-        bool const isok
-            = (csrRowPtrA != nullptr) && (csrColIndA != nullptr) && (csrValA_array != nullptr);
-
-        if(!isok)
+        bool const isok_assume_unchanged = (batch_count == handle->batch_count) && (n == handle->n)
+            && (nnzA == handle->nnzA) && (csrRowPtrA == handle->csrRowPtrA)
+            && (csrColIndA == handle->csrColIndA);
+        if(!isok_assume_unchanged)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };

@@ -101,6 +101,20 @@ struct rocsolverRfCommon
 
     hipsparseHandle_t hipsparse_handle;
 
+    int nnzL;
+    int* csrRowPtrL;
+    int* csrColIndL;
+    double* csrValL;
+
+    int nnzU;
+    int* csrRowPtrU;
+    int* csrColIndU;
+    double* csrValU;
+
+    int nnzA;
+    int* csrRowPtrA;
+    int* csrColIndA;
+
     hipsparseMatDescr_t descrL;
     hipsparseMatDescr_t descrU;
     hipsparseMatDescr_t descrLU;

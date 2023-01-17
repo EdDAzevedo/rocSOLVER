@@ -1,6 +1,6 @@
 /*! \file */
 /* ************************************************************************
- * Copyright (C) 2022 Advanced Micro Devices, Inc. All rights Reserved.
+ * Copyright (C) 2023 Advanced Micro Devices, Inc. All rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -163,9 +163,24 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
         HIP_CHECK(hipFree(handle->buffer), ROCSOLVER_STATUS_INTERNAL_ERROR);
         handle->buffer = nullptr;
     };
+    handle->buffer_size = 0;
 
     handle->n = 0;
     handle->nnz_LU = 0;
+
+    handle->nnzL = 0;
+    handle->csrRowPtrL = 0;
+    handle->csrColIndL = 0;
+    handle->csrValL = 0;
+
+    handle->nnzU = 0;
+    handle->csrRowPtrU = 0;
+    handle->csrColIndU = 0;
+    handle->csrValU = 0;
+
+    handle->nnzA = 0;
+    handle->csrRowPtrA = 0;
+    handle->csrColIndA = 0;
 
     // -------------------------
     // free the hipsparse handle
