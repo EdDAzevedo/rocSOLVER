@@ -179,6 +179,30 @@ set(rocsolver_auxiliary_source
   auxiliary/rocauxiliary_lasyf.cpp
 )
 
+set(rocsolver_refactor_source
+   refactor/rocsolver_RfAccessBundledFactors.cpp
+   refactor/rocsolver_RfAnalyze.cpp
+   refactor/rocsolver_RfBatchAnalyze.cpp
+   refactor/rocsolver_RfBatchRefactor.cpp
+   refactor/rocsolver_RfBatchResetValues.cpp
+   refactor/rocsolver_RfBatchSetupHost.cpp
+   refactor/rocsolver_RfBatchSolve.cpp
+   refactor/rocsolver_RfBatchZeroPivot.cpp
+   refactor/rocsolver_RfCreate.cpp
+   refactor/rocsolver_RfDestroy.cpp
+   refactor/rocsolver_RfGetNumericBoostReport.cpp
+   refactor/rocsolver_RfGetResetValuesFastMode.cpp
+   refactor/rocsolver_RfRefactor.cpp
+   refactor/rocsolver_RfResetValues.cpp
+   refactor/rocsolver_RfSetAlgs.cpp
+   refactor/rocsolver_RfSetMatrixFormat.cpp
+   refactor/rocsolver_RfSetNumericProperties.cpp
+   refactor/rocsolver_RfSetResetValuesFastMode.cpp
+   refactor/rocsolver_RfSetupDevice.cpp
+   refactor/rocsolver_RfSetupHost.cpp
+   refactor/rocsolver_RfSolve.cpp
+)
+
 set(rocsolver_specialized_source
   # trsm
   specialized/roclapack_trsm_specialized_kernels_s.cpp
@@ -228,6 +252,7 @@ add_library(rocsolver
   ${rocsolver_specialized_source}
   ${rocsolver_auxiliary_source}
   ${rocsolver_lapack_source}
+  ${rocsolver_refactor_source}
 )
 
 add_library(roc::rocsolver ALIAS rocsolver)
