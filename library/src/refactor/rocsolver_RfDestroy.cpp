@@ -166,7 +166,7 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
     handle->buffer_size = 0;
 
     handle->n = 0;
-    handle->nnz_LU = 0;
+    handle->nnzLU = 0;
 
     handle->nnzL = 0;
     handle->csrRowPtrL = 0;

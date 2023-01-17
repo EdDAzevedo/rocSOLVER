@@ -100,7 +100,7 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
     handle->csrValLU_array = 0;
 
     handle->n = 0;
-    handle->nnz_LU = 0;
+    handle->nnzLU = 0;
     handle->csrRowPtrLU = 0;
     handle->csrColIndLU = 0;
 

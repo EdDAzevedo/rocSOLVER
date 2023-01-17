@@ -25,6 +25,7 @@
 #pragma once
 #include "rf_common.hpp"
 
+#include "rf_sumLU.hpp"
 #include "rocsolver_ipvec.hpp"
 
 template <typename Iint, typename Ilong, typename T>
@@ -125,6 +126,8 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         };
     };
 
+    handle->n = n;
+    handle->batch_count = batch_count;
     handle->nnzA = nnzA;
     handle->nnzL = nnzL;
     handle->nnzU = nnzU;
@@ -300,7 +303,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     T* csrValLU = handle->csrValLU_array[ibatch];
 
     hipsparseMatDescr_t descrLU = handle->descrLU;
-    Ilong nnz_LU = 0;
+    Ilong nnzLU = 0;
 
     if(csrRowPtrLU != nullptr)
     {
@@ -441,92 +444,141 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     //  ------------------
     //  Perform LU = L + U
     //  ------------------
-    Iint nrow = n;
-    Iint ncol = n;
 
-    T alpha = 1;
-    T beta = 1;
-
-    HIPSPARSE_CHECK(hipsparseSetPointerMode(hipsparse_handle, HIPSPARSE_POINTER_MODE_HOST),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
-
-    // ------------
-    // setup buffer
-    // ------------
-    void* pBuffer = nullptr;
-    size_t bufferSizeInBytes = sizeof(T);
-
-    // ------------------------------
-    // hipsparseXcsrgeam2() computes
-    // C = alpha * A + beta * B
-    // ------------------------------
-
-    HIPSPARSE_CHECK(hipsparseDcsrgeam2_bufferSizeExt(
-                        hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL, csrValL, csrRowPtrL,
-                        csrColIndL, &beta, descrU, nnzU, csrValU, csrRowPtrU, csrColIndU, descrLU,
-                        csrValLU, csrRowPtrLU, csrColIndLU, &bufferSizeInBytes),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
-
-    HIP_CHECK(hipMalloc(&pBuffer, bufferSizeInBytes), ROCSOLVER_STATUS_ALLOC_FAILED);
-
-    // ------------------------------
-    // estimate number of non-zeros
-    // in L + U
-    // ------------------------------
-    HIPSPARSE_CHECK(hipsparseXcsrgeam2Nnz(hipsparse_handle, nrow, ncol, descrL, nnzL, csrRowPtrL,
-                                          csrColIndL, descrU, nnzU, csrRowPtrU, csrColIndU, descrLU,
-                                          csrRowPtrLU, &nnz_LU, pBuffer),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
-
-    HIP_CHECK(hipMalloc((void**)&csrColIndLU, sizeof(Iint) * nnz_LU), ROCSOLVER_STATUS_ALLOC_FAILED);
-    if(csrColIndLU == nullptr)
+    bool constexpr use_sumLU = true;
+    if(use_sumLU)
     {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
+        Ilong nnzLU = handle->nnzL + handle->nnzU - handle->n;
+        handle->nnzLU = nnzLU;
 
-    // -----------------------------------
-    // allocate storage for csrValLU_array
-    // -----------------------------------
-    {
-        HIP_CHECK(hipMalloc((void**)&(handle->csrValLU_array), sizeof(T*) * batch_count),
-                  ROCSOLVER_STATUS_ALLOC_FAILED);
         if(handle->csrValLU_array == nullptr)
         {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+            size_t const nbytes = sizeof(T*) * batch_count;
+            HIP_CHECK(hipMalloc((void**)&(handle->csrValLU_array), nbytes),
+                      ROCSOLVER_STATUS_ALLOC_FAILED);
+        };
+
+        if(handle->csrColIndLU == nullptr)
+        {
+            HIP_CHECK(hipMalloc((void**)&(handle->csrColIndLU), sizeof(Iint) * handle->nnzLU),
+                      ROCSOLVER_STATUS_ALLOC_FAILED);
         };
 
         for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
         {
-            T* csrValLU = nullptr;
-            size_t const nbytes = sizeof(T) * nnz_LU;
-            HIP_CHECK(hipMalloc((void**)&csrValLU, nbytes), ROCSOLVER_STATUS_ALLOC_FAILED);
-            if(csrValLU == nullptr)
+            if(handle->csrValLU_array[ibatch] == nullptr)
+            {
+                size_t const nbytes = sizeof(T) * handle->nnzLU;
+                HIP_CHECK(hipMalloc((void**)&(handle->csrValLU_array[ibatch]), nbytes),
+                          ROCSOLVER_STATUS_ALLOC_FAILED);
+            };
+        };
+
+        for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
+        {
+            Iint const nrow = n;
+            Iint const ncol = n;
+            rocsolverStatus_t istat
+                = rf_sumLU(handle, nrow, ncol, handle->csrRowPtrL, handle->csrColIndL,
+                           handle->csrValL, handle->csrRowPtrU, handle->csrColIndU, handle->csrValU,
+
+                           handle->csrRowPtrLU, handle->csrColIndLU, handle->csrValLU_array[ibatch]);
+            if(istat != ROCSOLVER_STATUS_SUCCESS)
+            {
+                return (istat);
+            };
+        };
+    }
+    else
+    {
+        Iint const nrow = n;
+        Iint const ncol = n;
+
+        T const alpha = 1;
+        T const beta = 1;
+
+        HIPSPARSE_CHECK(hipsparseSetPointerMode(hipsparse_handle, HIPSPARSE_POINTER_MODE_HOST),
+                        ROCSOLVER_STATUS_INTERNAL_ERROR);
+
+        // ------------
+        // setup buffer
+        // ------------
+        void* pBuffer = nullptr;
+        size_t bufferSizeInBytes = sizeof(T);
+
+        // ------------------------------
+        // hipsparseXcsrgeam2() computes
+        // C = alpha * A + beta * B
+        // ------------------------------
+
+        HIPSPARSE_CHECK(hipsparseDcsrgeam2_bufferSizeExt(
+                            hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL, csrValL, csrRowPtrL,
+                            csrColIndL, &beta, descrU, nnzU, csrValU, csrRowPtrU, csrColIndU,
+                            descrLU, csrValLU, csrRowPtrLU, csrColIndLU, &bufferSizeInBytes),
+                        ROCSOLVER_STATUS_INTERNAL_ERROR);
+
+        HIP_CHECK(hipMalloc(&pBuffer, bufferSizeInBytes), ROCSOLVER_STATUS_ALLOC_FAILED);
+
+        // ------------------------------
+        // estimate number of non-zeros
+        // in L + U
+        // ------------------------------
+        HIPSPARSE_CHECK(hipsparseXcsrgeam2Nnz(hipsparse_handle, nrow, ncol, descrL, nnzL,
+                                              csrRowPtrL, csrColIndL, descrU, nnzU, csrRowPtrU,
+                                              csrColIndU, descrLU, csrRowPtrLU, &nnzLU, pBuffer),
+                        ROCSOLVER_STATUS_INTERNAL_ERROR);
+
+        HIP_CHECK(hipMalloc((void**)&csrColIndLU, sizeof(Iint) * nnzLU),
+                  ROCSOLVER_STATUS_ALLOC_FAILED);
+        if(csrColIndLU == nullptr)
+        {
+            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+        };
+
+        // -----------------------------------
+        // allocate storage for csrValLU_array
+        // -----------------------------------
+        {
+            HIP_CHECK(hipMalloc((void**)&(handle->csrValLU_array), sizeof(T*) * batch_count),
+                      ROCSOLVER_STATUS_ALLOC_FAILED);
+            if(handle->csrValLU_array == nullptr)
             {
                 return (ROCSOLVER_STATUS_ALLOC_FAILED);
             };
-            handle->csrValLU_array[ibatch] = csrValLU;
+
+            for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
+            {
+                T* csrValLU = nullptr;
+                size_t const nbytes = sizeof(T) * nnzLU;
+                HIP_CHECK(hipMalloc((void**)&csrValLU, nbytes), ROCSOLVER_STATUS_ALLOC_FAILED);
+                if(csrValLU == nullptr)
+                {
+                    return (ROCSOLVER_STATUS_ALLOC_FAILED);
+                };
+                handle->csrValLU_array[ibatch] = csrValLU;
+            };
         };
+
+        handle->n = n;
+        handle->nnzLU = nnzLU;
+        // -------------------------------------------
+        // Perform sparse matrix addition, LU = L + U
+        // -------------------------------------------
+
+        for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
+        {
+            T* csrValLU = handle->csrValLU_array[ibatch];
+
+            HIPSPARSE_CHECK(hipsparseDcsrgeam2(hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL,
+                                               csrValL, csrRowPtrL, csrColIndL, &beta, descrU, nnzU,
+                                               csrValU, csrRowPtrU, csrColIndU, descrLU, csrValLU,
+                                               csrRowPtrLU, csrColIndLU, pBuffer),
+                            ROCSOLVER_STATUS_INTERNAL_ERROR);
+        };
+
+        HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_INTERNAL_ERROR);
+        pBuffer = nullptr;
     };
-
-    handle->n = n;
-    handle->nnz_LU = nnz_LU;
-    // -------------------------------------------
-    // Perform sparse matrix addition, LU = L + U
-    // -------------------------------------------
-
-    for(Iint ibatch = 0; ibatch < batch_count; ibatch++)
-    {
-        T* csrValLU = handle->csrValLU_array[ibatch];
-
-        HIPSPARSE_CHECK(hipsparseDcsrgeam2(hipsparse_handle, nrow, ncol, &alpha, descrL, nnzL,
-                                           csrValL, csrRowPtrL, csrColIndL, &beta, descrU, nnzU,
-                                           csrValU, csrRowPtrU, csrColIndU, descrLU, csrValLU,
-                                           csrRowPtrLU, csrColIndLU, pBuffer),
-                        ROCSOLVER_STATUS_INTERNAL_ERROR);
-    };
-
-    HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_INTERNAL_ERROR);
-    pBuffer = nullptr;
 
     handle->csrRowPtrL = csrRowPtrL;
     handle->csrColIndL = csrColIndL;
@@ -639,7 +691,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         {
             int isize = 1;
             int const n = handle->n;
-            int const nnz = handle->nnz_LU;
+            int const nnz = handle->nnzLU;
 
             // ----------------------------
             // Here: note double precision

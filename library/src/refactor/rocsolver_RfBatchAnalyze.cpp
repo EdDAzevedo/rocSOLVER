@@ -56,7 +56,7 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-    int const nnz_LU = handle->nnz_LU;
+    int const nnzLU = handle->nnzLU;
     int const n = handle->n;
     int const batch_count = handle->batch_count;
 
@@ -68,7 +68,7 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
     hipsparseMatDescr_t const descrU = handle->descrU;
     hipsparseMatDescr_t const descrLU = handle->descrLU;
     {
-        bool const isok = (n >= 0) && (nnz_LU >= 0) && (batch_count >= 0) && (csrRowPtrLU != 0)
+        bool const isok = (n >= 0) && (nnzLU >= 0) && (batch_count >= 0) && (csrRowPtrLU != 0)
             && (csrColIndLU != 0) && (csrValLU_array != 0) && (descrL != 0) && (descrU != 0)
             && (descrLU != 0);
 
@@ -154,7 +154,7 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         // ---------------------------------------------
 
         stmp = 0;
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle->hipsparse_handle, transL, n, nnz_LU,
+        HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle->hipsparse_handle, transL, n, nnzLU,
                                                     handle->descrL, csrValLU, csrRowPtrLU,
                                                     csrColIndLU, handle->infoL, &stmp),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
@@ -169,7 +169,7 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         // check buffer size for triangular solve with U
         // ---------------------------------------------
         stmp = 0;
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle->hipsparse_handle, transU, n, nnz_LU,
+        HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle->hipsparse_handle, transU, n, nnzLU,
                                                     handle->descrU, csrValLU, csrRowPtrLU,
                                                     csrColIndLU, handle->infoU, &stmp),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
@@ -186,7 +186,7 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         // -------------------------
         int const ibatch = 0;
         HIPSPARSE_CHECK(hipsparseDcsrilu02_bufferSize(
-                            handle->hipsparse_handle, n, nnz_LU, handle->descrLU, csrValLU,
+                            handle->hipsparse_handle, n, nnzLU, handle->descrLU, csrValLU,
                             csrRowPtrLU, csrColIndLU, handle->infoLU_array[ibatch], &stmp),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
         if(stmp > bufferSize)
@@ -217,19 +217,19 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         // perform analysis
         // ----------------
 
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle->hipsparse_handle, transL, n, nnz_LU,
+        HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle->hipsparse_handle, transL, n, nnzLU,
                                                   handle->descrL, csrValLU, csrRowPtrLU, csrColIndLU,
                                                   handle->infoL, policy, handle->buffer),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
 
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle->hipsparse_handle, transU, n, nnz_LU,
+        HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle->hipsparse_handle, transU, n, nnzLU,
                                                   handle->descrU, csrValLU, csrRowPtrLU, csrColIndLU,
                                                   handle->infoU, policy, handle->buffer),
                         ROCSOLVER_STATUS_INTERNAL_ERROR);
 
         {
             int const ibatch = 0;
-            HIPSPARSE_CHECK(hipsparseDcsrilu02_analysis(handle->hipsparse_handle, n, nnz_LU,
+            HIPSPARSE_CHECK(hipsparseDcsrilu02_analysis(handle->hipsparse_handle, n, nnzLU,
                                                         handle->descrLU, csrValLU, csrRowPtrLU,
                                                         csrColIndLU, handle->infoLU_array[ibatch],
                                                         policy, handle->buffer),

@@ -26,9 +26,7 @@
 #ifndef RF_LUSOLVE_HPP
 #define RF_LUSOLVE_HPP
 
-
-
-template< typename Iint, typename Ilong, typename T>
+template <typename Iint, typename Ilong, typename T>
 rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
                              Iint const n,
                              Ilong const nnz,
@@ -39,10 +37,10 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
                              T* const d_Temp)
 {
     {
-
-    bool isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
-    if (!isok) {
-        return(ROCSOLVER_STATUS_NOT_INITIALIZED );
+        bool isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+        if(!isok)
+        {
+            return (ROCSOLVER_STATUS_NOT_INITIALIZED);
         };
     }
 
@@ -57,7 +55,6 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         };
     };
 
-
     hipsparseMatDescr_t descrL = handle->descrL;
 
     csrsv2Info_t infoL = handle->infoL;
@@ -66,10 +63,9 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
 
     csrsv2Info_t infoU = handle->infoU;
 
-
-   // --------------------------------
-   // Allocate workspace for hipSPARSE
-   // --------------------------------
+    // --------------------------------
+    // Allocate workspace for hipSPARSE
+    // --------------------------------
 
     Ilong const lnnz = nnz;
     size_t bufferSize = 1;
@@ -79,10 +75,9 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
     Ilong* const csrSortedRowPtrA = d_LUp;
     Iint* const csrSortedColIndA = d_LUi;
 
-
-    hipsparseSolvePolicy_t policy = (handle->solve_alg  == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1) ? 
-                                      HIPSPARSE_SOLVE_POLICY_USE_LEVEL : 
-                                      HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
+    hipsparseSolvePolicy_t policy = (handle->solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1)
+        ? HIPSPARSE_SOLVE_POLICY_USE_LEVEL
+        : HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
 
     hipsparseOperation_t transL = HIPSPARSE_OPERATION_NON_TRANSPOSE;
     hipsparseOperation_t transU = HIPSPARSE_OPERATION_NON_TRANSPOSE;
@@ -110,14 +105,13 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
     T* const d_y = d_Temp;
     void* const buffer = handle->buffer;
     {
-    bool isok = ( handle->buffer_size >= bufferSize );
-    assert( isok );
-    if (isok) {
-      return( ROCSOLVER_STATUS_INTERNAL_ERROR );
-      };
+        bool isok = (handle->buffer_size >= bufferSize);
+        assert(isok);
+        if(isok)
+        {
+            return (ROCSOLVER_STATUS_INTERNAL_ERROR);
+        };
     };
-
-
 
     T* const d_x = d_b;
 
@@ -164,7 +158,6 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
                                            csrSortedRowPtrA, csrSortedColIndA, infoU, d_y, d_x,
                                            policy, buffer),
                     ROCSOLVER_STATUS_INTERNAL_ERROR);
-
 
     return (ROCSOLVER_STATUS_SUCCESS);
 }

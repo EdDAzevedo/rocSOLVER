@@ -80,7 +80,7 @@ rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
     HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &streamId),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-    *nnzM = handle->nnz_LU;
+    *nnzM = handle->nnzLU;
 
     /*
    ------------------------------------------------------

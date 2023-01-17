@@ -130,7 +130,7 @@ struct rocsolverRfCommon
     int* Q_old2new;
 
     int n;
-    int nnz_LU;
+    int nnzLU;
     int* csrRowPtrLU;
     int* csrColIndLU;
     // double* csrValLU;

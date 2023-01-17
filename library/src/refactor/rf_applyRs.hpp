@@ -35,10 +35,7 @@
 #endif
 
 template <typename Iint, typename T>
-static __global__  void rf_applyRs_kernel(
-                                        Iint const n, 
-                                        T const * const Rs, 
-                                        T       * const b)
+static __global__ void rf_applyRs_kernel(Iint const n, T const* const Rs, T* const b)
 {
     if((n <= 0) || (Rs == NULL))
     {
@@ -63,8 +60,8 @@ template <typename Iint, typename T>
 void rf_applyRs(hipStream_t streamId, Iint const n, T const* const d_Rs, T* const d_b)
 {
     int const nthreads = BLOCKSIZE;
-    int const max_nblocks = 32*1024;
-    int const nblocks = max(1, min( max_nblocks, (n + (nthreads - 1)) / nthreads));
+    int const max_nblocks = 32 * 1024;
+    int const nblocks = max(1, min(max_nblocks, (n + (nthreads - 1)) / nthreads));
 
     rf_applyRs_kernel<<<dim3(nblocks), dim3(nthreads), 0, streamId>>>(n, d_Rs, d_b);
 }

@@ -28,36 +28,35 @@
 
 #include "rf_common.hpp"
 
-template<typename Iint, typename T>
-static __device__ void rf_shellsort( Iint *iarr, T * darr, Iint num ) {
+template <typename Iint, typename T>
+static __device__ void rf_shellsort(Iint* iarr, T* darr, Iint num)
+{
+    // ----------------------------------------------------
+    // device (serial) code to perform shell sort by a single thread
+    // key is  iarr[]
+    // data is darr[]
+    // ----------------------------------------------------
 
-// ----------------------------------------------------
-// device (serial) code to perform shell sort by a single thread
-// key is  iarr[]
-// data is darr[]
-// ----------------------------------------------------
-   
-
-    for (Iint i = num / 2; i > 0; i = i / 2)
+    for(Iint i = num / 2; i > 0; i = i / 2)
     {
-        for (Iint j = i; j < num; j++)
+        for(Iint j = i; j < num; j++)
         {
             for(Iint k = j - i; k >= 0; k = k - i)
             {
-                if (iarr[k+i] >= iarr[k]) {
+                if(iarr[k + i] >= iarr[k])
+                {
                     break;
-                    }
+                }
                 else
                 {
                     // swap entries
-                    Iint itmp = iarr[k]; 
-                    iarr[k] = iarr[k+i]; 
-                    iarr[k+i] = itmp;
+                    Iint itmp = iarr[k];
+                    iarr[k] = iarr[k + i];
+                    iarr[k + i] = itmp;
 
-                    T dtmp = darr[k]; 
-                    darr[k] = darr[k+i]; 
-                    darr[k+i] = dtmp;
-
+                    T dtmp = darr[k];
+                    darr[k] = darr[k + i];
+                    darr[k + i] = dtmp;
                 };
             };
         };

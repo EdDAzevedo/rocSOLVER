@@ -27,7 +27,6 @@
 #ifndef RF_PQRLUSOLVE_HPP
 #define RF_PQRLUSOLVE_HPP
 
-
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 #include <hipsparse/hipsparse.h>
@@ -36,23 +35,23 @@
 
 #include "rf_lusolve.hpp"
 
-#include "rf_gather.hpp"
 #include "rf_applyRs.hpp"
+#include "rf_gather.hpp"
 #include "rf_scatter.hpp"
 
-template<typename Iint, typename Ilong, typename T>
+template <typename Iint, typename Ilong, typename T>
 static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
-                                Iint const n,
-                                Iint* const P_new2old,
-                                Iint* const Q_new2old,
-                                T* const Rs,
-                                Ilong* const LUp,
-                                Iint* const LUi,
-                                T* const LUx, /* LUp,LUi,LUx  are in CSR format */
-                                T* const brhs,
-                                T* Temp)
+                                       Iint const n,
+                                       Iint* const P_new2old,
+                                       Iint* const Q_new2old,
+                                       T* const Rs,
+                                       Ilong* const LUp,
+                                       Iint* const LUi,
+                                       T* const LUx, /* LUp,LUi,LUx  are in CSR format */
+                                       T* const brhs,
+                                       T* Temp)
 {
-/*
+    /*
     -------------------------------------------------
     Rs \ (P * A * Q) = LU
     solve A * x = b
@@ -64,15 +63,14 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
     -------------------------------------------------
 */
 
-  {
-    bool const isok_arg
-        = (LUp != nullptr) && (LUi != nullptr) && (LUx != nullptr) && (brhs != nullptr);
-    if(!isok_arg)
     {
-        return (ROCSOLVER_STATUS_INVALID_VALUE);
+        bool const isok_arg
+            = (LUp != nullptr) && (LUi != nullptr) && (LUx != nullptr) && (brhs != nullptr);
+        if(!isok_arg)
+        {
+            return (ROCSOLVER_STATUS_INVALID_VALUE);
+        };
     };
-  };
-
 
     bool const need_apply_P = (P_new2old != nullptr);
     bool const need_apply_Q = (Q_new2old != nullptr);
@@ -83,64 +81,54 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
     HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &stream),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);
 
-
-
     T* const d_brhs = brhs;
     T* const d_bhat = Temp;
     T* const d_Rs = Rs;
 
     if(need_apply_P)
     {
+        // ------------------------------
+        // bhat[k] = brhs[ P_new2old[k] ]
+        // ------------------------------
 
-      // ------------------------------
-      // bhat[k] = brhs[ P_new2old[k] ]
-      // ------------------------------
-
-        rf_gather( stream, n, P_new2old, d_brhs, d_bhat );
-
-
-
+        rf_gather(stream, n, P_new2old, d_brhs, d_bhat);
     }
     else
     {
-
-       // -----------------
-       // bhat[k] = brhs[k]
-       // -----------------
+        // -----------------
+        // bhat[k] = brhs[k]
+        // -----------------
 
         void* const src = (void*)d_brhs;
         void* const dest = (void*)d_bhat;
         size_t const nbytes = sizeof(T) * n;
 
-        HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice,stream),
+        HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice, stream),
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
     };
 
     if(need_apply_Rs)
     {
-
-       // -------------------------
-       // bhat[k] = bhat[k] / Rs[k]
-       // -------------------------
-       rf_applyRs( stream, n, d_Rs, d_bhat );
-
-
+        // -------------------------
+        // bhat[k] = bhat[k] / Rs[k]
+        // -------------------------
+        rf_applyRs(stream, n, d_Rs, d_bhat);
     };
 
-   // -----------------------------------------------
-   // prepare to call triangular solvers rf_lusolve()
-   // -----------------------------------------------
+    // -----------------------------------------------
+    // prepare to call triangular solvers rf_lusolve()
+    // -----------------------------------------------
 
     {
         Ilong const nnz = LUp[n] - LUp[0];
 
-   // ---------------------------------------
-   // allocate device memory and copy LU data
-   // ---------------------------------------
+        // ---------------------------------------
+        // allocate device memory and copy LU data
+        // ---------------------------------------
 
         Ilong* const d_LUp = LUp;
         Iint* const d_LUi = LUi;
-        T*   const d_LUx = LUx;
+        T* const d_LUx = LUx;
         T* const d_Temp = Temp;
 
         rocsolverStatus_t const istat_lusolve
@@ -150,16 +138,14 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         {
             return (istat_lusolve);
         };
-
     };
 
     if(need_apply_Q)
     {
-     // -------------------------------
-     // brhs[ Q_new2old[i] ] = bhat[i]
-     // -------------------------------
-        rf_scatter( stream, n, Q_new2old, d_bhat, d_brhs );
-
+        // -------------------------------
+        // brhs[ Q_new2old[i] ] = bhat[i]
+        // -------------------------------
+        rf_scatter(stream, n, Q_new2old, d_bhat, d_brhs);
     }
     else
     {
@@ -169,10 +155,9 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         void* src = (void*)d_bhat;
         void* dest = (void*)d_brhs;
         size_t nbytes = sizeof(T) * n;
-        HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice,stream),
+        HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice, stream),
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
     };
-
 
     return (ROCSOLVER_STATUS_SUCCESS);
 }

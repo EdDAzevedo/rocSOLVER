@@ -64,7 +64,7 @@ rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle)
     int const batch_count = handle->batch_count;
 
     int const n = handle->n;
-    int const nnz = handle->nnz_LU;
+    int const nnz = handle->nnzLU;
     hipsparseMatDescr_t const descrA = handle->descrLU;
 
     int BufferSizeInBytes_int = 1;
