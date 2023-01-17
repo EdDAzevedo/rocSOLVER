@@ -32,6 +32,9 @@ set(rocsolver_lapack_source
   lapack/roclapack_trtri.cpp
   lapack/roclapack_trtri_batched.cpp
   lapack/roclapack_trtri_strided_batched.cpp
+  lapack/roclapack_geblttrs_npvt.cpp
+  lapack/roclapack_geblttrs_npvt_batched.cpp
+  lapack/roclapack_geblttrs_npvt_strided_batched.cpp
   # least squares solvers
   lapack/roclapack_gels.cpp
   lapack/roclapack_gels_batched.cpp
@@ -56,6 +59,9 @@ set(rocsolver_lapack_source
   lapack/roclapack_sytrf.cpp
   lapack/roclapack_sytrf_batched.cpp
   lapack/roclapack_sytrf_strided_batched.cpp
+  lapack/roclapack_geblttrf_npvt.cpp
+  lapack/roclapack_geblttrf_npvt_batched.cpp
+  lapack/roclapack_geblttrf_npvt_strided_batched.cpp
   # orthogonal factorizations
   lapack/roclapack_geqr2.cpp
   lapack/roclapack_geqr2_batched.cpp
@@ -105,6 +111,11 @@ set(rocsolver_lapack_source
   lapack/roclapack_gesvd.cpp
   lapack/roclapack_gesvd_batched.cpp
   lapack/roclapack_gesvd_strided_batched.cpp
+  lapack/roclapack_gesvdj.cpp
+  lapack/roclapack_gesvdj_batched.cpp
+  lapack/roclapack_gesvdj_strided_batched.cpp
+  lapack/roclapack_gesvdj_notransv.cpp
+  lapack/roclapack_gesvdj_notransv_strided_batched.cpp
   lapack/roclapack_gesvdx.cpp
   lapack/roclapack_gesvdx_batched.cpp
   lapack/roclapack_gesvdx_strided_batched.cpp
@@ -177,6 +188,8 @@ set(rocsolver_auxiliary_source
   auxiliary/rocauxiliary_latrd.cpp
   # symmetric matrices
   auxiliary/rocauxiliary_lasyf.cpp
+  # triangular matrices
+  auxiliary/rocauxiliary_lauum.cpp
 )
 
 set(rocsolver_refactor_source
@@ -299,14 +312,14 @@ set_target_properties(rocsolver PROPERTIES
   CXX_VISIBILITY_PRESET "hidden"
   VISIBILITY_INLINES_HIDDEN ON
 )
-generate_export_header(rocsolver EXPORT_FILE_NAME ${PROJECT_BINARY_DIR}/include/rocsolver/rocsolver-export.h)
+generate_export_header(rocsolver EXPORT_FILE_NAME ${PROJECT_BINARY_DIR}/include/rocsolver/internal/rocsolver-export.h)
 
 if (BUILD_FILE_REORG_BACKWARD_COMPATIBILITY)
   rocm_wrap_header_file(
-    rocsolver-version.h rocsolver-export.h
+    internal/rocsolver-version.h internal/rocsolver-export.h
     GUARDS SYMLINK WRAPPER
     WRAPPER_LOCATIONS ${CMAKE_INSTALL_INCLUDEDIR} rocsolver/${CMAKE_INSTALL_INCLUDEDIR}
-    ORIGINAL_FILES ${PROJECT_BINARY_DIR}/include/rocsolver/rocsolver-version.h
+    ORIGINAL_FILES ${PROJECT_BINARY_DIR}/include/rocsolver/internal/rocsolver-version.h
   )
 endif( )
 

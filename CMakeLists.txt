@@ -20,7 +20,7 @@ unset(ENV{ROCM_BUILD_ID})
 
 # Disable ROCMClang detection to make CMake v3.21 work the same as CMake v3.20 and earlier.
 # https://gitlab.kitware.com/cmake/cmake/-/merge_requests/6533
-if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.21.0 AND CMAKE_VERSION VERSION_LESS 3.21.3)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22.0 AND CMAKE_VERSION VERSION_LESS 3.21.3)
   set(__skip_rocmclang ON)
 endif()
 message(STATUS "Using CMake ${CMAKE_VERSION}")
@@ -64,7 +64,7 @@ get_os_id(OS_ID)
 message(STATUS "OS detected is ${OS_ID}")
 
 # Versioning via rocm-cmake
-set(VERSION_STRING "3.21.0")
+set(VERSION_STRING "3.22.0")
 rocm_setup_version(VERSION ${VERSION_STRING})
 
 # Workaround until llvm and hip CMake modules fix symlink logic in their config files
@@ -128,16 +128,21 @@ message(STATUS "Tests: ${BUILD_CLIENTS_TESTS}")
 message(STATUS "Benchmarks: ${BUILD_CLIENTS_BENCHMARKS}")
 message(STATUS "Samples: ${BUILD_CLIENTS_SAMPLES}")
 
-# Query for compiler support of GPU archs
-rocm_check_target_ids(OPTIONAL_AMDGPU_TARGETS
-  TARGETS
-    gfx90a:xnack-
-    gfx90a:xnack+
-)
+if(NOT DEFINED AMDGPU_TARGETS)
+  # Query for compiler support of GPU archs
+  rocm_check_target_ids(OPTIONAL_AMDGPU_TARGETS
+    TARGETS
+      gfx90a:xnack-
+      gfx90a:xnack+
+      gfx1100
+      gfx1101
+      gfx1102
+  )
+endif()
 
 # Set this before finding hip so that hip::device has the required arch flags
 # added as usage requirements on its interface
-set(AMDGPU_TARGETS "gfx803;gfx900;gfx906:xnack-;gfx908:xnack-;gfx1010;gfx1030;gfx1102;gfx1100;${OPTIONAL_AMDGPU_TARGETS}"
+set(AMDGPU_TARGETS "gfx803;gfx900;gfx906:xnack-;gfx908:xnack-;gfx1010;gfx1030;${OPTIONAL_AMDGPU_TARGETS}"
   CACHE STRING "List of specific machine types for library to target")
 
 # Find HIP dependencies
@@ -190,7 +195,7 @@ if(BUILD_CLIENTS_TESTS OR BUILD_CLIENTS_BENCHMARKS OR BUILD_CLIENTS_SAMPLES)
 endif()
 
 # Package-specific CPACK vars
-rocm_package_add_dependencies("rocblas >= 2.47" "rocblas < 2.48")
+rocm_package_add_dependencies("rocblas >= 2.48" "rocblas < 2.49")
 rocm_package_add_dependencies("rocsparse >= 2.3.3" "rocsparse < 2.4")
 rocm_package_add_dependencies("rocprim >= 2.10.9" "rocprim < 2.11.0")
 
@@ -218,8 +223,6 @@ endif()
 
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   "\${CPACK_PACKAGING_INSTALL_PREFIX}"
-  "\${CPACK_PACKAGING_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}"
-  "\${CPACK_PACKAGING_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}"
 )
 
 set(ROCSOLVER_CONFIG_DIR "\${CPACK_PACKAGING_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}"

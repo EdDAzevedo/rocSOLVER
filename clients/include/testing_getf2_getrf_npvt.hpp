@@ -188,8 +188,8 @@ void getf2_getrf_npvt_getError(const rocblas_handle handle,
     // CPU lapack
     for(rocblas_int b = 0; b < bc; ++b)
     {
-        GETRF ? cblas_getrf<T>(m, n, hA[b], lda, hIpiv[b], hinfo[b])
-              : cblas_getf2<T>(m, n, hA[b], lda, hIpiv[b], hinfo[b]);
+        GETRF ? cpu_getrf(m, n, hA[b], lda, hIpiv[b], hinfo[b])
+              : cpu_getf2(m, n, hA[b], lda, hIpiv[b], hinfo[b]);
     }
 
     // expecting original matrix to be non-singular
@@ -235,27 +235,27 @@ void getf2_getrf_npvt_getPerfData(const rocblas_handle handle,
 {
     if(!perf)
     {
-        getf2_getrf_npvt_initData<true, false, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA,
-                                                  singular, hinfo);
+        getf2_getrf_npvt_initData<true, false, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA, hinfo,
+                                                  singular);
 
         // cpu-lapack performance (only if no perf mode)
         *cpu_time_used = get_time_us_no_sync();
         for(rocblas_int b = 0; b < bc; ++b)
         {
-            GETRF ? cblas_getrf<T>(m, n, hA[b], lda, hIpiv[b], hinfo[b])
-                  : cblas_getf2<T>(m, n, hA[b], lda, hIpiv[b], hinfo[b]);
+            GETRF ? cpu_getrf(m, n, hA[b], lda, hIpiv[b], hinfo[b])
+                  : cpu_getf2(m, n, hA[b], lda, hIpiv[b], hinfo[b]);
         }
         *cpu_time_used = get_time_us_no_sync() - *cpu_time_used;
     }
 
-    getf2_getrf_npvt_initData<true, false, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA, singular,
-                                              hinfo);
+    getf2_getrf_npvt_initData<true, false, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA, hinfo,
+                                              singular);
 
     // cold calls
     for(int iter = 0; iter < 2; iter++)
     {
-        getf2_getrf_npvt_initData<false, true, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA,
-                                                  singular, hinfo);
+        getf2_getrf_npvt_initData<false, true, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA, hinfo,
+                                                  singular);
 
         CHECK_ROCBLAS_ERROR(rocsolver_getf2_getrf_npvt(STRIDED, GETRF, handle, m, n, dA.data(), lda,
                                                        stA, dinfo.data(), bc));
@@ -277,8 +277,8 @@ void getf2_getrf_npvt_getPerfData(const rocblas_handle handle,
     }
     for(rocblas_int iter = 0; iter < hot_calls; iter++)
     {
-        getf2_getrf_npvt_initData<false, true, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA,
-                                                  singular, hinfo);
+        getf2_getrf_npvt_initData<false, true, T>(handle, m, n, dA, lda, stA, dinfo, bc, hA, hinfo,
+                                                  singular);
 
         start = get_time_us_sync(stream);
         rocsolver_getf2_getrf_npvt(STRIDED, GETRF, handle, m, n, dA.data(), lda, stA, dinfo.data(),

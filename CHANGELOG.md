@@ -6,6 +6,8 @@ Full documentation for rocSOLVER is available at [rocsolver.readthedocs.io](http
 ### Added
 ### Optimized
 ### Changed
+- Moved internal headers into a subdirectory.
+
 ### Deprecated
 ### Removed
 ### Fixed
@@ -13,7 +15,32 @@ Full documentation for rocSOLVER is available at [rocsolver.readthedocs.io](http
 ### Security
 
 
-## (Unreleased) rocSOLVER 3.20.0
+## (Unreleased) rocSOLVER 3.21.0
+### Added
+- SVD for general matrices using Jacobi algorithm:
+    - GESVDJ (with batched and strided\_batched versions)
+- LU factorization without pivoting for block tridiagonal matrices:
+    - GEBLTTRF_NPVT (with batched and strided\_batched versions)
+- Linear system solver without pivoting for block tridiagonal matrices:
+    - GEBLTTRS_NPVT (with batched and strided\_batched, versions)
+- Product of triangular matrices
+    - LAUUM
+- Added experimental hipGraph support for rocSOLVER functions
+
+### Optimized
+- Improved the performance of SYEVJ/HEEVJ.
+
+### Changed
+- STEDC, SYEVD/HEEVD and SYGVD/HEGVD now use fully implemented Divide and Conquer approach.
+
+### Fixed
+- SYEVJ/HEEVJ should now be invariant under matrix scaling.
+- SYEVJ/HEEVJ should now properly output the eigenvalues when no sweeps are executed.
+- Fixed GETF2\_NPVT and GETRF\_NPVT input data initialization in tests and benchmarks.
+- Fixed rocblas missing from the dependency list of the rocsolver deb and rpm packages.
+
+
+## rocSOLVER 3.20.0 for ROCm 5.4.0
 ### Added
 - Partial SVD for bidiagonal matrices:
     - BDSVDX

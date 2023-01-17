@@ -141,14 +141,18 @@
     multiple of xxGST_BLOCKSIZE, the last block reduced in the blocked process is allowed to be smaller than xxGST_BLOCKSIZE.*/
 #define xxGST_BLOCKSIZE 64
 
-/****************************** stedc *****************************************
+/****************************** stedc ******************************************
 *******************************************************************************/
 /*! \brief Determines the minimum size required for the eigenvectors of an independent block of
     a tridiagonal matrix to be computed using the divide-and-conquer algorithm (STEDC).
 
-    \details If the size of the block is not greater than STEDC_MIN_DC_SIZE (bs <= STEDC_MIN_DC_SIZE),
+    \details If the size of the block is smaller than STEDC_MIN_DC_SIZE (bs < STEDC_MIN_DC_SIZE),
     the eigenvectors are computed with the normal QR algorithm. */
 #define STEDC_MIN_DC_SIZE 32
+
+/*! \brief Determines the number of split blocks (independent blocks) of a tridiagonal matrix that
+    are analyzed in parallel with the divide & conquer method. */
+#define STEDC_NUM_SPLIT_BLKS 8
 
 /************************** potf2/potrf ***************************************
 *******************************************************************************/
@@ -165,6 +169,16 @@
     the rest of the matrix has no more than POTRF_POTF2_SWITCHSIZE columns; at this point the last block,
     if any, will be factorized with the unblocked algorithm (POTF2).*/
 #define POTRF_POTF2_SWITCHSIZE 128
+
+/************************** syevj/heevj ***************************************
+*******************************************************************************/
+/*! \brief Determines the size at which rocSOLVER switches from
+    the small-size kernel to the blocked algorithm when executing SYEVJ. It also applies to the
+    corresponding batched and strided-batched routines. Must be <= 64.
+
+    \details If the size of the matrix is not greater than SYEVJ_BLOCKED_SWITCH, the eigenvalues
+    and eigenvectors will be computed with a single kernel call. */
+#define SYEVJ_BLOCKED_SWITCH 58
 
 /*************************** sytf2/sytrf **************************************
 *******************************************************************************/

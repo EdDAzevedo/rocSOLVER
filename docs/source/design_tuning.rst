@@ -238,7 +238,7 @@ xxGST_BLOCKSIZE
 
 
 syevd, heevd and stedc functions
-====================================
+=====================================
 
 When running SYEVD/HEEVD (or the corresponding batched and strided-batched routines),
 the computation of the eigenvectors of the associated tridiagonal matrix
@@ -248,6 +248,30 @@ approach (implemented in STEDC), provided the size of the independent block is l
 STEDC_MIN_DC_SIZE
 -------------------
 .. doxygendefine:: STEDC_MIN_DC_SIZE
+
+(As of the current rocSOLVER release, this constant has not been tuned for any specific cases.)
+
+
+
+syevj and heevj functions
+==========================
+
+The Jacobi eigensolver routines SYEVJ/HEEVJ (or the corresponding batched and strided-batched routines) can
+be executed with a single kernel call (for small-size matrices) or with multiple kernel calls (for large-size
+matrices). In the former case, the matrix is considered unblocked, Jacobi rotations are applied directly using the
+computed cosine and sine values, and the number of iterations/sweeps is controlled on the GPU. In the latter case,
+the matrix is partitioned into blocks, Jacobi rotations are accumulated per block (to be applied in separate kernel
+calls), and the number of iterations/sweeps is controlled by the CPU (requiring synchronization of the handle stream).
+
+SYEVJ_BLOCKED_SWITCH
+----------------------
+.. doxygendefine:: SYEVJ_BLOCKED_SWITCH
+
+(As of the current rocSOLVER release, this constant has not been tuned for any specific cases.)
+
+STEDC_NUM_SPLIT_BLKS
+---------------------
+.. doxygendefine:: STEDC_NUM_SPLIT_BLKS
 
 (As of the current rocSOLVER release, this constant has not been tuned for any specific cases.)
 
