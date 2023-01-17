@@ -142,10 +142,21 @@ set(AMDGPU_TARGETS "gfx803;gfx900;gfx906:xnack-;gfx908:xnack-;gfx1010;gfx1030;gf
 
 # Find HIP dependencies
 find_package(hip REQUIRED CONFIG PATHS ${ROCM_PATH} /opt/rocm)
+find_package(hipsparse REQUIRED CONFIG PATHS ${ROCM_PATH} /opt/rocm)
 
 find_package(rocblas REQUIRED CONFIG PATHS ${ROCM_PATH})
 get_imported_target_location(location roc::rocblas)
 message(STATUS "Found rocBLAS: ${location}")
+
+find_package(rocsparse REQUIRED CONFIG PATHS ${ROCM_PATH})
+get_imported_target_location(location roc::rocsparse)
+message(STATUS "Found rocSparse: ${location}")
+
+find_package(hipsparse REQUIRED CONFIG PATHS ${ROCM_PATH})
+get_imported_target_location(location roc::hipsparse)
+message(STATUS "Found hipSparse: ${location}")
+
+
 
 add_subdirectory(common)
 
@@ -180,6 +191,8 @@ endif()
 
 # Package-specific CPACK vars
 rocm_package_add_dependencies("rocblas >= 2.47" "rocblas < 2.48")
+rocm_package_add_dependencies("rocsparse >= 2.3.3" "rocsparse < 2.4")
+rocm_package_add_dependencies("rocprim >= 2.10.9" "rocprim < 2.11.0")
 
 if(OS_ID_sles)
   rocm_package_add_rpm_dependencies("libLLVM >= 7.0.1")
