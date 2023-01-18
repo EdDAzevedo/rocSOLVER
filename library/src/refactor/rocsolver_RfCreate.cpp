@@ -53,6 +53,16 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
 
     HIPSPARSE_CHECK(hipsparseCreate(&(handle->hipsparse_handle)), ROCSOLVER_STATUS_NOT_INITIALIZED);
 
+    // -------------------------
+    // setup asynchronous stream
+    // -------------------------
+    {
+        hipStream_t streamId;
+        HIP_CHECK(hipStreamCreate(&streamId), ROCSOLVER_STATUS_INTERNAL_ERROR);
+        HIPSPARSE_CHECK(hipsparseSetStream(handle->hipsparse_handle, streamId),
+                        ROCSOLVER_STATUS_INTERNAL_ERROR);
+    };
+
     //--------------------
     //setup default values
     //--------------------

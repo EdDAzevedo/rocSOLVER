@@ -186,6 +186,17 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
     // free the hipsparse handle
     // -------------------------
     {
+        // ------------------
+        // Destroy the stream
+        // ------------------
+
+        hipStream_t streamId;
+        HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &streamId),
+                        ROCSOLVER_STATUS_INTERNAL_ERROR);
+        HIP_CHECK(hipStreamSynchronize(streamId), ROCSOLVER_STATUS_INTERNAL_ERROR);
+
+        HIP_CHECK(hipStreamDestroy(streamId), ROCSOLVER_STATUS_INTERNAL_ERROR);
+
         HIPSPARSE_CHECK(hipsparseDestroy(handle->hipsparse_handle), ROCSOLVER_STATUS_INTERNAL_ERROR);
     };
 
