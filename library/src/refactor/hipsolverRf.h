@@ -21,19 +21,19 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#ifndef ROCSOLVERRF_H
-#define ROCSOLVERRF_H
+#ifndef HIPSOLVERRF_H
+#define HIPSOLVERRF_H
 
-#include "rocsolver_refactor.h"
-#include <rocblas/rocblas.h>
-#include <rocsolver/rocsolver.h>
+typedef void* hipsolverRfHandle_t;
+typedef int hipsolverRfFactorization_t;
+typedef int hipsolverRfTriangularSolve_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
-                                                  rocsolverRfHandle_t handle,
+rocsolverStatus_t hipsolverRfAccessBundledFactors(/* Input */
+                                                  hipsolverRfHandle_t handle,
                                                   /* Output (in the host memory ) */
                                                   int* nnzM,
                                                   /* Output (in the device memory) */
@@ -41,13 +41,13 @@ rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
                                                   int** Mi,
                                                   double** Mx);
 
-rocsolverStatus_t rocsolverRfAnalyze(rocsolverRfHandle_t handle);
+rocsolverStatus_t hipsolverRfAnalyze(hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle);
+rocsolverStatus_t hipsolverRfCreate(hipsolverRfHandle_t* p_handle);
 
-rocsolverStatus_t rocsolverRfRefactor(rocsolverRfHandle_t handle);
+rocsolverStatus_t hipsolverRfRefactor(hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfResetValues(int n,
+rocsolverStatus_t hipsolverRfResetValues(int n,
                                          int nnzA,
                                          int* csrRowPtrA,
                                          int* csrColIndA,
@@ -55,13 +55,13 @@ rocsolverStatus_t rocsolverRfResetValues(int n,
                                          int* P,
                                          int* Q,
 
-                                         rocsolverRfHandle_t handle);
+                                         hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle,
+rocsolverStatus_t hipsolverRfSetNumericProperties(hipsolverRfHandle_t handle,
                                                   double effective_zero,
                                                   double boost_val);
 
-rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
+rocsolverStatus_t hipsolverRfSetupDevice(/* Input (in the device memory) */
                                          int n,
                                          int nnzA,
                                          int* csrRowPtrA,
@@ -79,9 +79,9 @@ rocsolverStatus_t rocsolverRfSetupDevice(/* Input (in the device memory) */
                                          int* Q,
 
                                          /* Output */
-                                         rocsolverRfHandle_t handle);
+                                         hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
+rocsolverStatus_t hipsolverRfSetupHost(/* Input (in the host memory) */
                                        int n,
                                        int nnzA,
                                        int* csrRowPtrA,
@@ -99,11 +99,11 @@ rocsolverStatus_t rocsolverRfSetupHost(/* Input (in the host memory) */
                                        int* Q,
 
                                        /* Output */
-                                       rocsolverRfHandle_t handle);
+                                       hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
-                                     rocsolverRfFactorization_t fact_alg,
-                                     rocsolverRfTriangularSolve_t alg);
+rocsolverStatus_t hipsolverRfSetAlgs(hipsolverRfHandle_t handle,
+                                     hipsolverRfFactorization_t fact_alg,
+                                     hipsolverRfTriangularSolve_t alg);
 
 /*
  ----------------------------
@@ -111,7 +111,7 @@ rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
  ----------------------------
 */
 
-rocsolverStatus_t rocsolverRfBatchSetupHost(
+hipsolverStatus_t hipsolverRfBatchSetupHost(
     /* input in host memory */
     int batchSize,
     int n,
@@ -134,13 +134,13 @@ rocsolverStatus_t rocsolverRfBatchSetupHost(
     int* h_P,
     int* h_Q,
     /* output */
-    rocsolverRfHandle_t handle);
+    hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchAnalyze();
+hipsolverStatus_t hipsolverRfBatchAnalyze();
 
-rocsolverStatus_t rocsolverRfBatchResetValues(hipsolverRfHandle_t handle);
+hipsolverStatus_t hipsolverRfBatchResetValues(hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchRefactor(int batchSize,
+hipsolverStatus_t hipsolverRfBatchRefactor(int batchSize,
                                            int n,
                                            int nnzA,
 
@@ -153,9 +153,9 @@ rocsolverStatus_t rocsolverRfBatchRefactor(int batchSize,
                                            int* Q,
 
                                            /* output */
-                                           rocsolverRfHandle_t handle);
+                                           hipsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchSolve(rocsolverRfHandle_t handle,
+hipsolverStatus_t hipsolverRfBatchSolve(hipsolverRfHandle_t handle,
                                         int* d_P,
                                         int* d_Q,
                                         int nrhs,
@@ -164,7 +164,7 @@ rocsolverStatus_t rocsolverRfBatchSolve(rocsolverRfHandle_t handle,
                                         double* d_XF_array[],
                                         int ldxf);
 
-rocsolverStatus_t rocsolverRfBatchZeroPivot(rocsolverRfHandle_t handle,
+hipsolverStatus_t hipsolverRfBatchZeroPivot(hipsolverRfHandle_t handle,
                                             /* output in host memory */
                                             int* position);
 
