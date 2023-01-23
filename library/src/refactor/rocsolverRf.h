@@ -136,11 +136,11 @@ rocsolverStatus_t rocsolverRfBatchSetupHost(
     /* output */
     rocsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchAnalyze();
+rocsolverStatus_t rocsolverRfBatchAnalyze( rocsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchResetValues(hipsolverRfHandle_t handle);
+rocsolverStatus_t rocsolverRfBatchRefactor( rocsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchRefactor(int batchSize,
+rocsolverStatus_t rocsolverRfBatchResetValues(int batchSize,
                                            int n,
                                            int nnzA,
 
