@@ -25,15 +25,14 @@
 #ifndef HIPSOLVERRF_H
 #define HIPSOLVERRF_H
 
-#include "rocsolverRf.h"
-#include "hipsolver_status.h"
 #include "hipsolver_enum.h"
+#include "hipsolver_status.h"
+#include "rocsolverRf.h"
 
- // typedef rocsolverStatus_t  hipsolverStatus_t;
- typedef rocsolverRfHandle_t  hipsolverRfHandle_t;
- // typedef rocsolverRfFactorization_t  hipsolverRfFactorization_t;
- // typedef rocsolverRfTriangularSolve_t  hipsolverRfTriangularSolve_t;
-
+// typedef rocsolverStatus_t  hipsolverStatus_t;
+typedef rocsolverRfHandle_t hipsolverRfHandle_t;
+// typedef rocsolverRfFactorization_t  hipsolverRfFactorization_t;
+// typedef rocsolverRfTriangularSolve_t  hipsolverRfTriangularSolve_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,9 +49,9 @@ hipsolverStatus_t hipsolverRfAccessBundledFactors(/* Input */
 
 hipsolverStatus_t hipsolverRfAnalyze(hipsolverRfHandle_t handle);
 
-
 hipsolverStatus_t hipsolverRfCreate(hipsolverRfHandle_t* p_handle);
 
+hipsolverStatus_t hipsolverRfDestroy(hipsolverRfHandle_t handle);
 
 hipsolverStatus_t hipsolverRfRefactor(hipsolverRfHandle_t handle);
 
@@ -64,7 +63,7 @@ hipsolverStatus_t hipsolverRfResetValues(int n,
                                          int* P,
                                          int* Q,
 
-                                         hipsolverRfHandle_t handle); 
+                                         hipsolverRfHandle_t handle);
 
 hipsolverStatus_t hipsolverRfSetNumericProperties(hipsolverRfHandle_t handle,
                                                   double effective_zero,
@@ -145,20 +144,19 @@ hipsolverStatus_t hipsolverRfBatchSetupHost(
     /* output */
     hipsolverRfHandle_t handle);
 
-hipsolverStatus_t hipsolverRfBatchAnalyze( hipsolverRfHandle_t handle);
+hipsolverStatus_t hipsolverRfBatchAnalyze(hipsolverRfHandle_t handle);
 
-hipsolverStatus_t hipsolverRfBatchResetValues(
-                         int batchSize,
-                         int n,
-                         int nnzA,
-                         int* csrRowPtrA,
-                         int* csrColIndA,
-                         double* csrValA_array[],
-                         int *P,
-                         int *Q,
-                         hipsolverRfHandle_t handle);
+hipsolverStatus_t hipsolverRfBatchResetValues(int batchSize,
+                                              int n,
+                                              int nnzA,
+                                              int* csrRowPtrA,
+                                              int* csrColIndA,
+                                              double* csrValA_array[],
+                                              int* P,
+                                              int* Q,
+                                              hipsolverRfHandle_t handle);
 
-hipsolverStatus_t hipsolverRfBatchRefactor( hipsolverRfHandle_t handle);
+hipsolverStatus_t hipsolverRfBatchRefactor(hipsolverRfHandle_t handle);
 
 hipsolverStatus_t hipsolverRfBatchSolve(hipsolverRfHandle_t handle,
                                         int* d_P,

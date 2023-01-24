@@ -24,7 +24,6 @@
 
 #include "hipsolverRf.h"
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,27 +35,30 @@ hipsolverStatus_t hipsolverRfAccessBundledFactors(/* Input */
                                                   /* Output (in the device memory) */
                                                   int** Mp,
                                                   int** Mi,
-                                                  double** Mx) {
-   return(  (hipsolverStatus_t) rocsolverRfAccessBundledFactors( 
-                                             (rocsolverRfHandle_t) handle,
-                                             nnzM, Mp, Mi, Mx ) );
+                                                  double** Mx)
+{
+    return ((hipsolverStatus_t)rocsolverRfAccessBundledFactors((rocsolverRfHandle_t)handle, nnzM,
+                                                               Mp, Mi, Mx));
 };
 
-hipsolverStatus_t hipsolverRfAnalyze(hipsolverRfHandle_t handle) {
-   return( (hipsolverStatus_t) rocsolverRfAnalyze(
-                                 (rocsolverRfHandle_t) handle ) );
+hipsolverStatus_t hipsolverRfAnalyze(hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfAnalyze((rocsolverRfHandle_t)handle));
 };
 
-
-hipsolverStatus_t hipsolverRfCreate(hipsolverRfHandle_t* p_handle) {
-   return(  (hipsolverStatus_t) rocsolverRfCreate( 
-                                  (rocsolverRfHandle_t*) p_handle ) );
+hipsolverStatus_t hipsolverRfCreate(hipsolverRfHandle_t* p_handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfCreate((rocsolverRfHandle_t*)p_handle));
 };
 
+hipsolverStatus_t hipsolverRfDestroy(hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfDestroy((rocsolverRfHandle_t)handle));
+};
 
-hipsolverStatus_t hipsolverRfRefactor(hipsolverRfHandle_t handle) {
-   return( (hipsolverStatus_t) rocsolverRfRefactor(
-                                   (rocsolverRfHandle_t) handle ) );
+hipsolverStatus_t hipsolverRfRefactor(hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfRefactor((rocsolverRfHandle_t)handle));
 };
 
 hipsolverStatus_t hipsolverRfResetValues(int n,
@@ -67,20 +69,18 @@ hipsolverStatus_t hipsolverRfResetValues(int n,
                                          int* P,
                                          int* Q,
 
-                                         hipsolverRfHandle_t handle) {
-
-  return( (hipsolverStatus_t) rocsolverRfResetValues(
-                                  n, nnzA, csrRowPtrA, csrColIndA, csrValA, P, Q,
-                                  (rocsolverRfHandle_t) handle ) );
+                                         hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfResetValues(n, nnzA, csrRowPtrA, csrColIndA, csrValA, P,
+                                                      Q, (rocsolverRfHandle_t)handle));
 };
 
 hipsolverStatus_t hipsolverRfSetNumericProperties(hipsolverRfHandle_t handle,
                                                   double effective_zero,
-                                                  double boost_val) {
-
-  return( (hipsolverStatus_t) rocsolverRfSetNumericProperties(
-                                    (rocsolverRfHandle_t) handle,
-                                    effective_zero, boost_val ) );
+                                                  double boost_val)
+{
+    return ((hipsolverStatus_t)rocsolverRfSetNumericProperties((rocsolverRfHandle_t)handle,
+                                                               effective_zero, boost_val));
 };
 
 hipsolverStatus_t hipsolverRfSetupDevice(/* Input (in the device memory) */
@@ -101,15 +101,11 @@ hipsolverStatus_t hipsolverRfSetupDevice(/* Input (in the device memory) */
                                          int* Q,
 
                                          /* Output */
-                                         hipsolverRfHandle_t handle) {
-
- return( (hipsolverStatus_t) rocsolverRfSetupDevice(
-                                   n, 
-                                   nnzA, csrRowPtrA, csrColIndA, csrValA,
-                                   nnzL, csrRowPtrL, csrColIndL, csrValL,
-                                   nnzU, csrRowPtrU, csrColIndU, csrValU,
-                                   P, Q, 
-                                   (rocsolverRfHandle_t) handle ) );
+                                         hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfSetupDevice(
+        n, nnzA, csrRowPtrA, csrColIndA, csrValA, nnzL, csrRowPtrL, csrColIndL, csrValL, nnzU,
+        csrRowPtrU, csrColIndU, csrValU, P, Q, (rocsolverRfHandle_t)handle));
 };
 
 hipsolverStatus_t hipsolverRfSetupHost(/* Input (in the host memory) */
@@ -130,26 +126,20 @@ hipsolverStatus_t hipsolverRfSetupHost(/* Input (in the host memory) */
                                        int* Q,
 
                                        /* Output */
-                                       hipsolverRfHandle_t handle) {
-
-    return( (hipsolverStatus_t) rocsolverRfSetupHost(
-                                       n,
-                                       nnzA, csrRowPtrA, csrColIndA, csrValA,
-                                       nnzL, csrRowPtrL, csrColIndL, csrValL,
-                                       nnzU, csrRowPtrU, csrColIndU, csrValU,
-                                       P, Q,
-                                       (rocsolverRfHandle_t) handle ) );
-                                       
+                                       hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfSetupHost(
+        n, nnzA, csrRowPtrA, csrColIndA, csrValA, nnzL, csrRowPtrL, csrColIndL, csrValL, nnzU,
+        csrRowPtrU, csrColIndU, csrValU, P, Q, (rocsolverRfHandle_t)handle));
 };
 
 hipsolverStatus_t hipsolverRfSetAlgs(hipsolverRfHandle_t handle,
                                      hipsolverRfFactorization_t fact_alg,
-                                     hipsolverRfTriangularSolve_t alg) {
-
-  return( (hipsolverStatus_t) rocsolverRfSetAlgs( 
-                                  (rocsolverRfHandle_t) handle,
-                                  (rocsolverRfFactorization_t) fact_alg,
-                                  (rocsolverRfTriangularSolve_t) alg ) );
+                                     hipsolverRfTriangularSolve_t alg)
+{
+    return ((hipsolverStatus_t)rocsolverRfSetAlgs((rocsolverRfHandle_t)handle,
+                                                  (rocsolverRfFactorization_t)fact_alg,
+                                                  (rocsolverRfTriangularSolve_t)alg));
 };
 
 /*
@@ -181,44 +171,37 @@ hipsolverStatus_t hipsolverRfBatchSetupHost(
     int* h_P,
     int* h_Q,
     /* output */
-    hipsolverRfHandle_t handle) {
-
- return( (hipsolverStatus_t) rocsolverRfBatchSetupHost(
-                 batchSize, n,
-                 nnzA, h_csrRowPtrA, h_csrColIndA, h_csrValA_array,
-                 nnzL, h_csrRowPtrL, h_csrColIndL, h_csrValL,
-                 nnzU, h_csrRowPtrU, h_csrColIndU, h_csrValU,
-                 h_P, h_Q,
-                 (rocsolverRfHandle_t) handle ) );
-
+    hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfBatchSetupHost(
+        batchSize, n, nnzA, h_csrRowPtrA, h_csrColIndA, h_csrValA_array, nnzL, h_csrRowPtrL,
+        h_csrColIndL, h_csrValL, nnzU, h_csrRowPtrU, h_csrColIndU, h_csrValU, h_P, h_Q,
+        (rocsolverRfHandle_t)handle));
 };
 
-hipsolverStatus_t hipsolverRfBatchAnalyze( hipsolverRfHandle_t handle) {
- return( (hipsolverStatus_t) rocsolverRfBatchAnalyze( (rocsolverRfHandle_t) handle) );
+hipsolverStatus_t hipsolverRfBatchAnalyze(hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfBatchAnalyze((rocsolverRfHandle_t)handle));
 };
 
-hipsolverStatus_t hipsolverRfBatchResetValues( int batchSize,
-                                               int n,
-                                               int nnzA,
-                                               int* csrRowPtrA,
-                                               int* csrColIndA,
-                                               double* csrValA_array[],
-                                               int *P,
-                                               int *Q,
-                                               hipsolverRfHandle_t handle) {
-                             
-
-return( (hipsolverStatus_t) rocsolverRfBatchResetValues( 
-                                     batchSize, n,
-                                     nnzA, csrRowPtrA, csrColIndA, csrValA_array,
-                                     P, Q,
-                                (rocsolverRfHandle_t) handle ) );
+hipsolverStatus_t hipsolverRfBatchResetValues(int batchSize,
+                                              int n,
+                                              int nnzA,
+                                              int* csrRowPtrA,
+                                              int* csrColIndA,
+                                              double* csrValA_array[],
+                                              int* P,
+                                              int* Q,
+                                              hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfBatchResetValues(batchSize, n, nnzA, csrRowPtrA,
+                                                           csrColIndA, csrValA_array, P, Q,
+                                                           (rocsolverRfHandle_t)handle));
 };
 
-hipsolverStatus_t hipsolverRfBatchRefactor( hipsolverRfHandle_t handle) {
-
-  return( (hipsolverStatus_t) rocsolverRfBatchRefactor(
-                                (rocsolverRfHandle_t) handle ) );
+hipsolverStatus_t hipsolverRfBatchRefactor(hipsolverRfHandle_t handle)
+{
+    return ((hipsolverStatus_t)rocsolverRfBatchRefactor((rocsolverRfHandle_t)handle));
 };
 
 hipsolverStatus_t hipsolverRfBatchSolve(hipsolverRfHandle_t handle,
@@ -228,23 +211,19 @@ hipsolverStatus_t hipsolverRfBatchSolve(hipsolverRfHandle_t handle,
                                         double* d_Temp,
                                         int ldt,
                                         double* d_XF_array[],
-                                        int ldxf) {
-
-  return( (hipsolverStatus_t) rocsolverRfBatchSolve( 
-                              (rocsolverRfHandle_t) handle,
-                              d_P, d_Q,
-                              nrhs, d_Temp, ldt, d_XF_array, ldxf ) );
+                                        int ldxf)
+{
+    return ((hipsolverStatus_t)rocsolverRfBatchSolve((rocsolverRfHandle_t)handle, d_P, d_Q, nrhs,
+                                                     d_Temp, ldt, d_XF_array, ldxf));
 };
 
 hipsolverStatus_t hipsolverRfBatchZeroPivot(hipsolverRfHandle_t handle,
                                             /* output in host memory */
-                                            int* position) {
-  return( (hipsolverStatus_t) rocsolverRfBatchZeroPivot(
-                                 (rocsolverRfHandle_t) handle,
-                                 position) );
+                                            int* position)
+{
+    return ((hipsolverStatus_t)rocsolverRfBatchZeroPivot((rocsolverRfHandle_t)handle, position));
 };
 
 #ifdef __cplusplus
 };
 #endif
-
