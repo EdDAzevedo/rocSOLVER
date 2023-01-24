@@ -176,9 +176,9 @@ rocsolverStatus_t rocsolverRfSetAlgs(rocsolverRfHandle_t handle,
                                      rocsolverRfFactorization_t factAlg,
                                      rocsolverRfTriangularSolve_t solveAlg);
 
-rocsolverStatus_t rocsolverRfGetAlgs(rocsolverRfHandle_t handle,
-                                     rocsolverRfFactorization_t* factAlg,
-                                     rocsolverRfTriangularSolve_t* solveAlg);
+rocsolverStatus_t rocsolverRfGet_Algs(rocsolverRfHandle_t handle,
+                                      rocsolverRfFactorization_t* factAlg,
+                                      rocsolverRfTriangularSolve_t* solveAlg);
 
 /* ROCSOLVERRF set and get fast mode */
 rocsolverStatus_t rocsolverRfGetResetValuesFastMode(rocsolverRfHandle_t handle,

@@ -51,7 +51,40 @@ hipsolverStatus_t hipsolverRfAnalyze(hipsolverRfHandle_t handle);
 
 hipsolverStatus_t hipsolverRfCreate(hipsolverRfHandle_t* p_handle);
 
+hipsolverStatus_t hipsolverRfExtractBundledFactorsHost(hipsolverRfHandle_t handle,
+                                                       int* h_nnzM,
+                                                       int** h_Mp,
+                                                       int** h_Mi,
+                                                       double** h_Mx);
+
+hipsolverStatus_t hipsolverRfExtractSplitFactorsHost(hipsolverRfHandle_t handle,
+                                                     int* h_nnzL,
+                                                     int** h_Lp,
+                                                     int** h_Li,
+                                                     double** h_Lx,
+                                                     int* h_nnzU,
+                                                     int** h_Up,
+                                                     int** h_Ui,
+                                                     double** h_Ux);
+
 hipsolverStatus_t hipsolverRfDestroy(hipsolverRfHandle_t handle);
+
+hipsolverStatus_t hipsolverRfGetMatrixFormat(hipsolverRfHandle_t handle,
+                                             hipsolverRfMatrixFormat_t* format,
+                                             hipsolverRfUnitDiagonal_t* diag);
+
+hipsolverStatus_t
+    hipsolverRfGetNumericProperties(hipsolverRfHandle_t handle, double* zero, double* boost);
+
+hipsolverStatus_t hipsolverRfGetNumericBoostReport(hipsolverRfHandle_t handle,
+                                                   hipsolverRfNumericBoostReport_t* report);
+
+hipsolverStatus_t hipsolverRfGetResetValuesFastMode(hipsolverRfHandle_t handle,
+                                                    hipsolverRfResetValuesFastMode_t* fastMode);
+
+hipsolverStatus_t hipsolverRfGet_Algs(hipsolverRfHandle_t handle,
+                                      hipsolverRfFactorization_t* fact_alg,
+                                      hipsolverRfTriangularSolve_t* solve_alg);
 
 hipsolverStatus_t hipsolverRfRefactor(hipsolverRfHandle_t handle);
 
@@ -65,9 +98,16 @@ hipsolverStatus_t hipsolverRfResetValues(int n,
 
                                          hipsolverRfHandle_t handle);
 
+hipsolverStatus_t hipsolverRfSetMatrixFormat(hipsolverRfHandle_t handle,
+                                             hipsolverRfMatrixFormat_t format,
+                                             hipsolverRfUnitDiagonal_t diag);
+
 hipsolverStatus_t hipsolverRfSetNumericProperties(hipsolverRfHandle_t handle,
                                                   double effective_zero,
                                                   double boost_val);
+
+hipsolverStatus_t hipsolverRfSetResetValuesFastMode(hipsolverRfHandle_t handle,
+                                                    hipsolverRfResetValuesFastMode_t fastMode);
 
 hipsolverStatus_t hipsolverRfSetupDevice(/* Input (in the device memory) */
                                          int n,
@@ -113,6 +153,14 @@ hipsolverStatus_t hipsolverRfSetAlgs(hipsolverRfHandle_t handle,
                                      hipsolverRfFactorization_t fact_alg,
                                      hipsolverRfTriangularSolve_t alg);
 
+hipsolverStatus_t hipsolverRfSolve(hipsolverRfHandle_t handle,
+                                   int* P,
+                                   int* Q,
+                                   int nrhs,
+                                   double* Temp,
+                                   int ldt,
+                                   double* XF,
+                                   int ldxf);
 /*
  ----------------------------
  interface for batch routines

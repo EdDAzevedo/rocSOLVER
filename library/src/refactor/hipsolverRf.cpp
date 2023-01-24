@@ -51,9 +51,71 @@ hipsolverStatus_t hipsolverRfCreate(hipsolverRfHandle_t* p_handle)
     return ((hipsolverStatus_t)rocsolverRfCreate((rocsolverRfHandle_t*)p_handle));
 };
 
+hipsolverStatus_t hipsolverRfExtractBundledFactorsHost(hipsolverRfHandle_t handle,
+                                                       int* h_nnzM,
+                                                       int** h_Mp,
+                                                       int** h_Mi,
+                                                       double** h_Mx)
+{
+    return ((hipsolverStatus_t)rocsolverRfExtractBundledFactorsHost((rocsolverRfHandle_t)handle,
+                                                                    h_nnzM, h_Mp, h_Mi, h_Mx));
+};
+
+hipsolverStatus_t hipsolverRfExtractSplitFactorsHost(hipsolverRfHandle_t handle,
+                                                     int* h_nnzL,
+                                                     int** h_Lp,
+                                                     int** h_Li,
+                                                     double** h_Lx,
+                                                     int* h_nnzU,
+                                                     int** h_Up,
+                                                     int** h_Ui,
+                                                     double** h_Ux)
+{
+    return ((hipsolverStatus_t)rocsolverRfExtractSplitFactorsHost(
+        (rocsolverRfHandle_t)handle, h_nnzL, h_Lp, h_Li, h_Lx, h_nnzU, h_Up, h_Ui, h_Ux));
+};
+
 hipsolverStatus_t hipsolverRfDestroy(hipsolverRfHandle_t handle)
 {
     return ((hipsolverStatus_t)rocsolverRfDestroy((rocsolverRfHandle_t)handle));
+};
+
+hipsolverStatus_t hipsolverRfGetMatrixFormat(hipsolverRfHandle_t handle,
+                                             hipsolverRfMatrixFormat_t* format,
+                                             hipsolverRfUnitDiagonal_t* diag)
+{
+    return ((hipsolverStatus_t)rocsolverRfGetMatrixFormat((rocsolverRfHandle_t)handle,
+                                                          (rocsolverRfMatrixFormat_t*)format,
+                                                          (rocsolverRfUnitDiagonal_t*)diag));
+};
+
+hipsolverStatus_t
+    hipsolverRfGetNumericProperties(hipsolverRfHandle_t handle, double* zero, double* boost)
+{
+    return ((hipsolverStatus_t)rocsolverRfGetNumericProperties(handle, zero, boost));
+};
+
+hipsolverStatus_t hipsolverRfGetNumericBoostReport(hipsolverRfHandle_t handle,
+                                                   hipsolverRfNumericBoostReport_t* report)
+{
+    return ((hipsolverStatus_t)rocsolverRfGetNumericBoostReport(
+        (rocsolverRfHandle_t)handle, (rocsolverRfNumericBoostReport_t*)report));
+};
+
+hipsolverStatus_t hipsolverRfGetResetValuesFastMode(hipsolverRfHandle_t handle,
+                                                    hipsolverRfResetValuesFastMode_t* fastMode)
+{
+    return ((hipsolverStatus_t)rocsolverRfGetResetValuesFastMode(
+        (rocsolverRfHandle_t)handle, (rocsolverRfResetValuesFastMode_t*)fastMode));
+};
+
+hipsolverStatus_t hipsolverRfGet_Algs(hipsolverRfHandle_t handle,
+                                      hipsolverRfFactorization_t* fact_alg,
+                                      hipsolverRfTriangularSolve_t* solve_alg)
+{
+    return ((hipsolverStatus_t)rocsolverRfGet_Algs((rocsolverRfHandle_t)handle,
+                                                   (rocsolverRfFactorization_t*)fact_alg,
+                                                   (rocsolverRfTriangularSolve_t*)solve_alg));
 };
 
 hipsolverStatus_t hipsolverRfRefactor(hipsolverRfHandle_t handle)
@@ -75,12 +137,27 @@ hipsolverStatus_t hipsolverRfResetValues(int n,
                                                       Q, (rocsolverRfHandle_t)handle));
 };
 
+hipsolverStatus_t hipsolverRfSetMatrixFormat(hipsolverRfHandle_t handle,
+                                             hipsolverRfMatrixFormat_t format,
+                                             hipsolverRfUnitDiagonal_t diag)
+{
+    return ((hipsolverStatus_t)rocsolverRfSetMatrixFormat(
+        (rocsolverRfHandle_t)handle, (gluMatrixFormat_t)format, (gluUnitDiagonal_t)diag));
+};
+
 hipsolverStatus_t hipsolverRfSetNumericProperties(hipsolverRfHandle_t handle,
                                                   double effective_zero,
                                                   double boost_val)
 {
     return ((hipsolverStatus_t)rocsolverRfSetNumericProperties((rocsolverRfHandle_t)handle,
                                                                effective_zero, boost_val));
+};
+
+hipsolverStatus_t hipsolverRfSetResetValuesFastMode(hipsolverRfHandle_t handle,
+                                                    hipsolverRfResetValuesFastMode_t fastMode)
+{
+    return ((hipsolverStatus_t)rocsolverRfSetResetValuesFastMode(
+        (rocsolverRfHandle_t)handle, (gluResetValuesFastMode_t)fastMode));
 };
 
 hipsolverStatus_t hipsolverRfSetupDevice(/* Input (in the device memory) */
@@ -140,6 +217,19 @@ hipsolverStatus_t hipsolverRfSetAlgs(hipsolverRfHandle_t handle,
     return ((hipsolverStatus_t)rocsolverRfSetAlgs((rocsolverRfHandle_t)handle,
                                                   (rocsolverRfFactorization_t)fact_alg,
                                                   (rocsolverRfTriangularSolve_t)alg));
+};
+
+hipsolverStatus_t hipsolverRfSolve(hipsolverRfHandle_t handle,
+                                   int* P,
+                                   int* Q,
+                                   int nrhs,
+                                   double* Temp,
+                                   int ldt,
+                                   double* XF,
+                                   int ldxf)
+{
+    return ((hipsolverStatus_t)rocsolverRfSolve((rocsolverRfHandle_t)handle, P, Q, nrhs, Temp, ldt,
+                                                XF, ldxf));
 };
 
 /*
