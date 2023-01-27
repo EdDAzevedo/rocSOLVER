@@ -25,7 +25,7 @@
 #define ROCSOLVERRF_H
 
 #include "rocsolver_refactor.h"
-#include <rocblas/rocblas.h>
+// #include <rocblas/rocblas.h>
 #include <rocsolver/rocsolver.h>
 
 #ifdef __cplusplus
