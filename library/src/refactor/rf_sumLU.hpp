@@ -119,7 +119,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
             offset += isum_i;
         };
 
-        Ilong const nnz_LU = offset;
+        nnz_LU = offset;
         LUp[nrow] = nnz_LU;
     };
 

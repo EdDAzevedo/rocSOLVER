@@ -121,8 +121,6 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         };
     };
 
-    int const ibatch = 0;
-
     hipStream_t stream;
     HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &stream),
                     ROCSOLVER_STATUS_EXECUTION_FAILED);

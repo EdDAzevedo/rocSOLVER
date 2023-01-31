@@ -661,7 +661,6 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     // ----------------
 
     {
-        hipsparseSolvePolicy_t policy = HIPSPARSE_SOLVE_POLICY_USE_LEVEL;
         hipsparseOperation_t transL = HIPSPARSE_OPERATION_NON_TRANSPOSE;
         hipsparseOperation_t transU = HIPSPARSE_OPERATION_NON_TRANSPOSE;
 
