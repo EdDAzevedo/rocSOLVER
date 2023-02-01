@@ -25,6 +25,10 @@
 #ifndef RF_COMMON_HPP
 #define RF_COMMON_HPP
 
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 #include <hipsparse/hipsparse.h>

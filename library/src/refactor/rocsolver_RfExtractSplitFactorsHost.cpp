@@ -23,8 +23,6 @@
  * ************************************************************************ */
 #include "rf_common.hpp"
 
-#include <stdlib.h>
-
 /*
 ----------------------------------------------------------------------
 This routine extracts lower (L) and upper (U) triangular factors from
@@ -97,29 +95,38 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
     // split M = (L-I) + U  into L and U
     // --------------------
     int const n = handle->n;
-
     int* const Lp = (int*)malloc(sizeof(int) * (n + 1));
-    if(Lp == nullptr)
-    {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
-
     int* const Up = (int*)malloc(sizeof(int) * (n + 1));
-    if(Up == nullptr)
-    {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
-
     int* const nzLp = (int*)malloc(sizeof(int) * n);
-    if(nzLp == nullptr)
-    {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
-
     int* const nzUp = (int*)malloc(sizeof(int) * n);
-    if(nzUp == nullptr)
+
     {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
+        bool const is_alloc_ok
+            = (Lp != nullptr) && (Up != nullptr) && (nzLp != nullptr) && (nzUp != nullptr);
+        if(!is_alloc_ok)
+        {
+            // -------------------------------------------
+            // deallocate host memory to avoid memory leak
+            // -------------------------------------------
+            if(Lp != nullptr)
+            {
+                free(Lp);
+            };
+            if(Up != nullptr)
+            {
+                free(Up);
+            };
+            if(nzLp != nullptr)
+            {
+                free(nzLp);
+            };
+            if(nzUp != nullptr)
+            {
+                free(nzUp);
+            };
+
+            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+        };
     };
 
     // -------------------------------------------------
@@ -150,7 +157,8 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
             };
         };
         int const nzL = nz - nzU;
-        nzLp[irow] = nzL + 1;
+
+        nzLp[irow] = (nzL + 1); // add 1 for unit diagonal
         nzUp[irow] = nzU;
 
         nnzL += (nzL + 1);
@@ -158,27 +166,67 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
     };
 
     int* const Li = (int*)malloc(sizeof(int) * nnzL);
-    if(Li == nullptr)
-    {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
-
-    double* const Lx = (double*)malloc(sizeof(double) * nnzL);
-    if(Lx == nullptr)
-    {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
-
     int* const Ui = (int*)malloc(sizeof(int) * nnzU);
-    if(Ui == nullptr)
-    {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
-    };
-
+    double* const Lx = (double*)malloc(sizeof(double) * nnzL);
     double* const Ux = (double*)malloc(sizeof(double) * nnzU);
-    if(Ux == nullptr)
+
     {
-        return (ROCSOLVER_STATUS_ALLOC_FAILED);
+        bool const is_alloc_ok
+            = (Li != nullptr) && (Ui != nullptr) && (Lx != nullptr) && (Ux != nullptr);
+        if(!is_alloc_ok)
+        {
+            // -----------------------------------------------
+            // deallocate all host arrays to avoid memory leak
+            // -----------------------------------------------
+            if(Li != nullptr)
+            {
+                free(Li);
+            };
+            if(Ui != nullptr)
+            {
+                free(Ui);
+            };
+            if(Lx != nullptr)
+            {
+                free(Lx);
+            };
+            if(Ux != nullptr)
+            {
+                free(Ux);
+            };
+
+            if(Lp != nullptr)
+            {
+                free(Lp);
+            };
+            if(Up != nullptr)
+            {
+                free(Up);
+            };
+            if(nzLp != nullptr)
+            {
+                free(nzLp);
+            };
+            if(nzUp != nullptr)
+            {
+                free(nzUp);
+            };
+
+            if(Mp != nullptr)
+            {
+                free(Mp);
+            };
+            if(Mi != nullptr)
+            {
+                free(Mi);
+            };
+            if(Mx != nullptr)
+            {
+                free(Mx);
+            };
+
+            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+        };
     };
 
     // ------------------------------------
@@ -205,8 +253,8 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
 
     for(int irow = 0; irow < n; irow++)
     {
-        nzLp[irow] = 0;
-        nzUp[irow] = 0;
+        nzLp[irow] = Lp[irow];
+        nzUp[irow] = Up[irow];
     };
 
     double const one = 1;
@@ -222,7 +270,7 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
             bool const is_upper = (irow <= kcol);
             if(is_upper)
             {
-                int const ip = Up[irow] + nzUp[irow];
+                int const ip = nzUp[irow];
                 nzUp[irow]++;
 
                 Ui[ip] = kcol;
@@ -230,7 +278,7 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
             }
             else
             {
-                int const ip = Lp[irow] + nzLp[irow];
+                int const ip = nzLp[irow];
                 nzLp[irow]++;
 
                 Li[ip] = kcol;
@@ -264,27 +312,12 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
     // clean up matrix M
     // -----------------
 
-    if(nzLp != nullptr)
-    {
-        free(nzLp);
-    };
-    if(nzUp != nullptr)
-    {
-        free(nzUp);
-    };
+    free(nzLp);
+    free(nzUp);
 
-    if(Mp != nullptr)
-    {
-        free(Mp);
-    };
-    if(Mi != nullptr)
-    {
-        free(Mi);
-    };
-    if(Mx != nullptr)
-    {
-        free(Mx);
-    };
+    free(Mp);
+    free(Mi);
+    free(Mx);
 
     return (ROCSOLVER_STATUS_SUCCESS);
 };

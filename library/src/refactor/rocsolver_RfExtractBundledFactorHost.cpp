@@ -69,66 +69,76 @@ rocsolverStatus_t rocsolverRfExtractBundledFactorsHost(rocsolverRfHandle_t handl
 
     int const n = handle->n;
     int const nnzLU = handle->nnzLU;
-    *h_nnzLU = nnzLU;
+    size_t const nbytes_Mp = sizeof(int) * (n + 1);
+    size_t const nbytes_Mi = sizeof(int) * nnzLU;
+    size_t const nbytes_Mx = sizeof(double) * nnzLU;
 
+    // ------------------------
+    // allocate storage on host
+    // ------------------------
+    int* const Mp = (int*)malloc(nbytes_Mp);
+    int* const Mi = (int*)malloc(nbytes_Mi);
+    double* const Mx = (double*)malloc(nbytes_Mx);
     {
-        // --------
-        // setup Mp
-        // --------
-        size_t const nbytes_Mp = sizeof(int) * (n + 1);
-        int* const Mp = (int*)malloc(nbytes_Mp);
-        if(Mp == nullptr)
+        bool const is_alloc_ok = (Mp != nullptr) && (Mi != nullptr) && (Mx != nullptr);
+        if(!is_alloc_ok)
         {
+            // -------------------------------------------
+            // deallocate host memory to avoid memory leak
+            // -------------------------------------------
+            if(Mp != nullptr)
+            {
+                free(Mp);
+            };
+            if(Mi != nullptr)
+            {
+                free(Mi);
+            };
+            if(Mx != nullptr)
+            {
+                free(Mx);
+            };
             return (ROCSOLVER_STATUS_ALLOC_FAILED);
         };
-        hipError_t const istat = hipMemcpyDtoH(Mp, handle->csrRowPtrLU, nbytes_Mp);
-        if(istat != HIP_SUCCESS)
-        {
-            free(Mp);
-            return (ROCSOLVER_STATUS_EXECUTION_FAILED);
-        };
-        *h_Mp = Mp;
     };
 
     {
-        // --------
-        // setup Mi
-        // --------
-        size_t const nbytes_Mi = sizeof(int) * nnzLU;
-        int* const Mi = (int*)malloc(nbytes_Mi);
-        if(Mi == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-        hipError_t const istat = hipMemcpyDtoH(Mi, handle->csrColIndLU, nbytes_Mi);
-        if(istat != HIP_SUCCESS)
-        {
-            free(Mi);
-            return (ROCSOLVER_STATUS_EXECUTION_FAILED);
-        };
-        *h_Mi = Mi;
-    };
-
-    {
-        // --------
-        // setup Mx
-        // --------
-        size_t const nbytes_Mx = sizeof(double) * nnzLU;
-        double* const Mx = (double*)malloc(nbytes_Mx);
-        if(Mx == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-
+        // ------------------------
+        // copy from device to host
+        // ------------------------
         int const ibatch = 0;
-        hipError_t const istat = hipMemcpyDtoH(Mx, handle->csrValLU_array[ibatch], nbytes_Mx);
-        if(istat != HIP_SUCCESS)
+
+        hipError_t const istat_Mp = hipMemcpyDtoH(Mp, handle->csrRowPtrLU, nbytes_Mp);
+        hipError_t const istat_Mi = hipMemcpyDtoH(Mi, handle->csrColIndLU, nbytes_Mi);
+        hipError_t const istat_Mx = hipMemcpyDtoH(Mx, handle->csrValLU_array[ibatch], nbytes_Mx);
+
+        bool const is_copy_ok
+            = (istat_Mp == HIP_SUCCESS) && (istat_Mi == HIP_SUCCESS) && (istat_Mx == HIP_SUCCESS);
+        if(!is_copy_ok)
         {
-            free(Mx);
-            return (ROCSOLVER_STATUS_EXECUTION_FAILED);
+            // -------------------------------------------
+            // deallocate host memory to avoid memory leak
+            // -------------------------------------------
+            if(Mp != nullptr)
+            {
+                free(Mp);
+            };
+            if(Mi != nullptr)
+            {
+                free(Mi);
+            };
+            if(Mx != nullptr)
+            {
+                free(Mx);
+            };
+            return (ROCSOLVER_STATUS_ALLOC_FAILED);
         };
-        *h_Mx = Mx;
     };
+
+    *h_nnzLU = nnzLU;
+    *h_Mp = Mp;
+    *h_Mi = Mi;
+    *h_Mx = Mx;
 
     return (ROCSOLVER_STATUS_SUCCESS);
 };
