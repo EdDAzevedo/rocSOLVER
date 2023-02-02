@@ -57,7 +57,7 @@ This routine needs to be called only for a single linear system
 
 extern "C" {
 
-rocsolverStatus_t cusolverRfBatchSetupHost(
+rocsolverStatus_t rocsolverRfBatchSetupHost(
     /* Input (in the host memory) */
     int batch_count,
     int n,
@@ -78,9 +78,12 @@ rocsolverStatus_t cusolverRfBatchSetupHost(
     /* Output */
     rocsolverRfHandle_t handle)
 {
-    if(handle == nullptr)
     {
-        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+        bool const isok_handle = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+        if(!isok_handle)
+        {
+            return (ROCSOLVER_STATUS_NOT_INITIALIZED);
+        };
     };
 
     if(h_csrValA_array == nullptr)
@@ -110,126 +113,155 @@ rocsolverStatus_t cusolverRfBatchSetupHost(
     double* d_csrValL = nullptr;
     double* d_csrValU = nullptr;
 
-    {
-        // allocate and copy rowPtr  on GPU Device
-        size_t nbytes_csrRowPtr = sizeof(int) * (n + 1);
-        HIP_CHECK(hipMalloc(&d_csrRowPtrA, nbytes_csrRowPtr), ROCSOLVER_STATUS_ALLOC_FAILED);
-        HIP_CHECK(hipMalloc(&d_csrRowPtrL, nbytes_csrRowPtr), ROCSOLVER_STATUS_ALLOC_FAILED);
-        HIP_CHECK(hipMalloc(&d_csrRowPtrU, nbytes_csrRowPtr), ROCSOLVER_STATUS_ALLOC_FAILED);
-
-        // copy rowPtr to device
-        HIP_CHECK(hipMemcpyHtoD(d_csrRowPtrA, h_csrRowPtrA, nbytes_csrRowPtr),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-        HIP_CHECK(hipMemcpyHtoD(d_csrRowPtrL, h_csrRowPtrL, nbytes_csrRowPtr),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-        HIP_CHECK(hipMemcpyHtoD(d_csrRowPtrU, h_csrRowPtrU, nbytes_csrRowPtr),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-    };
-
-    {
-        // allocate and copy ColInd on GPU Device
-        size_t const nbytesA = sizeof(int) * nnzA;
-        HIP_CHECK(hipMalloc(&d_csrColIndA, nbytesA), ROCSOLVER_STATUS_ALLOC_FAILED);
-        HIP_CHECK(hipMemcpyHtoD(d_csrColIndA, h_csrColIndA, nbytesA),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-        size_t const nbytesL = sizeof(int) * nnzL;
-        HIP_CHECK(hipMalloc(&d_csrColIndL, nbytesL), ROCSOLVER_STATUS_ALLOC_FAILED);
-        HIP_CHECK(hipMemcpyHtoD(d_csrColIndL, h_csrColIndL, nbytesL),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-        size_t const nbytesU = sizeof(int) * nnzU;
-        HIP_CHECK(hipMalloc(&d_csrColIndU, nbytesU), ROCSOLVER_STATUS_ALLOC_FAILED);
-        HIP_CHECK(hipMemcpyHtoD(d_csrColIndU, h_csrColIndU, nbytesU),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-    };
-
-    {
-        // allocate and copy Val
-
-        size_t const nbytes_csrValA_array = sizeof(double*) * batch_count;
-
-        HIP_CHECK(hipMalloc(&d_csrValA_array, nbytes_csrValA_array), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(d_csrValA_array == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-
-        for(int ibatch = 0; ibatch < batch_count; ibatch++)
-        {
-            size_t const nbytesA = sizeof(double) * nnzA;
-
-            double* d_csrValA = nullptr;
-            HIP_CHECK(hipMalloc(&d_csrValA, nbytesA), ROCSOLVER_STATUS_ALLOC_FAILED);
-
-            d_csrValA_array[ibatch] = d_csrValA;
-
-            double* h_csrValA = h_csrValA_array[ibatch];
-
-            HIP_CHECK(hipMemcpyHtoD(d_csrValA, h_csrValA, nbytesA),
-                      ROCSOLVER_STATUS_EXECUTION_FAILED);
-        };
-        size_t const nbytesL = sizeof(double) * nnzL;
-        HIP_CHECK(hipMalloc(&d_csrValL, nbytesL), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(d_csrValL == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-
-        HIP_CHECK(hipMemcpyHtoD(d_csrValL, h_csrValL, nbytesL), ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-        size_t const nbytesU = sizeof(double) * nnzU;
-        HIP_CHECK(hipMalloc(&d_csrValU, nbytesU), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(d_csrValU == nullptr)
-        {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-
-        HIP_CHECK(hipMemcpyHtoD(d_csrValU, h_csrValU, nbytesU), ROCSOLVER_STATUS_EXECUTION_FAILED);
-    };
-
     int* d_P = nullptr;
     int* d_Q = nullptr;
+
+    size_t const nbytes_PQ = sizeof(int) * n;
+
+    size_t const nbytes_csrRowPtr = sizeof(int) * (n + 1);
+
+    size_t const nbytes_csrColIndA = sizeof(int) * nnzA;
+    size_t const nbytes_csrColIndL = sizeof(int) * nnzL;
+    size_t const nbytes_csrColIndU = sizeof(int) * nnzU;
+
+    size_t const nbytes_csrValL = sizeof(double) * nnzL;
+    size_t const nbytes_csrValU = sizeof(double) * nnzU;
+    size_t const nbytes_csrValA = sizeof(double) * nnzA;
+
+    size_t const nbytes_csrValA_array = sizeof(double*) * batch_count;
+    // ---------------------------
+    // allocate all device storage
+    // ---------------------------
     {
-        size_t const nbytes_PQ = sizeof(int) * n;
-        HIP_CHECK(hipMalloc(&d_P, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(d_P == nullptr)
+        hipError_t const istat_P = hipMalloc(&d_P, nbytes_PQ);
+        hipError_t const istat_Q = hipMalloc(&d_Q, nbytes_PQ);
+        bool const isok_PQ = (istat_P == HIP_SUCCESS) && (istat_Q == HIP_SUCCESS);
+
+        hipError_t const istat_csrRowPtrA = hipMalloc(&d_csrRowPtrA, nbytes_csrRowPtr);
+        hipError_t const istat_csrRowPtrL = hipMalloc(&d_csrRowPtrL, nbytes_csrRowPtr);
+        hipError_t const istat_csrRowPtrU = hipMalloc(&d_csrRowPtrU, nbytes_csrRowPtr);
+        bool const isok_csrRowPtr = (istat_csrRowPtrA == HIP_SUCCESS)
+            && (istat_csrRowPtrL == HIP_SUCCESS) && (istat_csrRowPtrU == HIP_SUCCESS);
+
+        hipError_t const istat_ColIndA = hipMalloc(&d_csrColIndA, nbytes_csrColIndA);
+        hipError_t const istat_ColIndL = hipMalloc(&d_csrColIndL, nbytes_csrColIndL);
+        hipError_t const istat_ColIndU = hipMalloc(&d_csrColIndU, nbytes_csrColIndU);
+        bool const isok_ColInd = (istat_ColIndA == HIP_SUCCESS) && (istat_ColIndL == HIP_SUCCESS)
+            && (istat_ColIndU == HIP_SUCCESS);
+
+        hipError_t const istat_csrValL = hipMalloc(&d_csrValL, nbytes_csrValL);
+        hipError_t const istat_csrValU = hipMalloc(&d_csrValU, nbytes_csrValU);
+        bool const isok_csrVal = (istat_csrValL == HIP_SUCCESS) && (istat_csrValU == HIP_SUCCESS);
+
+        d_csrValA_array = (double**)malloc(nbytes_csrValA_array);
+        bool const isok_csrValA_array = (d_csrValA_array == nullptr);
+
+        bool isok_batch = true;
+        for(int ibatch = 0; ibatch < batch_count; ibatch++)
         {
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+            hipError_t const istat = hipMalloc(&(d_csrValA_array[ibatch]), nbytes_csrValA);
+            bool const isok = (istat == HIP_SUCCESS);
+            isok_batch = isok_batch && isok;
         };
 
-        HIP_CHECK(hipMalloc(&d_Q, nbytes_PQ), ROCSOLVER_STATUS_ALLOC_FAILED);
-        if(d_Q == nullptr)
+        bool const isok_alloc = isok_PQ && isok_batch && isok_csrVal && isok_ColInd
+            && isok_csrRowPtr && isok_csrValA_array;
+        if(!isok_alloc)
         {
+            // ---------------------------------------
+            // deallocate storage to avoid memory leak
+            // ---------------------------------------
+            hipFree(d_P);
+            hipFree(d_Q);
+
+            hipFree(d_csrRowPtrA);
+            hipFree(d_csrRowPtrL);
+            hipFree(d_csrRowPtrU);
+
+            hipFree(d_csrColIndA);
+            hipFree(d_csrColIndL);
+            hipFree(d_csrColIndU);
+
+            hipFree(d_csrValL);
+            hipFree(d_csrValU);
+
+            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            {
+                hipFree(d_csrValA_array[ibatch]);
+            };
+            free(d_csrValA_array);
+
             return (ROCSOLVER_STATUS_ALLOC_FAILED);
         };
+    };
 
-        HIP_CHECK(hipMemcpyHtoD(d_P, h_P, nbytes_PQ), ROCSOLVER_STATUS_EXECUTION_FAILED);
-        HIP_CHECK(hipMemcpyHtoD(d_Q, h_Q, nbytes_PQ), ROCSOLVER_STATUS_EXECUTION_FAILED);
+    // -------------------------------
+    // copy arrays from host to device
+    // -------------------------------
+    {
+        hipError_t const istat_P = hipMemcpyHtoD(d_P, h_P, nbytes_PQ);
+        hipError_t const istat_Q = hipMemcpyHtoD(d_Q, h_Q, nbytes_PQ);
+        bool const isok_PQ = (istat_P == HIP_SUCCESS) && (istat_Q == HIP_SUCCESS);
+
+        hipError_t const istat_csrRowPtrA
+            = hipMemcpyHtoD(d_csrRowPtrA, h_csrRowPtrA, nbytes_csrRowPtr);
+        hipError_t const istat_csrRowPtrL
+            = hipMemcpyHtoD(d_csrRowPtrL, h_csrRowPtrL, nbytes_csrRowPtr);
+        hipError_t const istat_csrRowPtrU
+            = hipMemcpyHtoD(d_csrRowPtrU, h_csrRowPtrU, nbytes_csrRowPtr);
+        bool const isok_csrRowPtr = (istat_csrRowPtrA == HIP_SUCCESS)
+            && (istat_csrRowPtrL == HIP_SUCCESS) && (istat_csrRowPtrU == HIP_SUCCESS);
+
+        hipError_t const istat_csrColIndA
+            = hipMemcpyHtoD(d_csrColIndA, h_csrColIndA, nbytes_csrColIndA);
+        hipError_t const istat_csrColIndL
+            = hipMemcpyHtoD(d_csrColIndL, h_csrColIndL, nbytes_csrColIndL);
+        hipError_t const istat_csrColIndU
+            = hipMemcpyHtoD(d_csrColIndU, h_csrColIndU, nbytes_csrColIndU);
+        bool const isok_csrColInd = (istat_csrColIndA == HIP_SUCCESS)
+            && (istat_csrColIndL == HIP_SUCCESS) && (istat_csrColIndU == HIP_SUCCESS);
+
+        bool isok_csrValA = true;
+        for(int ibatch = 0; ibatch < batch_count; ibatch++)
+        {
+            hipError_t const istat_csrValA
+                = hipMemcpyHtoD(d_csrValA_array[ibatch], h_csrValA_array[ibatch], nbytes_csrValA);
+            bool const isok = (istat_csrValA == HIP_SUCCESS);
+            isok_csrValA = isok_csrValA && isok;
+        };
+
+        bool const isok_HtoD = isok_PQ && isok_csrValA && isok_csrRowPtr && isok_csrColInd;
+        if(!isok_HtoD)
+        {
+            hipFree(d_P);
+            hipFree(d_Q);
+
+            hipFree(d_csrRowPtrA);
+            hipFree(d_csrRowPtrL);
+            hipFree(d_csrRowPtrU);
+
+            hipFree(d_csrColIndA);
+            hipFree(d_csrColIndL);
+            hipFree(d_csrColIndU);
+
+            hipFree(d_csrValL);
+            hipFree(d_csrValU);
+
+            for(int ibatch = 0; ibatch < batch_count; ibatch++)
+            {
+                hipFree(d_csrValA_array[ibatch]);
+            };
+            free(d_csrValA_array);
+
+            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+        };
     };
 
     bool constexpr MAKE_COPY = false;
-    istat = rocsolverRfBatchSetupDevice_impl<MAKE_COPY>(
+    rocsolverStatus_t const istat_setup = rocsolverRfBatchSetupDevice_impl<MAKE_COPY>(
         batch_count, n, nnzA, d_csrRowPtrA, d_csrColIndA, d_csrValA_array, nnzL, d_csrRowPtrL,
         d_csrColIndL, d_csrValL, nnzU, d_csrRowPtrU, d_csrColIndU, d_csrValU, d_P, d_Q, handle);
 
-    // cleanup  csrValA_array
-    {
-        for(int ibatch = 0; ibatch < batch_count; ibatch++)
-        {
-            if(d_csrValA_array[ibatch] != nullptr)
-            {
-                HIP_CHECK(hipFree(d_csrValA_array[ibatch]), ROCSOLVER_STATUS_INTERNAL_ERROR);
-            };
-            d_csrValA_array[ibatch] = nullptr;
-        };
-
-        HIP_CHECK(hipFree(d_csrValA_array), ROCSOLVER_STATUS_INTERNAL_ERROR);
-        d_csrValA_array = nullptr;
-    };
-
-    return (istat);
+    return (istat_setup);
 };
 };
