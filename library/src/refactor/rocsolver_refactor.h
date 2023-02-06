@@ -53,9 +53,9 @@ typedef rocsolverRfMatrixFormat_t gluMatrixFormat_t;
 /* ROCSOLVERRF unit diagonal */
 typedef enum
 {
-    ROCSOLVERRF_UNIT_DIAGONAL_STORED_L = 0, //default
+    ROCSOLVERRF_UNIT_DIAGONAL_STORED_L = 0,
     ROCSOLVERRF_UNIT_DIAGONAL_STORED_U = 1,
-    ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_L = 2,
+    ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_L = 2, // default
     ROCSOLVERRF_UNIT_DIAGONAL_ASSUMED_U = 3
 } rocsolverRfUnitDiagonal_t;
 
@@ -91,56 +91,56 @@ typedef enum
 /* structure holding ROCSOLVERRF library common */
 struct rocsolverRfCommon
 {
-    rocsolverRfResetValuesFastMode_t fast_mode;
-    rocsolverRfMatrixFormat_t matrix_format;
-    rocsolverRfUnitDiagonal_t diag_format;
-    rocsolverRfNumericBoostReport_t numeric_boost;
+    rocsolverRfResetValuesFastMode_t fast_mode = ROCSOLVERRF_RESET_VALUES_FAST_MODE_OFF;
+    rocsolverRfMatrixFormat_t matrix_format = ROCSOLVERRF_MATRIX_FORMAT_CSR;
+    rocsolverRfUnitDiagonal_t diag_format = ROCSOLVERRF_UNIT_DIAGONAL_STORED_L;
+    rocsolverRfNumericBoostReport_t numeric_boost = ROCSOLVERRF_NUMERIC_BOOST_NOT_USED;
 
-    rocsolverRfFactorization_t fact_alg;
-    rocsolverRfTriangularSolve_t solve_alg;
+    rocsolverRfFactorization_t fact_alg = ROCSOLVERRF_FACTORIZATION_ALG0;
+    rocsolverRfTriangularSolve_t solve_alg = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
 
-    hipsparseHandle_t hipsparse_handle;
+    hipsparseHandle_t hipsparse_handle = nullptr;
 
-    int nnzL;
-    int* csrRowPtrL;
-    int* csrColIndL;
-    double* csrValL;
+    int nnzL = 0;
+    int* csrRowPtrL = nullptr;
+    int* csrColIndL = nullptr;
+    double* csrValL = nullptr;
 
-    int nnzU;
-    int* csrRowPtrU;
-    int* csrColIndU;
-    double* csrValU;
+    int nnzU = 0;
+    int* csrRowPtrU = nullptr;
+    int* csrColIndU = nullptr;
+    double* csrValU = nullptr;
 
-    int nnzA;
-    int* csrRowPtrA;
-    int* csrColIndA;
+    int nnzA = 0;
+    int* csrRowPtrA = nullptr;
+    int* csrColIndA = nullptr;
 
-    hipsparseMatDescr_t descrL;
-    hipsparseMatDescr_t descrU;
-    hipsparseMatDescr_t descrLU;
+    hipsparseMatDescr_t descrL = nullptr;
+    hipsparseMatDescr_t descrU = nullptr;
+    hipsparseMatDescr_t descrLU = nullptr;
 
-    csrsv2Info_t infoL;
-    csrsv2Info_t infoU;
-    csrilu02Info_t* infoLU_array;
+    csrsv2Info_t infoL = nullptr;
+    csrsv2Info_t infoU = nullptr;
+    csrilu02Info_t* infoLU_array = nullptr;
 
-    int batch_count;
+    int batch_count = 0;
 
-    int* P_new2old;
-    int* Q_new2old;
-    int* Q_old2new;
+    int* P_new2old = nullptr;
+    int* Q_new2old = nullptr;
+    int* Q_old2new = nullptr;
 
-    int n;
-    int nnzLU;
-    int* csrRowPtrLU;
-    int* csrColIndLU;
+    int n = 0;
+    int nnzLU = 0;
+    int* csrRowPtrLU = nullptr;
+    int* csrColIndLU = nullptr;
     // double* csrValLU;
-    double** csrValLU_array;
+    double** csrValLU_array = nullptr;
 
-    double effective_zero;
-    double boost_val;
+    double effective_zero = 0;
+    double boost_val = 0;
 
-    void* buffer;
-    size_t buffer_size;
+    void* buffer = nullptr;
+    size_t buffer_size = 0;
 };
 typedef struct rocsolverRfCommon* rocsolverRfHandle_t;
 

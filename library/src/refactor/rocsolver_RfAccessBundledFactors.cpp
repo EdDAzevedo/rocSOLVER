@@ -48,10 +48,6 @@ rocsolverStatus_t rocsolverRfAccessBundledFactors(/* Input */
                                                   int** Mi,
                                                   double** Mx)
 {
- return( rocsolverRfAccessBundledFactors_impl<int,int,double>( handle, nnzM, Mp, Mi, Mx ) );
+    return (rocsolverRfAccessBundledFactors_impl<int, int, double>(handle, nnzM, Mp, Mi, Mx));
 };
-
-
-
-
 };

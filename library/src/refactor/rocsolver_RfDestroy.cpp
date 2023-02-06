@@ -203,8 +203,8 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
     // -------------------------------
     // finally free the handle on Host
     // -------------------------------
-    HIP_CHECK(hipHostFree(handle), ROCSOLVER_STATUS_INTERNAL_ERROR);
-    handle = nullptr;
+
+    free(handle);
     return (ROCSOLVER_STATUS_SUCCESS);
 };
 };

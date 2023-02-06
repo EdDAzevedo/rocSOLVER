@@ -27,7 +27,6 @@
 #ifndef RF_ACCESS_BUNDLED_FACTORS_HPP
 #define RF_ACCESS_BUNDLED_FACTORS_HPP
 
-
 #include "hip_check.h"
 #include "hipsparse_check.h"
 #include "rocsolver_refactor.h"
@@ -45,15 +44,15 @@ The Bundled factor matrix M = (L - I) + U
 -----------------------------------------------------------------------
 */
 
-template<typename Iint, typename Ilong, typename T>
+template <typename Iint, typename Ilong, typename T>
 rocsolverStatus_t rocsolverRfAccessBundledFactors_impl(/* Input */
-                                                  rocsolverRfHandle_t handle,
-                                                  /* Output (in the host memory ) */
-                                                  Ilong * nnzM,
-                                                  /* Output (in the device memory) */
-                                                  Ilong** Mp,
-                                                  Iint** Mi,
-                                                  T** Mx)
+                                                       rocsolverRfHandle_t handle,
+                                                       /* Output (in the host memory ) */
+                                                       Ilong* nnzM,
+                                                       /* Output (in the device memory) */
+                                                       Ilong** Mp,
+                                                       Iint** Mi,
+                                                       T** Mx)
 {
     /*
     ----------------------------------

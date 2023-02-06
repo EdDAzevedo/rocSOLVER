@@ -136,24 +136,24 @@ rocsolverStatus_t rocsolverRfBatchSetupHost(
     /* output */
     rocsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchAnalyze( rocsolverRfHandle_t handle);
+rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle);
 
-rocsolverStatus_t rocsolverRfBatchRefactor( rocsolverRfHandle_t handle);
+rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle);
 
 rocsolverStatus_t rocsolverRfBatchResetValues(int batchSize,
-                                           int n,
-                                           int nnzA,
+                                              int n,
+                                              int nnzA,
 
-                                           /* input in device memory */
+                                              /* input in device memory */
 
-                                           int* csrRowPtrA,
-                                           int* csrColIndA,
-                                           double* csrValA_array[],
-                                           int* P,
-                                           int* Q,
+                                              int* csrRowPtrA,
+                                              int* csrColIndA,
+                                              double* csrValA_array[],
+                                              int* P,
+                                              int* Q,
 
-                                           /* output */
-                                           rocsolverRfHandle_t handle);
+                                              /* output */
+                                              rocsolverRfHandle_t handle);
 
 rocsolverStatus_t rocsolverRfBatchSolve(rocsolverRfHandle_t handle,
                                         int* d_P,

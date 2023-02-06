@@ -114,6 +114,8 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                                                    /* Output */
                                                    rocsolverRfHandle_t handle)
 {
+    int const idebug = 1;
+
     // check args
     {
         rocsolverStatus_t istat = rocsolver_RfBatchSetup_checkargs(
@@ -149,6 +151,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     Iint* P = P_in;
     Iint* Q = Q_in;
 
+    if(idebug >= 1)
+    {
+        printf("%s : %d\n", __FILE__, __LINE__);
+    };
+
     {
         // --------------------------------
         // setup storage for csrValLU_array
@@ -170,9 +177,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             handle->csrValLU_array = nullptr;
         };
 
-        HIP_CHECK(hipHostMalloc(&(handle->csrValLU_array), sizeof(T*) * batch_count,
-                                hipHostMallocPortable),
-                  ROCSOLVER_STATUS_ALLOC_FAILED);
+        handle->csrValLU_array = static_cast<T**>(malloc(sizeof(T*) * batch_count));
         if(handle->csrValLU_array == nullptr)
         {
             return (ROCSOLVER_STATUS_ALLOC_FAILED);
@@ -198,6 +203,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 HIP_CHECK(hipMemset(dst, value, sizeBytes), ROCSOLVER_STATUS_EXECUTION_FAILED);
             };
         };
+    };
+
+    if(idebug >= 1)
+    {
+        printf("%s : %d\n", __FILE__, __LINE__);
     };
 
     if(MAKE_COPY)
@@ -287,6 +297,10 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
 
         HIP_CHECK(hipMemcpyDtoD(csrValU, csrValU_in, nbytes_ValU), ROCSOLVER_STATUS_EXECUTION_FAILED);
+    };
+    if(idebug >= 1)
+    {
+        printf("%s : %d\n", __FILE__, __LINE__);
     };
 
     Iint* P_new2old = P;
@@ -445,7 +459,12 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     //  Perform LU = L + U
     //  ------------------
 
-    bool constexpr use_sumLU = true;
+    if(idebug >= 1)
+    {
+        printf("%s : %d\n", __FILE__, __LINE__);
+    };
+
+    bool constexpr use_sumLU = false;
     if(use_sumLU)
     {
         Ilong nnzLU = handle->nnzL + handle->nnzU - handle->n;
@@ -578,6 +597,10 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
 
         HIP_CHECK(hipFree(pBuffer), ROCSOLVER_STATUS_INTERNAL_ERROR);
         pBuffer = nullptr;
+    };
+    if(idebug >= 1)
+    {
+        printf("%s : %d\n", __FILE__, __LINE__);
     };
 
     handle->csrRowPtrL = csrRowPtrL;
@@ -723,6 +746,10 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
     // clean up
     // --------
 
+    if(idebug >= 1)
+    {
+        printf("%s : %d\n", __FILE__, __LINE__);
+    };
     {
         bool const need_cleanup_csrValA_array = (csrValA_array != csrValA_array_in);
         if(need_cleanup_csrValA_array)
