@@ -1,7 +1,7 @@
 
 /*! \file */
 /* ************************************************************************
- * Copyright (C) 2020-2023 Advanced Micro Devices, Inc. All rights Reserved.
+ * Copyright (C) 2023 Advanced Micro Devices, Inc. All rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,13 +32,13 @@
 
 template <typename Iint, typename Ilong, typename T>
 static __global__ void rf_setupLUp_kernel(Iint const nrow,
-                                          Iint const ncol,
 
                                           Ilong const* const Lp,
                                           Ilong const* const Up,
 
                                           Ilong* const LUp)
 {
+
     // ---------------------------
     // setup LUp row pointer array
     // ---------------------------
@@ -64,9 +64,9 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
     for(Iint i = i_start; i < nrow; i += i_inc)
     {
         Iint const irow = i;
-        Ilong const nnz_L = Lp[irow + 1] - Lp[irow];
-        Ilong const nnz_U = Up[irow + 1] - Up[irow];
-        Ilong const nnz_LU = (nnz_L - 1) + nnz_U;
+        Iint const nnz_L = Lp[irow + 1] - Lp[irow];
+        Iint const nnz_U = Up[irow + 1] - Up[irow];
+        Iint const nnz_LU = (nnz_L - 1) + nnz_U;
 
         LUp[irow] = nnz_LU;
     };
@@ -88,11 +88,11 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         //    isum[ i ] = sum( LUp[ istart..(iend-1) ] )
         // ---------------------------------------------
         Iint const nb = (nrow + (nthreads - 1)) / nthreads;
-        Iint const istart = i * nb;
-        Iint const iend = min(nrow, istart + nb);
+        Iint const irow_start = i * nb;
+        Iint const irow_end = min(nrow, irow_start + nb);
 
         Ilong presum = 0;
-        for(Iint irow = istart; irow < iend; irow++)
+        for(Iint irow = irow_start; irow < irow_end; irow++)
         {
             Ilong const nnz_LU = LUp[irow];
             presum += nnz_LU;
@@ -114,7 +114,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
     {
         for(Iint i = 0; i < nthreads; i++)
         {
-            Ilong isum_i = isum[i];
+            Ilong const isum_i = isum[i];
             isum[i] = offset;
             offset += isum_i;
         };
@@ -132,11 +132,11 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
     for(Iint i = i_start; i < nthreads; i += i_inc)
     {
         Iint const nb = (nrow + (nthreads - 1)) / nthreads;
-        Iint const istart = i * nb;
-        Iint const iend = min(nrow, istart + nb);
+        Iint const irow_start = i * nb;
+        Iint const irow_end = min(nrow, irow_start + nb);
 
         Ilong ipos = isum[i];
-        for(Iint irow = istart; irow < iend; irow++)
+        for(Iint irow = irow_start; irow < irow_end; irow++)
         {
             Ilong const nz = LUp[irow];
             LUp[irow] = ipos;
@@ -144,8 +144,40 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         };
     };
 
+
+
+   bool constexpr perform_check = true;
+   if (perform_check) {
+   // ------------
+   // check
+   // ------------
+
     __syncthreads();
-}
+
+   for(Iint i=i_start; i < nrows; i += i_inc) {
+        Iint const irow = i;
+        Iint const nnz_L = Lp[irow + 1] - Lp[irow];
+        Iint const nnz_U = Up[irow + 1] - Up[irow];
+        Iint const nnz_LU = (nnz_L - 1) + nnz_U;
+
+        Iint const nz_irow = (LUp[irow+1] - LUp[irow]);
+        bool const isok = (nz_irow  == nnz_LU);
+
+        assert( isok );
+        };
+            
+    __syncthreads();
+
+   Ilong const nnzL = (Lp[nrow] - Lp[0]);
+   Ilong const nnzU = (Up[nrow] - Up[0]);
+   Ilong const nnzLU = (LUp[nrow] - LUp[0]);
+   bool const isok = (  ((nnzL - nrow) + (nnzU)) == nnzLU  );
+   assert( isok );
+   };
+      
+
+    __syncthreads();
+};
 
 template <typename Iint, typename Ilong, typename T>
 static __global__ void rf_sumLU_kernel(Iint const nrow,
@@ -171,8 +203,10 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
     Ilong const nnzU = Up[nrow] - Up[0];
     Ilong const nnzLU = LUp[nrow] - LUp[0];
 
+    {
     bool const isok = (nnzLU == (nnzL + nnzU - nrow));
     assert(isok);
+    };
 
     Iint const irow_start = threadIdx.x + blockIdx.x * blockDim.x;
     Iint const irow_inc = blockDim.x * gridDim.x;
@@ -191,6 +225,16 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
         Iint const nz_LU = (kend_LU - kstart_LU);
 
         // --------------
+        // zero out array LUi[], LUx[]
+        // --------------
+        T const zero = 0.0;
+        for(Iint k=0; k < nz_LU; k++) {
+             Ilong const ip = kstart_LU + k;
+             LUi[ ip ] = 0;
+             LUx[ ip ] = zero;
+             };
+
+        // --------------
         // copy L into LU
         // --------------
         Ilong ip = kstart_LU;
@@ -199,8 +243,8 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
             Ilong const jp = kstart_L + k;
             Iint const jcol = Li[jp];
             T const Lij = Lx[jp];
-            bool const is_diag = (jcol == irow);
-            if(!is_diag)
+            bool const is_strictly_lower = (irow > jcol);
+            if(is_strictly_lower)
             {
                 LUi[ip] = jcol;
                 LUx[ip] = Lij;
@@ -218,12 +262,21 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
 
             Iint const jcol = Ui[jp];
             T const Uij = Ux[jp];
+    
+            bool const is_upper = (irow <= jcol);
 
-            LUi[ip] = jcol;
-            LUx[ip] = Uij;
-
-            ip++;
+            if (is_upper) {
+              LUi[ip] = jcol;
+              LUx[ip] = Uij;
+              ip++;
+              };
         };
+
+        {
+         bool const is_filled = (ip == kend_LU);
+         assert( is_filled );
+        };
+        
 
         // ----------------------------------------
         // check column indices are in sorted order
@@ -246,7 +299,7 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
             // ----------------------------------
             Iint* iarr = &(LUi[kstart_LU]);
             T* darr = &(LUx[kstart_LU]);
-            Iint num = nz_L;
+            Iint const num = nz_L;
 
             rf_shellsort(iarr, darr, num);
         };
@@ -290,14 +343,14 @@ rocsolverStatus_t rf_sumLU(rocsolverRfHandle_t handle,
         Iint const nblocks = 1; // special case
 
         rf_setupLUp_kernel<Iint, Ilong, T>
-            <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, ncol, Lp, Up, LUp);
+            <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Up, LUp);
     };
 
     // ----------------------------------------------------
     // Step 2: copy entries of Li, Lx, Ui, Ux into LUi, LUx
     // ----------------------------------------------------
     {
-        Iint const nthreads = 1024;
+        Iint const nthreads = 128;
         Iint const nblocks = (nrow + (nthreads - 1)) / nthreads;
 
         rf_sumLU_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(
