@@ -1,6 +1,6 @@
 /*! \file */
 /* ************************************************************************
- * Copyright (C) 2020-2023 Advanced Micro Devices, Inc. All rights Reserved.
+ * Copyright (C) 2023 Advanced Micro Devices, Inc. All rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -50,16 +50,27 @@ static __device__ void rf_shellsort(Iint* iarr, T* darr, Iint num)
                 else
                 {
                     // swap entries
-                    Iint itmp = iarr[k];
+                    Iint const itmp = iarr[k];
                     iarr[k] = iarr[k + i];
                     iarr[k + i] = itmp;
 
-                    T dtmp = darr[k];
+                    T const dtmp = darr[k];
                     darr[k] = darr[k + i];
                     darr[k + i] = dtmp;
                 };
             };
         };
     };
-}
+
+  bool const perform_check = true;
+  if (perform_check)
+  {
+  for(Iint i=0; i < (num-1); i++) {
+     bool const is_sorted = (iarr[i] <= iarr[i+1]);
+     assert( is_sorted );
+     };
+
+  };
+
+};
 #endif
