@@ -272,6 +272,8 @@ add_library(roc::rocsolver ALIAS rocsolver)
 
 target_link_libraries(rocsolver
   PUBLIC
+    roc::hipsparse
+    roc::rocsparse
     roc::rocblas
   PRIVATE
     $<BUILD_INTERFACE:rocsolver-common> # https://gitlab.kitware.com/cmake/cmake/-/issues/15415
