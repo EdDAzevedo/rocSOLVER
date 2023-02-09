@@ -96,6 +96,18 @@ static __global__
             LUx[k_lu] = (is_beta_zero) ? zero : beta * LUij;
         };
 
+        // -------------------------------
+        // check column indices are sorted
+        // -------------------------------
+        for(Iint k = 0; k < (nz_LU - 1); k++)
+        {
+            Ilong const k_lu = kstart_LU + k;
+            Iint kcol = LUi[k_lu];
+            Iint kcol_next = LUi[k_lu + 1];
+            bool const is_sorted = (kcol < kcol_next);
+            assert(is_sorted);
+        };
+
         Iint const irow_old = (has_P) ? P_new2old[irow] : irow;
         Ilong const kstart_A = Ap[irow_old];
         Ilong const kend_A = Ap[irow_old + 1];
@@ -145,6 +157,18 @@ rocsolverStatus_t rocsolver_add_PAQ(hipStream_t stream,
                                     Iint const* const LUi,
                                     T* const LUx)
 {
+    // check arguments
+    bool const isok_scalar = (nrow >= 0) && (ncol >= 0);
+    bool const isok_PQ = (P_new2old != nullptr) && (Q_old2new != nullptr)&& bool const isok_A
+        = (Ap != nullptr) && (Ai != nullptr) && (Ax != nullptr);
+    bool const isok_LU = (LUp != nullptr) && (LUi != nullptr) && (LUx != nullptr);
+
+    bool const isok_all = isok_scalar && isok_PQ && isok_A && isok_LU;
+    if(!isok_all)
+    {
+        return (ROCSOLVER_STATUS_INVALID_VALUE);
+    };
+
     int const nthreads = ADD_PAQ_MAX_THDS;
     int const nblocks = (nrow + (nthreads - 1)) / nthreads;
 
