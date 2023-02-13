@@ -32,6 +32,10 @@ the rocSovlerRF library handle into the host memory.  The factors
 are compressed into a single matrix M = (L-I)+U, where the unitary
 diagonal of (L) is not stored.  It is assumed that a prior call to the
 rocsolverRfRefactor() was called to generate the triangular factors.
+
+
+Host memory is allocated then the M = (L-I) + U factors on device are copied
+into Host memory
 ----------------------------------------------------------------------
 */
 
@@ -48,7 +52,7 @@ rocsolverStatus_t rocsolverRfExtractBundledFactorsHost(rocsolverRfHandle_t handl
     // check handle
     // ------------
     {
-        bool const isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+        bool const isok = (handle != nullptr);
         if(!isok)
         {
             return (ROCSOLVER_STATUS_NOT_INITIALIZED);
@@ -67,79 +71,51 @@ rocsolverStatus_t rocsolverRfExtractBundledFactorsHost(rocsolverRfHandle_t handl
         };
     };
 
-    int const n = handle->n;
-    int const nnzLU = handle->nnzLU;
-    size_t const nbytes_Mp = sizeof(int) * (n + 1);
-    size_t const nbytes_Mi = sizeof(int) * nnzLU;
-    size_t const nbytes_Mx = sizeof(double) * nnzLU;
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
 
-    // ------------------------
-    // allocate storage on host
-    // ------------------------
-    int* const Mp = (int*)malloc(nbytes_Mp);
-    int* const Mi = (int*)malloc(nbytes_Mi);
-    double* const Mx = (double*)malloc(nbytes_Mx);
+    try
     {
-        bool const is_alloc_ok = (Mp != nullptr) && (Mi != nullptr) && (Mx != nullptr);
-        if(!is_alloc_ok)
-        {
-            // -------------------------------------------
-            // deallocate host memory to avoid memory leak
-            // -------------------------------------------
-            if(Mp != nullptr)
-            {
-                free(Mp);
-            };
-            if(Mi != nullptr)
-            {
-                free(Mi);
-            };
-            if(Mx != nullptr)
-            {
-                free(Mx);
-            };
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-    };
+        int const n = handle->n;
+        int const nnzLU = handle->nnzLU;
 
-    {
+        // ------------------------
+        // allocate storage on host
+        // ------------------------
+        int* const Mp = new int[n + 1];
+        int* const Mi = new int[nnzLU];
+        double* const Mx = new double[nnzLU];
+
         // ------------------------
         // copy from device to host
         // ------------------------
-        int const ibatch = 0;
 
-        hipError_t const istat_Mp = hipMemcpyDtoH(Mp, handle->csrRowPtrLU, nbytes_Mp);
-        hipError_t const istat_Mi = hipMemcpyDtoH(Mi, handle->csrColIndLU, nbytes_Mi);
-        hipError_t const istat_Mx = hipMemcpyDtoH(Mx, handle->csrValLU_array[ibatch], nbytes_Mx);
+        int* d_Mp = handle->csrRowPtrLU.data().get();
+        thrust::copy(d_Mp, d_Mp + (n + 1), Mp);
 
-        bool const is_copy_ok
-            = (istat_Mp == HIP_SUCCESS) && (istat_Mi == HIP_SUCCESS) && (istat_Mx == HIP_SUCCESS);
-        if(!is_copy_ok)
-        {
-            // -------------------------------------------
-            // deallocate host memory to avoid memory leak
-            // -------------------------------------------
-            if(Mp != nullptr)
-            {
-                free(Mp);
-            };
-            if(Mi != nullptr)
-            {
-                free(Mi);
-            };
-            if(Mx != nullptr)
-            {
-                free(Mx);
-            };
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
+        int* d_Mi = handle->csrColIndLU.data().get();
+        thrust::copy(d_Mi, d_Mi + nnzLU, Mi);
+
+        double* d_Mx = handle->csrValLU_array.data().get();
+        thrust::copy(d_Mx, d_Mx + nnzLU, Mx);
+
+        *h_Mp = Mp;
+        *h_Mi = Mi;
+        *h_Mx = Mx;
+        *h_nnzLU = nnzLU;
+    }
+    catch(const std::bad_alloc& e)
+    {
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
-    *h_nnzLU = nnzLU;
-    *h_Mp = Mp;
-    *h_Mi = Mi;
-    *h_Mx = Mx;
-
-    return (ROCSOLVER_STATUS_SUCCESS);
+    return (istat_return);
 };
 };
