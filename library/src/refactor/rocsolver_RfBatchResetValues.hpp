@@ -52,7 +52,7 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
     // ------------
 
     {
-        bool isok_handle = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+        bool isok_handle = (handle != nullptr);
         if(!isok_handle)
         {
             return (ROCSOLVER_STATUS_NOT_INITIALIZED);
@@ -79,16 +79,6 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
     };
 
     {
-        bool const isok_assume_unchanged = (batch_count == handle->batch_count) && (n == handle->n)
-            && (nnzA == handle->nnzA) && (csrRowPtrA == handle->csrRowPtrA)
-            && (csrColIndA == handle->csrColIndA);
-        if(!isok_assume_unchanged)
-        {
-            return (ROCSOLVER_STATUS_INVALID_VALUE);
-        };
-    };
-
-    {
         // ---------------------------------
         // check pointers in csrValA_array[]
         // ---------------------------------
@@ -109,48 +99,18 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         };
     };
 
-    int const* const P_new2old = handle->P_new2old;
-    int const* const Q_new2old = handle->Q_new2old;
-    int const* const Q_old2new = handle->Q_old2new;
+    int const* const P_new2old = handle->P_new2old.data().get();
+    int const* const Q_new2old = handle->Q_new2old.data().get();
+    int const* const Q_old2new = handle->Q_old2new.data().get();
 
     {
-        bool const is_ok = (P == P_new2old) && (Q == Q_new2old);
+        bool const is_ok = (P == P_new2old) && (Q == Q_new2old) && (Q_old2new != nullptr);
         if(!is_ok)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
     };
 
-    hipStream_t stream;
-    HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &stream),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    bool const no_reordering = (P == nullptr) && (Q == nullptr);
-    if(no_reordering)
-    {
-        // ------------------------------------------
-        // No row reordering and No column reordering
-        // ------------------------------------------
-
-        int const nrow = n;
-        int const ncol = n;
-        T const alpha = 1;
-        T const beta = 0;
-        int const* const Xp = csrRowPtrA;
-        int const* const Xi = csrColIndA;
-
-        int const* const Yp = handle->csrRowPtrLU;
-        int const* const Yi = handle->csrColIndLU;
-
-        for(int ibatch = 0; ibatch < batch_count; ibatch++)
-        {
-            T const* const Xx = csrValA_array[ibatch];
-            T* const Yx = handle->csrValLU_array[ibatch];
-            rocsolver_aXpbY_template<Iint, Ilong, T>(stream, nrow, ncol, alpha, Xp, Xi, Xx, beta,
-                                                     Yp, Yi, Yx);
-        };
-    }
-    else
     {
         // -----------------------------------------
         // need to perform row and column reordering
@@ -161,15 +121,26 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         int const* const Ap = csrRowPtrA;
         int const* const Ai = csrColIndA;
 
-        int const* const LUp = handle->csrRowPtrLU;
-        int const* const LUi = handle->csrColIndLU;
+        int const* const LUp = handle->csrRowPtrLU.data().get();
+        int const* const LUi = handle->csrColIndLU.data().get();
 
         T const alpha = 1;
         T const beta = 0;
 
+        int const* const P_new2old = handle->P_new2old.data().get();
+        int const* const Q_old2new = handle->Q_old2new.data().get();
+        hipStream_t const stream = handle->streamId.data();
+
+        size_t const ialign = handle->ialign;
+        size_t const isize = ((nnzA + (ialign - 1)) / ialign) * ialign;
+
+        handle->csrValLU_array.resize(batch_count * isize);
+
         for(int ibatch = 0; ibatch < batch_count; ibatch++)
         {
-            T* const LUx = handle->csrValLU_array[ibatch];
+            size_t const offset = ibatch * isize;
+
+            T* const LUx = handle->csrValLU_array.data().get() + offset;
             T const* const Ax = csrValA_array[ibatch];
             rocsolver_add_PAQ<Iint, Ilong, T>(stream, nrow, ncol, P_new2old, Q_old2new, alpha, Ap,
                                               Ai, Ax, beta, LUp, LUi, LUx);
