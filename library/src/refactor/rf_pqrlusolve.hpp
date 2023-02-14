@@ -72,111 +72,96 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         };
     };
 
-
- rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
- try {
-    bool const need_apply_P = (P_new2old != nullptr);
-    bool const need_apply_Q = (Q_new2old != nullptr);
-    bool const need_apply_Rs = (Rs != nullptr);
-
-    hipStream_t stream = handle->streamId.data();
-
-    T* const d_brhs = brhs;
-    T* const d_bhat = Temp;
-    T* const d_Rs = Rs;
-
-    if(need_apply_P)
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+    try
     {
-        // ------------------------------
-        // bhat[k] = brhs[ P_new2old[k] ]
-        // ------------------------------
+        bool const need_apply_P = (P_new2old != nullptr);
+        bool const need_apply_Q = (Q_new2old != nullptr);
+        bool const need_apply_Rs = (Rs != nullptr);
 
-        rf_gather(stream, n, P_new2old, d_brhs, d_bhat);
-    }
-    else
-    {
-        // -----------------
-        // bhat[k] = brhs[k]
-        // -----------------
+        hipStream_t stream = handle->streamId.data();
 
-       thrust::copy(  d_brhs, d_brhs + n, d_bhat );
-#if (0)
-        void* const src = (void*)d_brhs;
-        void* const dest = (void*)d_bhat;
-        size_t const nbytes = sizeof(T) * n;
+        T* const d_brhs = brhs;
+        T* const d_bhat = Temp;
+        T* const d_Rs = Rs;
 
-        HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice, stream),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-#endif
-    };
-
-    if(need_apply_Rs)
-    {
-        // -------------------------
-        // bhat[k] = bhat[k] / Rs[k]
-        // -------------------------
-        rf_applyRs(stream, n, d_Rs, d_bhat);
-    };
-
-    // -----------------------------------------------
-    // prepare to call triangular solvers rf_lusolve()
-    // -----------------------------------------------
-
-    {
-        Ilong const nnz = LUp[n] - LUp[0];
-
-        // ---------------------------------------
-        // allocate device memory and copy LU data
-        // ---------------------------------------
-
-        Ilong* const d_LUp = LUp;
-        Iint* const d_LUi = LUi;
-        T* const d_LUx = LUx;
-        T* const d_Temp = Temp;
-
-        rocsolverStatus_t const istat_lusolve
-            = rf_lusolve(handle, n, nnz, d_LUp, d_LUi, d_LUx, d_bhat, d_Temp);
-        bool const isok_lusolve = (istat_lusolve == ROCSOLVER_STATUS_SUCCESS);
-        if(!isok_lusolve)
+        if(need_apply_P)
         {
-            return (istat_lusolve);
+            // ------------------------------
+            // bhat[k] = brhs[ P_new2old[k] ]
+            // ------------------------------
+
+            rf_gather(stream, n, P_new2old, d_brhs, d_bhat);
+        }
+        else
+        {
+            // -----------------
+            // bhat[k] = brhs[k]
+            // -----------------
+
+            thrust::copy(d_brhs, d_brhs + n, d_bhat);
         };
-    };
 
-    if(need_apply_Q)
-    {
-        // -------------------------------
-        // brhs[ Q_new2old[i] ] = bhat[i]
-        // -------------------------------
-        rf_scatter(stream, n, Q_new2old, d_bhat, d_brhs);
+        if(need_apply_Rs)
+        {
+            // -------------------------
+            // bhat[k] = bhat[k] / Rs[k]
+            // -------------------------
+            rf_applyRs(stream, n, d_Rs, d_bhat);
+        };
+
+        // -----------------------------------------------
+        // prepare to call triangular solvers rf_lusolve()
+        // -----------------------------------------------
+
+        {
+            Ilong const nnz = LUp[n] - LUp[0];
+
+            // ---------------------------------------
+            // allocate device memory and copy LU data
+            // ---------------------------------------
+
+            Ilong* const d_LUp = LUp;
+            Iint* const d_LUi = LUi;
+            T* const d_LUx = LUx;
+            T* const d_Temp = Temp;
+
+            rocsolverStatus_t const istat_lusolve
+                = rf_lusolve(handle, n, nnz, d_LUp, d_LUi, d_LUx, d_bhat, d_Temp);
+            bool const isok_lusolve = (istat_lusolve == ROCSOLVER_STATUS_SUCCESS);
+            if(!isok_lusolve)
+            {
+                throw std::runtime_error(__FILE__);
+            };
+        };
+
+        if(need_apply_Q)
+        {
+            // -------------------------------
+            // brhs[ Q_new2old[i] ] = bhat[i]
+            // -------------------------------
+            rf_scatter(stream, n, Q_new2old, d_bhat, d_brhs);
+        }
+        else
+        {
+            // ---------------------
+            // brhs[ k ] = bhat[ k ]
+            // ---------------------
+            thrust::copy(d_bhat, d_bhat + n, d_brhs);
+        };
     }
-    else
+    catch(const std::bad_alloc& e)
     {
-        // ---------------------
-        // brhs[ k ] = bhat[ k ]
-        // ---------------------
-        thrust::copy( d_bhat, d_bhat + n,  d_brhs );
-#if (0)
-        void* src = (void*)d_bhat;
-        void* dest = (void*)d_brhs;
-        size_t nbytes = sizeof(T) * n;
-        HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice, stream),
-                  ROCSOLVER_STATUS_EXECUTION_FAILED);
-#endif
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
-
-  }
-
-  catch(const std::bad_alloc& e ) {
-   istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
-  }
-  catch( const std::runtime_error& e) {
-   istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
-  }
-  catch(...) 
-  {
-  istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
-  };
 
     return (istat_return);
 }

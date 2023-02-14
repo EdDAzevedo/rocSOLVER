@@ -128,6 +128,7 @@ rocsolverStatus_t rocsolverRfBatchSolve(
                 int* const LUp = handle->csrRowPtrLU.data().get();
                 int* const LUi = handle->csrColIndLU.data().get();
 
+                size_t const nnzLU = handle->nnzLU;
                 size_t const ialign = handle->ialign;
                 size_t const isize = ((nnzLU + (ialign - 1)) / ialign) * ialign;
                 size_t const offset = ibatch * isize;

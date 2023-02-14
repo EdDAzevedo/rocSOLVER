@@ -65,6 +65,11 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         Iint const irow = i;
         Iint const nnz_L = Lp[irow + 1] - Lp[irow];
         Iint const nnz_U = Up[irow + 1] - Up[irow];
+
+        // -----------------------------------------
+        // note: assume L has explicit unit diagonal
+        // so use (nnzL - 1)
+        // -----------------------------------------
         Iint const nnz_LU = (nnz_L - 1) + nnz_U;
 
         LUp[irow] = nnz_LU;
@@ -143,6 +148,8 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         };
     };
 
+    __syncthreads();
+
     bool constexpr perform_check = true;
     if(perform_check)
     {
@@ -157,6 +164,11 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
             Iint const irow = i;
             Iint const nnz_L = Lp[irow + 1] - Lp[irow];
             Iint const nnz_U = Up[irow + 1] - Up[irow];
+
+            // ----------------------------------------------
+            // note assume explicit unit diagonal in matrix L
+            // so use (nnzL - 1)
+            // ----------------------------------------------
             Iint const nnz_LU = (nnz_L - 1) + nnz_U;
 
             Iint const nz_irow = (LUp[irow + 1] - LUp[irow]);
@@ -304,6 +316,8 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
         };
 
     }; // end for irow
+
+    __syncthreads();
 }
 
 template <typename Iint, typename Ilong, typename T>
@@ -337,9 +351,10 @@ rocsolverStatus_t rf_sumLU(hipStream_t streamId,
         // -----------------------------
         // Step 1: setup row pointer LUp
         // -----------------------------
+
         {
             Iint const nthreads = 1024;
-            Iint const nblocks = 1; // special case
+            Iint const nblocks = 1; // special case use only a single block
 
             rf_setupLUp_kernel<Iint, Ilong, T>
                 <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Up, LUp);
@@ -355,6 +370,10 @@ rocsolverStatus_t rf_sumLU(hipStream_t streamId,
             rf_sumLU_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(
                 nrow, ncol, Lp, Li, Lx, Up, Ui, Ux, LUp, LUi, LUx);
         };
+    }
+    catch(const std::bad_alloc& e)
+    {
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
     }
     catch(const std::runtime_error& e)
     {

@@ -59,7 +59,7 @@ rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle)
         int const batch_count = handle->batch_count;
 
         int const n = handle->n;
-        int const nnz = handle->nnzLU;
+        int const nnzLU = handle->nnzLU;
         hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle.data();
 
         hipsparseMatDescr_t const descrLU = handle->descrLU.data();
@@ -100,9 +100,9 @@ rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle)
             THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02_numericBoost(
                 hipsparse_handle, infoLU, enable_boost, &effective_zero, &boost_val));
 
-            THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02(hipsparse_handle, n, nnz, descrLU, csrValLU,
-                                                        csrRowPtrLU, csrColIndLU, infoLU, policy,
-                                                        buffer));
+            THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02(hipsparse_handle, n, nnzLU, descrLU,
+                                                        csrValLU, csrRowPtrLU, csrColIndLU, infoLU,
+                                                        policy, buffer));
         };
 
         // ----------------------------------------------------------------------

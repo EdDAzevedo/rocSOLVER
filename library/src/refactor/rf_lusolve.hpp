@@ -51,13 +51,13 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
             && (d_b != nullptr) && (d_Temp != nullptr);
 
         bool const isok_all = isok_arg && isok_scalar;
-        if(!isok_arg)
+        if(!isok_all)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
     };
 
-    rocsparseStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
     try
     {
         hipsparseHandle_t hipsparse_handle = handle->hipsparse_handle.data();
@@ -75,7 +75,6 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         // --------------------------------
 
         Ilong const lnnz = nnz;
-        size_t bufferSize = 1;
         int stmp_L = 0;
         int stmp_U = 0;
 

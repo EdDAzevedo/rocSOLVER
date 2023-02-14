@@ -149,7 +149,6 @@ struct rocsolverRfCommon
     double boost_val = 0;
 
     thrust::device_vector<uint8_t> buffer;
-    size_t buffer_size = 0;
 };
 typedef struct rocsolverRfCommon rocsolverRfHandle;
 typedef rocsolverRfHandle* rocsolverRfHandle_t;
@@ -174,47 +173,6 @@ rocsolverStatus_t rocsolverRfSetMatrixFormat(rocsolverRfHandle_t handle,
 /* ROCSOLVERRF set and get numeric properties */
 rocsolverStatus_t
     rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle, double zero, double boost);
-
-int* csrRowPtrU = nullptr;
-int* csrColIndU = nullptr;
-double* csrValU = nullptr;
-
-int nnzA = 0;
-int* csrRowPtrA = nullptr;
-int* csrColIndA = nullptr;
-
-hipsparseMatDescr_t descrL = nullptr;
-hipsparseMatDescr_t descrU = nullptr;
-hipsparseMatDescr_t descrLU = nullptr;
-
-csrsv2Info_t infoL = nullptr;
-csrsv2Info_t infoU = nullptr;
-csrilu02Info_t* infoLU_array = nullptr;
-
-int batch_count = 0;
-
-int* P_new2old = nullptr;
-int* Q_new2old = nullptr;
-int* Q_old2new = nullptr;
-
-int n = 0;
-int nnzLU = 0;
-int* csrRowPtrLU = nullptr;
-int* csrColIndLU = nullptr;
-// double* csrValLU;
-double** csrValLU_array = nullptr;
-
-double effective_zero = 0;
-double boost_val = 0;
-
-void* buffer = nullptr;
-size_t buffer_size = 0;
-};
-typedef struct rocsolverRfCommon* rocsolverRfHandle_t;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /* ROCSOLVERRF create (allocate memory) and destroy (free memory) in the handle */
 rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* handle);

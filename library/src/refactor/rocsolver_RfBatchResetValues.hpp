@@ -111,6 +111,8 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         };
     };
 
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+    try
     {
         // -----------------------------------------
         // need to perform row and column reordering
@@ -134,20 +136,45 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         size_t const ialign = handle->ialign;
         size_t const isize = ((nnzA + (ialign - 1)) / ialign) * ialign;
 
+        T const zero = 0;
         handle->csrValLU_array.resize(batch_count * isize);
+        thrust::fill(handle->csrValLU_array.begin(), handle->csrValLU_array.end(), zero);
 
+        int nerrors = 0;
         for(int ibatch = 0; ibatch < batch_count; ibatch++)
         {
             size_t const offset = ibatch * isize;
 
             T* const LUx = handle->csrValLU_array.data().get() + offset;
             T const* const Ax = csrValA_array[ibatch];
-            rocsolver_add_PAQ<Iint, Ilong, T>(stream, nrow, ncol, P_new2old, Q_old2new, alpha, Ap,
-                                              Ai, Ax, beta, LUp, LUi, LUx);
+
+            rocsolverStatus_t istat = rocsolver_add_PAQ(stream, nrow, ncol, P_new2old, Q_old2new,
+                                                        alpha, Ap, Ai, Ax, beta, LUp, LUi, LUx);
+            bool const isok = (istat == ROCSOLVER_STATUS_SUCCESS);
+            if(!isok)
+            {
+                nerrors++;
+            };
         };
+        if(nerrors != 0)
+        {
+            throw std::runtime_error(__FILE__);
+        };
+    }
+    catch(const std::bad_alloc& e)
+    {
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
-    return (ROCSOLVER_STATUS_SUCCESS);
+    return (istat_return);
 }
 
 #endif
