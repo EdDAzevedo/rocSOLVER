@@ -143,11 +143,12 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             // copy matrix L
             // -------------
             handle->csrRowPtrL.resize(n + 1);
-            handle->csrColIndL.resize(nnzL);
-            handle->csrValL.resize(nnzL);
+            thrust::copy(csrRowPtrL_in, csrRowPtrL_in + (n + 1), handle->csrRowPtrL.begin());
 
-            thrust::copy(csrRowPtrL_in, csrRowPtrL_in + nnzL, handle->csrRowPtrL.begin());
+            handle->csrColIndL.resize(nnzL);
             thrust::copy(csrColIndL_in, csrColIndL_in + nnzL, handle->csrColIndL.begin());
+
+            handle->csrValL.resize(nnzL);
             thrust::copy(csrValL_in, csrValL_in + nnzL, handle->csrValL.begin());
         };
 
@@ -156,11 +157,12 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             // copy matrix U
             // -------------
             handle->csrRowPtrU.resize(n + 1);
-            handle->csrColIndU.resize(nnzU);
-            handle->csrValU.resize(nnzU);
+            thrust::copy(csrRowPtrU_in, csrRowPtrU_in + (n + 1), handle->csrRowPtrU.begin());
 
-            thrust::copy(csrRowPtrU_in, csrRowPtrU_in + nnzU, handle->csrRowPtrU.begin());
+            handle->csrColIndU.resize(nnzU);
             thrust::copy(csrColIndU_in, csrColIndU_in + nnzU, handle->csrColIndU.begin());
+
+            handle->csrValU.resize(nnzU);
             thrust::copy(csrValU_in, csrValU_in + nnzU, handle->csrValU.begin());
         };
 
