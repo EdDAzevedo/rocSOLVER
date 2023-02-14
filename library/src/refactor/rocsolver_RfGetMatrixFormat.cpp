@@ -44,7 +44,7 @@ rocsolverStatus_t rocsolverRfGetMatrixFormat(rocsolverRfHandle_t handle,
                                              rocsolverRfUnitDiagonal_t* diag_format)
 {
     {
-        bool const isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+        bool const isok = (handle != nullptr);
         if(!isok)
         {
             return (ROCSOLVER_STATUS_NOT_INITIALIZED);

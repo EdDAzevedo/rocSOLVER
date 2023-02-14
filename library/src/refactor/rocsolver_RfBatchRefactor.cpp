@@ -69,8 +69,8 @@ rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle)
         //  ----------------------------------------------------
         //  numerical boost is disabled by default in cusolverRF
         //  ----------------------------------------------------
-        double const effective_zero = handle->effective_zero;
-        double const boost_val = handle->boost_val;
+        double effective_zero = handle->effective_zero;
+        double boost_val = handle->boost_val;
 
         // -------------------------------------------------------------
         // set enable_boost to 1 or disable by setting enable_boost to 0
@@ -83,14 +83,19 @@ rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle)
 
         size_t const ialign = handle->ialign;
         size_t const isize = ((nnzLU + (ialign - 1)) / ialign) * ialign;
-        void* const buffer = handle->buffer.data();
+        void* const buffer = handle->buffer.data().get();
 
         for(int ibatch = 0; ibatch < batch_count; ibatch++)
         {
             size_t const offset = ibatch * isize;
             double* const csrValLU = handle->csrValLU_array.data().get() + offset;
 
-            auto const infoLU = infoLU_array[ibatch].data();
+            hipsparseSolvePolicy_t const policy
+                = (handle->solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1)
+                ? HIPSPARSE_SOLVE_POLICY_USE_LEVEL
+                : HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
+
+            csrilu02Info_t const infoLU = handle->infoLU_array[ibatch].data();
 
             THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02_numericBoost(
                 hipsparse_handle, infoLU, enable_boost, &effective_zero, &boost_val));
@@ -112,7 +117,7 @@ rocsolverStatus_t rocsolverRfBatchRefactor(rocsolverRfHandle_t handle)
     }
     catch(const std::runtime_error& e)
     {
-        istat_return = ROCSOLVER_STATUS_EXECUTION_ERROR;
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
     }
     catch(...)
     {

@@ -34,7 +34,8 @@
 #ifndef HIPSPARSE_CHECK
 #define HIPSPARSE_CHECK(fcn, error_code)                                                    \
     {                                                                                       \
-        if((fcn) != HIPSPARSE_STATUS_SUCCESS)                                               \
+        hipsparseStatus_t const istat = (fcn);                                              \
+        if(istat != HIPSPARSE_STATUS_SUCCESS)                                               \
         {                                                                                   \
             printf("HIPSPARSE API failed at line %d in file %s with error: %d\n", __LINE__, \
                    __FILE__, istat);                                                        \
@@ -46,7 +47,8 @@
 #ifndef THROW_IF_HIPSPARSE_ERROR
 #define THROW_IF_HIPSPARSE_ERROR(fcn)                                  \
     {                                                                  \
-        if((fcn) != HIPSPARSE_STATUS_SUCCESS)                          \
+        hipsparseStatus_t const istat = (fcn);                         \
+        if(istat != HIPSPARSE_STATUS_SUCCESS)                          \
         {                                                              \
             printf("HIPSPARSE failed at %s:%d\n", __FILE__, __LINE__); \
             throw std::runtime_error(__FILE__);                        \

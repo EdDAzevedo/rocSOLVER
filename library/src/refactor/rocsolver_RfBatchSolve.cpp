@@ -70,7 +70,7 @@ rocsolverStatus_t rocsolverRfBatchSolve(
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-    auto batch_count = handle->batch_count;
+    int const batch_count = handle->batch_count;
 
     {
         bool const isok
@@ -111,37 +111,58 @@ rocsolverStatus_t rocsolverRfBatchSolve(
         };
     };
 
-    int* const P_new2old = P;
-    int* const Q_new2old = Q;
+    int* const P_new2old = handle->P_new2old.data().get();
+    int* const Q_new2old = handle->Q_new2old.data().get();
 
     {
-        bool const isok = (P_new2old == handle->P_new2old) && (Q_new2old == handle->Q_new2old);
+        bool const isok = (P == P_new2old) && (Q == Q_new2old);
         if(!isok)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
     };
 
-    for(int ibatch = 0; ibatch < batch_count; ibatch++)
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+
+    try
     {
-        double* XF = XF_array[ibatch];
-        for(int irhs = 0; irhs < nrhs; irhs++)
+        for(int ibatch = 0; ibatch < batch_count; ibatch++)
         {
-            double* const Rs = nullptr;
-            double* const brhs = &(XF[ldxf * irhs]);
-            int* const LUp = handle->csrRowPtrLU;
-            int* const LUi = handle->csrColIndLU;
-            double* const LUx = handle->csrValLU_array[ibatch];
-
-            rocsolverStatus_t isok
-                = rf_pqrlusolve(handle, n, P_new2old, Q_new2old, Rs, LUp, LUi, LUx, brhs, d_Temp);
-            if(!isok)
+            double* const XF = XF_array[ibatch];
+            for(int irhs = 0; irhs < nrhs; irhs++)
             {
-                return (ROCSOLVER_STATUS_INTERNAL_ERROR);
-            };
-        };
-    }; // end for ibatch
+                double* const Rs = nullptr;
+                double* const brhs = &(XF[ldxf * irhs]);
+                int* const LUp = handle->csrRowPtrLU.data().get();
+                int* const LUi = handle->csrColIndLU.data().get();
 
-    return (ROCSOLVER_STATUS_SUCCESS);
+                size_t const ialign = handle->ialign;
+                size_t const isize = ((nnzLU + (ialign - 1)) / ialign) * ialign;
+                size_t const offset = ibatch * isize;
+                double* const LUx = handle->csrValLU_array.data().get() + offset;
+
+                rocsolverStatus_t isok = rf_pqrlusolve(handle, n, P_new2old, Q_new2old, Rs, LUp,
+                                                       LUi, LUx, brhs, d_Temp);
+                if(!isok)
+                {
+                    throw std::runtime_error(__FILE__);
+                };
+            };
+        }; // end for ibatch
+    }
+    catch(const std::bad_alloc& e)
+    {
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
+    };
+
+    return (istat_return);
 };
 };

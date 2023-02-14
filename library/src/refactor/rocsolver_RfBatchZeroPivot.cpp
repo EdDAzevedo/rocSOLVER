@@ -51,18 +51,16 @@ rocsolverStatus_t rocsolverRfBatchZeroPivot(rocsolverRfHandle_t handle,
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-    if(handle->hipsparse_handle == 0)
-    {
-        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
-    };
-
     int const batch_count = handle->batch_count;
+
+    hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle.data();
 
     for(int ibatch = 0; ibatch < batch_count; ibatch++)
     {
         int ipos = 0;
-        hipsparseStatus_t istat = hipsparseXcsrilu02_zeroPivot(handle->hipsparse_handle,
-                                                               handle->infoLU_array[ibatch], &ipos);
+
+        csrilu02Info_t const infoLU = handle->infoLU_array[ibatch].data();
+        hipsparseStatus_t istat = hipsparseXcsrilu02_zeroPivot(hipsparse_handle, infoLU, &ipos);
         position[ibatch] = (istat == HIPSPARSE_STATUS_ZERO_PIVOT) ? (ipos - 1) : -1;
     };
 

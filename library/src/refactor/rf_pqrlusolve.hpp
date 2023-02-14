@@ -76,10 +76,7 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
     bool const need_apply_Q = (Q_new2old != nullptr);
     bool const need_apply_Rs = (Rs != nullptr);
 
-    hipStream_t stream;
-
-    HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &stream),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
+    hipStream_t stream = handle->streamId.data();
 
     T* const d_brhs = brhs;
     T* const d_bhat = Temp;

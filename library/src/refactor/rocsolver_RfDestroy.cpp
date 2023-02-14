@@ -52,7 +52,7 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
     }
     catch(const std::runtime_error& e)
     {
-        istat_return = ROCSOLVER_STATUS_EXECUTION_ERROR;
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
     }
     catch(...)
     {

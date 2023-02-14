@@ -101,7 +101,7 @@ struct hipsparseMatDescr_cxx_t
         hipsparseStatus_t istat = hipsparseDestroyMatDescr(_data);
         bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
 
-        // note: destructor cannot throw
+        // note: destructor should not throw
         assert(isok);
     };
 };
@@ -129,7 +129,7 @@ struct csrilu02Info_cxx_t
         hipsparseStatus_t istat = hipsparseDestroyCsrilu02Info(_data);
         bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
         _data = nullptr;
-        // note: destructor cannot throw
+        // note: destructor should not throw
         assert(isok);
     };
 };
@@ -158,7 +158,7 @@ struct csrsv2Info_cxx_t
         hipsparseStatus_t istat = hipsparseDestroyCsrsv2Info(_data);
         bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
         _data = nullptr;
-        // note: destructor cannot throw
+        // note: destructor should not throw
         assert(isok);
     };
 };

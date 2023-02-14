@@ -65,9 +65,9 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         double* csrValLU = handle->csrValLU_array.data().get();
         double* const csrValLU_array = handle->csrValLU_array.data().get();
 
-        auto const infoL = handle->infoL.data();
-        auto const infoU = handle->infoU.data();
-        auto const infoLU = infoLU_array[ibatch].data();
+        csrsv2Info_t const infoL = handle->infoL.data();
+        csrsv2Info_t const infoU = handle->infoU.data();
+        csrilu02Info_t const infoLU = handle->infoLU_array[ibatch].data();
 
         hipsparseHandle_t hipsparse_handle = handle->hipsparse_handle.data();
         void* const buffer = handle->buffer.data().get();

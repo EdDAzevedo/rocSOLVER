@@ -37,7 +37,7 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
                              T* const d_Temp)
 {
     {
-        bool isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+        bool isok = (handle != nullptr);
         if(!isok)
         {
             return (ROCSOLVER_STATUS_NOT_INITIALIZED);
@@ -55,13 +55,13 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         };
     };
 
-    hipsparseMatDescr_t descrL = handle->descrL;
+    hipsparseMatDescr_t descrL = handle->descrL.data();
 
-    csrsv2Info_t infoL = handle->infoL;
+    csrsv2Info_t infoL = handle->infoL.data();
 
-    hipsparseMatDescr_t descrU = handle->descrU;
+    hipsparseMatDescr_t descrU = handle->descrU.data();
 
-    csrsv2Info_t infoU = handle->infoU;
+    csrsv2Info_t infoU = handle->infoU.data();
 
     // --------------------------------
     // Allocate workspace for hipSPARSE
@@ -85,7 +85,7 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
     stmp = 0;
     HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle, transL, m, lnnz, descrL, csrSortedValA,
                                                 csrSortedRowPtrA, csrSortedColIndA, infoL, &stmp),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
+                    ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     if(stmp > bufferSize)
     {
@@ -95,23 +95,18 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
     stmp = 0;
     HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle, transU, m, lnnz, descrU, csrSortedValA,
                                                 csrSortedRowPtrA, csrSortedColIndA, infoU, &stmp),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
+                    ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     if(stmp > bufferSize)
     {
         bufferSize = stmp;
     }
+    bool const isok_size = (handle->buffer_size >= bufferSize);
+    assert(isok_size);
 
     T* const d_y = d_Temp;
-    void* const buffer = handle->buffer;
-    {
-        bool isok = (handle->buffer_size >= bufferSize);
-        assert(isok);
-        if(isok)
-        {
-            return (ROCSOLVER_STATUS_INTERNAL_ERROR);
-        };
-    };
+
+    void* const buffer = handle->buffer.data().get();
 
     T* const d_x = d_b;
 
@@ -128,12 +123,12 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
     HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle, transL, m, lnnz, descrL, csrSortedValA,
                                               csrSortedRowPtrA, csrSortedColIndA, infoL, policy,
                                               buffer),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
+                    ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle, transU, m, lnnz, descrU, csrSortedValA,
                                               csrSortedRowPtrA, csrSortedColIndA, infoU, policy,
                                               buffer),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
+                    ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     /*
      ----------------------
@@ -146,7 +141,7 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
     HIPSPARSE_CHECK(hipsparseDcsrsv2_solve(handle, transL, m, lnnz, &alpha, descrL, csrSortedValA,
                                            csrSortedRowPtrA, csrSortedColIndA, infoL, d_b, d_y,
                                            policy, buffer),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
+                    ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     /*
           ----------------------
@@ -157,7 +152,7 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
     HIPSPARSE_CHECK(hipsparseDcsrsv2_solve(handle, transU, m, lnnz, &alpha, descrU, csrSortedValA,
                                            csrSortedRowPtrA, csrSortedColIndA, infoU, d_y, d_x,
                                            policy, buffer),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
+                    ROCSOLVER_STATUS_EXECUTION_FAILED);
 
     return (ROCSOLVER_STATUS_SUCCESS);
 }

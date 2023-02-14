@@ -51,7 +51,7 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
     // check handle
     // ------------
     {
-        bool const isok = (handle != nullptr) && (handle->hipsparse_handle != nullptr);
+        bool const isok = (handle != nullptr);
         if(!isok)
         {
             return (ROCSOLVER_STATUS_NOT_INITIALIZED);
