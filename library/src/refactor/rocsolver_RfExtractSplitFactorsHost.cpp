@@ -78,247 +78,183 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
     // -----------------------
     // extract M = (L - I) + U
     // -----------------------
-    int nnzM = 0;
-    int* Mp = nullptr;
-    int* Mi = nullptr;
-    double* Mx = nullptr;
-    {
-        rocsolverStatus_t istat = rocsolverRfExtractBundledFactorsHost(handle, &nnzM, &Mp, &Mi, &Mx);
 
-        if(istat != ROCSOLVER_STATUS_SUCCESS)
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+
+    try
+    {
+        // ------------------------------
+        // temporary storage for matrix M
+        // ------------------------------
+        int nnzM = 0;
+        int* Mp = nullptr;
+        int* Mi = nullptr;
+        double* Mx = nullptr;
         {
-            return (istat);
-        };
-    };
+            rocsolverStatus_t istat
+                = rocsolverRfExtractBundledFactorsHost(handle, &nnzM, &Mp, &Mi, &Mx);
 
-    // --------------------
-    // split M = (L-I) + U  into L and U
-    // --------------------
-    int const n = handle->n;
-    int* const Lp = (int*)malloc(sizeof(int) * (n + 1));
-    int* const Up = (int*)malloc(sizeof(int) * (n + 1));
-    int* const nzLp = (int*)malloc(sizeof(int) * n);
-    int* const nzUp = (int*)malloc(sizeof(int) * n);
-
-    {
-        bool const is_alloc_ok
-            = (Lp != nullptr) && (Up != nullptr) && (nzLp != nullptr) && (nzUp != nullptr);
-        if(!is_alloc_ok)
-        {
-            // -------------------------------------------
-            // deallocate host memory to avoid memory leak
-            // -------------------------------------------
-            if(Lp != nullptr)
+            if(istat != ROCSOLVER_STATUS_SUCCESS)
             {
-                free(Lp);
-            };
-            if(Up != nullptr)
-            {
-                free(Up);
-            };
-            if(nzLp != nullptr)
-            {
-                free(nzLp);
-            };
-            if(nzUp != nullptr)
-            {
-                free(nzUp);
-            };
-
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-    };
-
-    // -------------------------------------------------
-    // 1st pass to determine number of non-zeros per row
-    // -------------------------------------------------
-    for(int i = 0; i < n; i++)
-    {
-        nzLp[i] = 0;
-        nzUp[i] = 0;
-    };
-
-    int nnzL = 0;
-    int nnzU = 0;
-    for(int irow = 0; irow < n; irow++)
-    {
-        int const istart = Mp[irow];
-        int const iend = Mp[irow + 1];
-        int const nz = (iend - istart);
-
-        int nzU = 0;
-        for(int k = istart; k < iend; k++)
-        {
-            int const kcol = Mi[k];
-            bool const is_upper = (irow <= kcol);
-            if(is_upper)
-            {
-                nzU++;
+                throw std::runtime_error(__FILE__);
             };
         };
-        int const nzL = nz - nzU;
 
-        nzLp[irow] = (nzL + 1); // add 1 for unit diagonal
-        nzUp[irow] = nzU;
+        // --------------------
+        // split M = (L-I) + U  into L and U
+        // --------------------
+        int const n = handle->n;
 
-        nnzL += (nzL + 1);
-        nnzU += nzU;
-    };
+        int* const Lp = new int[n + 1];
+        int* const Up = new int[n + 1];
+        int* const nzLp = new int[n];
+        int* const nzUp = new int[n];
 
-    int* const Li = (int*)malloc(sizeof(int) * nnzL);
-    int* const Ui = (int*)malloc(sizeof(int) * nnzU);
-    double* const Lx = (double*)malloc(sizeof(double) * nnzL);
-    double* const Ux = (double*)malloc(sizeof(double) * nnzU);
-
-    {
-        bool const is_alloc_ok
-            = (Li != nullptr) && (Ui != nullptr) && (Lx != nullptr) && (Ux != nullptr);
-        if(!is_alloc_ok)
+        // -------------------------------------------------
+        // 1st pass to determine number of non-zeros per row
+        // -------------------------------------------------
+        for(int i = 0; i < n; i++)
         {
-            // -----------------------------------------------
-            // deallocate all host arrays to avoid memory leak
-            // -----------------------------------------------
-            if(Li != nullptr)
-            {
-                free(Li);
-            };
-            if(Ui != nullptr)
-            {
-                free(Ui);
-            };
-            if(Lx != nullptr)
-            {
-                free(Lx);
-            };
-            if(Ux != nullptr)
-            {
-                free(Ux);
-            };
-
-            if(Lp != nullptr)
-            {
-                free(Lp);
-            };
-            if(Up != nullptr)
-            {
-                free(Up);
-            };
-            if(nzLp != nullptr)
-            {
-                free(nzLp);
-            };
-            if(nzUp != nullptr)
-            {
-                free(nzUp);
-            };
-
-            if(Mp != nullptr)
-            {
-                free(Mp);
-            };
-            if(Mi != nullptr)
-            {
-                free(Mi);
-            };
-            if(Mx != nullptr)
-            {
-                free(Mx);
-            };
-
-            return (ROCSOLVER_STATUS_ALLOC_FAILED);
+            nzLp[i] = 0;
+            nzUp[i] = 0;
         };
-    };
 
-    // ------------------------------------
-    // prefix sum scan to setup Lp and Up
-    // ------------------------------------
-    int iL = 0;
-    int iU = 0;
-    for(int irow = 0; irow < n; irow++)
-    {
-        int const nzL = nzLp[irow];
-        int const nzU = nzUp[irow];
-        Lp[irow] = iL;
-        iL += nzL;
-
-        Up[irow] = iU;
-        iU += nzU;
-    };
-    Up[n] = nnzU;
-    Lp[n] = nnzL;
-
-    // ---------------------------------------------------
-    // second pass to populate  Li[], Lx[], Ui[], Ux[]
-    // ---------------------------------------------------
-
-    for(int irow = 0; irow < n; irow++)
-    {
-        nzLp[irow] = Lp[irow];
-        nzUp[irow] = Up[irow];
-    };
-
-    double const one = 1;
-
-    for(int irow = 0; irow < n; irow++)
-    {
-        int const istart = Mp[irow];
-        int const iend = Mp[irow + 1];
-        for(int k = istart; k < iend; k++)
+        int nnzL = 0;
+        int nnzU = 0;
+        for(int irow = 0; irow < n; irow++)
         {
-            int const kcol = Mi[k];
-            double const mij = Mx[k];
-            bool const is_upper = (irow <= kcol);
-            if(is_upper)
-            {
-                int const ip = nzUp[irow];
-                nzUp[irow]++;
+            int const istart = Mp[irow];
+            int const iend = Mp[irow + 1];
+            int const nz = (iend - istart);
 
-                Ui[ip] = kcol;
-                Ux[ip] = mij;
-            }
-            else
+            int nzU = 0;
+            for(int k = istart; k < iend; k++)
             {
-                int const ip = nzLp[irow];
-                nzLp[irow]++;
+                int const kcol = Mi[k];
+                bool const is_upper = (irow <= kcol);
+                if(is_upper)
+                {
+                    nzU++;
+                };
+            };
+            int const nzL = nz - nzU;
 
-                Li[ip] = kcol;
-                Lx[ip] = mij;
+            nzLp[irow] = (nzL + 1); // add 1 for unit diagonal
+            nzUp[irow] = nzU;
+
+            nnzL += (nzL + 1);
+            nnzU += nzU;
+        };
+
+        int* const Li = new int[nnzL];
+        double* const Lx = new double[nnzL];
+
+        int* const Ui = new int[nnzU];
+        double* const Ux = new double[nnzU];
+
+        // ------------------------------------
+        // prefix sum scan to setup Lp and Up
+        // ------------------------------------
+        int iL = 0;
+        int iU = 0;
+        for(int irow = 0; irow < n; irow++)
+        {
+            int const nzL = nzLp[irow];
+            int const nzU = nzUp[irow];
+            Lp[irow] = iL;
+            iL += nzL;
+
+            Up[irow] = iU;
+            iU += nzU;
+        };
+        Up[n] = nnzU;
+        Lp[n] = nnzL;
+
+        // ---------------------------------------------------
+        // second pass to populate  Li[], Lx[], Ui[], Ux[]
+        // ---------------------------------------------------
+
+        for(int irow = 0; irow < n; irow++)
+        {
+            nzLp[irow] = Lp[irow];
+            nzUp[irow] = Up[irow];
+        };
+
+        double const one = 1;
+
+        for(int irow = 0; irow < n; irow++)
+        {
+            int const istart = Mp[irow];
+            int const iend = Mp[irow + 1];
+            for(int k = istart; k < iend; k++)
+            {
+                int const kcol = Mi[k];
+                double const mij = Mx[k];
+                bool const is_upper = (irow <= kcol);
+                if(is_upper)
+                {
+                    int const ip = nzUp[irow];
+                    nzUp[irow]++;
+
+                    Ui[ip] = kcol;
+                    Ux[ip] = mij;
+                }
+                else
+                {
+                    int const ip = nzLp[irow];
+                    nzLp[irow]++;
+
+                    Li[ip] = kcol;
+                    Lx[ip] = mij;
+                };
             };
         };
-    };
 
-    // ------------------------
-    // set unit diagonal entry in L
-    // ------------------------
-    for(int irow = 0; irow < n; irow++)
+        // ------------------------
+        // set unit diagonal entry in L
+        // ------------------------
+        for(int irow = 0; irow < n; irow++)
+        {
+            int const kend = Lp[irow + 1];
+            int const ip = kend - 1;
+            Li[ip] = irow;
+            Lx[ip] = one;
+        };
+
+        *h_nnzL = nnzL;
+        *h_Lp = Lp;
+        *h_Li = Li;
+        *h_Lx = Lx;
+
+        *h_nnzU = nnzU;
+        *h_Up = Up;
+        *h_Ui = Ui;
+        *h_Ux = Ux;
+
+        // -----------------
+        // clean up matrix M
+        // -----------------
+
+        delete[] nzLp;
+        delete[] nzUp;
+
+        delete[] Mp;
+        delete[] Mi;
+        delete[] Mx;
+    }
+    catch(const std::bad_alloc& e)
     {
-        int const kend = Lp[irow + 1];
-        int const ip = kend - 1;
-        Li[ip] = irow;
-        Lx[ip] = one;
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
-    *h_nnzL = nnzL;
-    *h_Lp = Lp;
-    *h_Li = Li;
-    *h_Lx = Lx;
-
-    *h_nnzU = nnzU;
-    *h_Up = Up;
-    *h_Ui = Ui;
-    *h_Ux = Ux;
-
-    // -----------------
-    // clean up matrix M
-    // -----------------
-
-    free(nzLp);
-    free(nzUp);
-
-    free(Mp);
-    free(Mi);
-    free(Mx);
-
-    return (ROCSOLVER_STATUS_SUCCESS);
+    return (istat_return);
 };
 };
