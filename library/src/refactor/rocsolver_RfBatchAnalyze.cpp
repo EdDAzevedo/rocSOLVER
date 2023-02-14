@@ -46,197 +46,81 @@ extern "C" {
 
 rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
 {
-    if(handle == 0)
+    if(handle == nullptr)
     {
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
-    if(handle->hipsparse_handle == 0)
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+
+    try
     {
-        return (ROCSOLVER_STATUS_NOT_INITIALIZED);
-    };
-
-    int const nnzLU = handle->nnzLU;
-    int const n = handle->n;
-    int const batch_count = handle->batch_count;
-
-    int* csrRowPtrLU = handle->csrRowPtrLU;
-    int* csrColIndLU = handle->csrColIndLU;
-    double** csrValLU_array = handle->csrValLU_array;
-
-    hipsparseMatDescr_t const descrL = handle->descrL;
-    hipsparseMatDescr_t const descrU = handle->descrU;
-    hipsparseMatDescr_t const descrLU = handle->descrLU;
-    {
-        bool const isok = (n >= 0) && (nnzLU >= 0) && (batch_count >= 0) && (csrRowPtrLU != 0)
-            && (csrColIndLU != 0) && (csrValLU_array != 0) && (descrL != 0) && (descrU != 0)
-            && (descrLU != 0);
-
-        if(!isok)
-        {
-            return (ROCSOLVER_STATUS_INTERNAL_ERROR);
-        };
-    };
-
-    for(int ibatch = 0; ibatch < batch_count; ibatch++)
-    {
-        double* const csrValLU = csrValLU_array[ibatch];
-        if(csrValLU == 0)
-        {
-            return (ROCSOLVER_STATUS_INTERNAL_ERROR);
-        };
-    };
-
-    double* const csrValLU = csrValLU_array[0];
-
-    hipsparseSolvePolicy_t const policy = (handle->solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1)
-        ? HIPSPARSE_SOLVE_POLICY_USE_LEVEL
-        : HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
-
-    hipsparseOperation_t transL = HIPSPARSE_OPERATION_NON_TRANSPOSE;
-    hipsparseOperation_t transU = HIPSPARSE_OPERATION_NON_TRANSPOSE;
-
-    // ---------------------------
-    // create infoL, infoU, infoLU
-    // ---------------------------
-    {
-        if(handle->infoL != 0)
-        {
-            HIPSPARSE_CHECK(hipsparseDestroyCsrsv2Info(handle->infoL),
-                            ROCSOLVER_STATUS_INTERNAL_ERROR);
-            handle->infoL = 0;
-        };
-        HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&(handle->infoL)), ROCSOLVER_STATUS_INTERNAL_ERROR);
-
-        if(handle->infoU != 0)
-        {
-            HIPSPARSE_CHECK(hipsparseDestroyCsrsv2Info(handle->infoU),
-                            ROCSOLVER_STATUS_INTERNAL_ERROR);
-            handle->infoU = 0;
-        };
-        HIPSPARSE_CHECK(hipsparseCreateCsrsv2Info(&(handle->infoU)), ROCSOLVER_STATUS_INTERNAL_ERROR);
-
-        if(handle->infoLU_array != 0)
-        {
-            for(int ibatch = 0; ibatch < handle->batch_count; ibatch++)
-            {
-                if(handle->infoLU_array[ibatch] != 0)
-                {
-                    HIPSPARSE_CHECK(hipsparseDestroyCsrilu02Info(handle->infoLU_array[ibatch]),
-                                    ROCSOLVER_STATUS_INTERNAL_ERROR);
-                };
-                handle->infoLU_array[ibatch] = 0;
-            };
-
-            HIP_CHECK(hipFree(handle->infoLU_array), ROCSOLVER_STATUS_ALLOC_FAILED);
-            handle->infoLU_array = 0;
-        };
-
-        {
-            size_t nbytes = handle->batch_count * sizeof(csrilu02Info_t);
-            HIP_CHECK(hipMalloc((void**)&(handle->infoLU_array), nbytes),
-                      ROCSOLVER_STATUS_ALLOC_FAILED);
-        };
-
-        for(int ibatch = 0; ibatch < handle->batch_count; ibatch++)
-        {
-            HIPSPARSE_CHECK(hipsparseCreateCsrilu02Info(&(handle->infoLU_array[ibatch])),
-                            ROCSOLVER_STATUS_INTERNAL_ERROR);
-        };
-    };
-
-    size_t bufferSize = 1;
-    int stmp = 0;
-
-    {
-        // ---------------------------------------------
-        // check buffer size for triangular solve with L
-        // ---------------------------------------------
-
-        stmp = 0;
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle->hipsparse_handle, transL, n, nnzLU,
-                                                    handle->descrL, csrValLU, csrRowPtrLU,
-                                                    csrColIndLU, handle->infoL, &stmp),
-                        ROCSOLVER_STATUS_INTERNAL_ERROR);
-        if(stmp > bufferSize)
-        {
-            bufferSize = stmp;
-        };
-    };
-
-    {
-        // ---------------------------------------------
-        // check buffer size for triangular solve with U
-        // ---------------------------------------------
-        stmp = 0;
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle->hipsparse_handle, transU, n, nnzLU,
-                                                    handle->descrU, csrValLU, csrRowPtrLU,
-                                                    csrColIndLU, handle->infoU, &stmp),
-                        ROCSOLVER_STATUS_INTERNAL_ERROR);
-
-        if(stmp > bufferSize)
-        {
-            bufferSize = stmp;
-        };
-    };
-
-    {
-        // -------------------------
-        // check buffer size for ILU
-        // -------------------------
         int const ibatch = 0;
-        HIPSPARSE_CHECK(hipsparseDcsrilu02_bufferSize(
-                            handle->hipsparse_handle, n, nnzLU, handle->descrLU, csrValLU,
-                            csrRowPtrLU, csrColIndLU, handle->infoLU_array[ibatch], &stmp),
-                        ROCSOLVER_STATUS_INTERNAL_ERROR);
-        if(stmp > bufferSize)
-        {
-            bufferSize = stmp;
-        };
-    };
+        int const nnzLU = handle->nnzLU;
+        int const n = handle->n;
+        int const batch_count = handle->batch_count;
 
-    {
-        // ------------------------
-        // reuse buffer if possible
-        // ------------------------
-        if(bufferSize > handle->buffer_size)
-        {
-            HIP_CHECK(hipFree(handle->buffer), ROCSOLVER_STATUS_INTERNAL_ERROR);
-            handle->buffer_size = bufferSize;
-            HIP_CHECK(hipMalloc(&(handle->buffer), bufferSize), ROCSOLVER_STATUS_ALLOC_FAILED);
+        int* const csrRowPtrLU = handle->csrRowPtrLU.data().get();
+        int* const csrColIndLU = handle->csrColIndLU.data().get();
+        double* csrValLU = handle->csrValLU_array.data().get();
+        double* const csrValLU_array = handle->csrValLU_array.data().get();
 
-            if(handle->buffer == 0)
+        auto const infoL = handle->infoL.data();
+        auto const infoU = handle->infoU.data();
+        auto const infoLU = infoLU_array[ibatch].data();
+
+        hipsparseHandle_t hipsparse_handle = handle->hipsparse_handle.data();
+        void* const buffer = handle->buffer.data().get();
+
+        hipsparseMatDescr_t const descrL = handle->descrL.data();
+        hipsparseMatDescr_t const descrU = handle->descrU.data();
+        hipsparseMatDescr_t const descrLU = handle->descrLU.data();
+        {
+            bool const isok = (n >= 0) && (nnzLU >= 0) && (batch_count >= 0) && (csrRowPtrLU != 0)
+                && (csrColIndLU != 0) && (csrValLU_array != 0) && (descrL != 0) && (descrU != 0)
+                && (descrLU != 0);
+
+            if(!isok)
             {
-                return (ROCSOLVER_STATUS_ALLOC_FAILED);
+                return (ROCSOLVER_STATUS_INTERNAL_ERROR);
             };
         };
-    };
 
-    {
+        hipsparseSolvePolicy_t const policy = (handle->solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1)
+            ? HIPSPARSE_SOLVE_POLICY_USE_LEVEL
+            : HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
+
+        hipsparseOperation_t transL = HIPSPARSE_OPERATION_NON_TRANSPOSE;
+        hipsparseOperation_t transU = HIPSPARSE_OPERATION_NON_TRANSPOSE;
+
         // ----------------
         // perform analysis
         // ----------------
 
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle->hipsparse_handle, transL, n, nnzLU,
-                                                  handle->descrL, csrValLU, csrRowPtrLU, csrColIndLU,
-                                                  handle->infoL, policy, handle->buffer),
-                        ROCSOLVER_STATUS_INTERNAL_ERROR);
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transL, n, nnzLU,
+                                                           descrL, csrValLU, csrRowPtrLU,
+                                                           csrColIndLU, infoL, policy, buffer));
 
-        HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle->hipsparse_handle, transU, n, nnzLU,
-                                                  handle->descrU, csrValLU, csrRowPtrLU, csrColIndLU,
-                                                  handle->infoU, policy, handle->buffer),
-                        ROCSOLVER_STATUS_INTERNAL_ERROR);
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transU, n, nnzLU,
+                                                           descrU, csrValLU, csrRowPtrLU,
+                                                           csrColIndLU, infoU, policy, buffer));
 
-        {
-            int const ibatch = 0;
-            HIPSPARSE_CHECK(hipsparseDcsrilu02_analysis(handle->hipsparse_handle, n, nnzLU,
-                                                        handle->descrLU, csrValLU, csrRowPtrLU,
-                                                        csrColIndLU, handle->infoLU_array[ibatch],
-                                                        policy, handle->buffer),
-                            ROCSOLVER_STATUS_INTERNAL_ERROR);
-        };
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02_analysis(hipsparse_handle, n, nnzLU, descrLU,
+                                                             csrValLU, csrRowPtrLU, csrColIndLU,
+                                                             infoLU, policy, buffer));
+    }
+    catch(const std::bad_alloc& e)
+    {
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
-
-    return (ROCSOLVER_STATUS_SUCCESS);
+    return (istat_return);
 };
-}
+};

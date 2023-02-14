@@ -26,6 +26,10 @@
 #ifndef HIP_CHECK_H
 #define HIP_CHECK_H
 
+#include <exception>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 
@@ -39,6 +43,17 @@
                    __FILE__, hipGetErrorString(istat), istat);                             \
             return (error_code);                                                           \
         };                                                                                 \
+    };
+#endif
+
+#ifndef THROW_IF_HIP_ERROR
+#define THROW_IF_HIP_ERROR(fcn)                               \
+    {                                                         \
+        if((fcn) != HIP_SUCCESS)                              \
+        {                                                     \
+            printf("HIP failed %s:%d\n", __FILE__, __LINE__); \
+            throw std::runtime_error(__FILE__);               \
+        };                                                    \
     };
 #endif
 

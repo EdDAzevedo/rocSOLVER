@@ -62,15 +62,14 @@ static __device__ void rf_shellsort(Iint* iarr, T* darr, Iint num)
         };
     };
 
-  bool const perform_check = true;
-  if (perform_check)
-  {
-  for(Iint i=0; i < (num-1); i++) {
-     bool const is_sorted = (iarr[i] <= iarr[i+1]);
-     assert( is_sorted );
-     };
-
-  };
-
+    bool const perform_check = true;
+    if(perform_check)
+    {
+        for(Iint i = 0; i < (num - 1); i++)
+        {
+            bool const is_sorted = (iarr[i] <= iarr[i + 1]);
+            assert(is_sorted);
+        };
+    };
 };
 #endif

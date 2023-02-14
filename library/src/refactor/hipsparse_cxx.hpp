@@ -42,12 +42,17 @@
 
 struct hipsparseHandle_cxx_t
 {
-    hipsparseHandle_t data = nullptr;
+    hipsparseHandle_t _data = nullptr;
+
+    hipsparseHandle_t data()
+    {
+        return (_data);
+    };
 
     hipsparseHandle_cxx_t()
     {
-        hipsparseStatus_t istat_create = hipsparseCreate(&data);
-        bool const isok_create = (istat_create == HIPSPARSE_STATUS_SUCCESS) && (data != nullptr);
+        hipsparseStatus_t istat_create = hipsparseCreate(&_data);
+        bool const isok_create = (istat_create == HIPSPARSE_STATUS_SUCCESS) && (_data != nullptr);
         if(!isok_create)
         {
             throw std::runtime_error("hipsparseHandle_cxx_t create");
@@ -56,8 +61,8 @@ struct hipsparseHandle_cxx_t
 
     ~hipsparseHandle_cxx_t()
     {
-        hipsparseStatus_t istat_destroy = hipsparseDestroy(data);
-        data = nullptr;
+        hipsparseStatus_t istat_destroy = hipsparseDestroy(_data);
+        _data = nullptr;
         bool const isok_destroy = (istat_destroy == HIPSPARSE_STATUS_SUCCESS);
 
         // note: destructor should not throw
@@ -65,34 +70,97 @@ struct hipsparseHandle_cxx_t
     };
 };
 
+struct hipsparseMatDescr_cxx_t
+{
+    hipsparseMatDescr_t _data = nullptr;
 
-struct hipsparseMatDescr_cxx_t {
-  hipsparseMatDescr_t data = nullptr;
-
-  hipsparseMatDescr_cxx_t( hipsparseMatrixType_t type = HIPSPARSE_MATRIX_TYPE_GENERAL ) {
-    hipsparseStatus_t const istat_Create = hipsparseCreateMatDescr( &data );
-    bool const isok_Create = (istat_Create == HIPSPARSE_STATUS_SUCCESS);
-    if (!isok_Create) { 
-        throw std::runtime_error("hipsparseMatDescr_cxx_t Create");
-        };
-
-    hipsparseStatus_t  const istat_SetMatType = hipsparseSetMatType( data, type );
-    bool const isok_SetMatType = (istat_SetMatType == HIPSPARSE_STATUS_SUCCESS );
-    if (!isok_SetMatType) { 
-        throw std::runtime_error("hipsparseMatDescr_cxx_t SetMatType");
-        };
-    
+    hipsparseMatDescr_t data()
+    {
+        return (_data);
     };
 
-  ~hipsparseMatDescr_cxx_t() {
-    hipsparseStatus_t istat = hipsparseDestroyMatDescr( data );
-    bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS );
-  
-    // note: destructor cannot throw
-    assert( isok );
+    hipsparseMatDescr_cxx_t(hipsparseMatrixType_t type = HIPSPARSE_MATRIX_TYPE_GENERAL)
+    {
+        hipsparseStatus_t const istat_Create = hipsparseCreateMatDescr(&_data);
+        bool const isok_Create = (istat_Create == HIPSPARSE_STATUS_SUCCESS);
+        if(!isok_Create)
+        {
+            throw std::runtime_error("hipsparseMatDescr_cxx_t Create");
+        };
+
+        hipsparseStatus_t const istat_SetMatType = hipsparseSetMatType(_data, type);
+        bool const isok_SetMatType = (istat_SetMatType == HIPSPARSE_STATUS_SUCCESS);
+        if(!isok_SetMatType)
+        {
+            throw std::runtime_error("hipsparseMatDescr_cxx_t SetMatType");
+        };
+    };
+
+    ~hipsparseMatDescr_cxx_t()
+    {
+        hipsparseStatus_t istat = hipsparseDestroyMatDescr(_data);
+        bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
+
+        // note: destructor cannot throw
+        assert(isok);
     };
 };
 
+struct csrilu02Info_cxx_t
+{
+    csrilu02Info_t _data = nullptr;
 
+    csrilu02Info_t data()
+    {
+        return (_data);
+    };
+
+    csrilu02Info_cxx_t()
+    {
+        hipsparseStatus_t istat = hipsparseCreateCsrilu02Info(&_data);
+        bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
+        if(!isok)
+        {
+            throw std::runtime_error("csrilu02Info_cxx_t Create");
+        };
+    };
+    ~csrilu02Info_cxx_t()
+    {
+        hipsparseStatus_t istat = hipsparseDestroyCsrilu02Info(_data);
+        bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
+        _data = nullptr;
+        // note: destructor cannot throw
+        assert(isok);
+    };
+};
+
+struct csrsv2Info_cxx_t
+{
+    csrsv2Info_t _data = nullptr;
+
+    csrsv2Info_t data()
+    {
+        return (_data);
+    };
+
+    csrsv2Info_cxx_t()
+    {
+        hipsparseStatus_t istat = hipsparseCreateCsrsv2Info(&_data);
+        bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
+        if(!isok)
+        {
+            throw std::runtime_error("csrsv2Info_cxx_t Create");
+        };
+    };
+
+    ~csrsv2Info_cxx_t()
+    {
+        hipsparseStatus_t istat = hipsparseDestroyCsrsv2Info(_data);
+        bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
+        _data = nullptr;
+        // note: destructor cannot throw
+        assert(isok);
+    };
+};
 
 #endif

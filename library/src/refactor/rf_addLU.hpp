@@ -29,7 +29,6 @@
 
 #include "rf_addLU.hpp"
 
-
 template <typename Iint, typename Ilong, typename T>
 rocsolverStatus_t rf_addLU(rocsolverRfHandle_t handle,
                            Iint const nrow,
@@ -56,22 +55,14 @@ rocsolverStatus_t rf_addLU(rocsolverRfHandle_t handle,
 
     bool const use_sumLU = true;
 
-    if (use_sumLU) {
-       return( rf_sumLU( handle,
-                         nrow, ncol,
-                         Lp, Li, Lx,
-                         Up, Ui, Ux,
-                         LUp, LUi, LUx ) );
-       };
+    if(use_sumLU)
+    {
+        return (rf_sumLU(handle, nrow, ncol, Lp, Li, Lx, Up, Ui, Ux, LUp, LUi, LUx));
+    };
 
     {
-       return( rf_geamLU( handle,
-                          nrow, ncol,
-                          Lp, Li, Lx,
-                          Up, Ui, Ux,
-                          LUp, LUi, LUx ) );
-       };
-                      
+        return (rf_geamLU(handle, nrow, ncol, Lp, Li, Lx, Up, Ui, Ux, LUp, LUi, LUx));
+    };
 }
 
 #endif

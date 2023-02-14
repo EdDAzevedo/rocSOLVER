@@ -97,7 +97,7 @@ typedef enum
 /* structure holding ROCSOLVERRF library common */
 struct rocsolverRfCommon
 {
-    size_t const ialign = (4*1024)/sizeof(double);
+    size_t const ialign = (4 * 1024) / sizeof(double);
 
     rocsolverRfResetValuesFastMode_t fast_mode = ROCSOLVERRF_RESET_VALUES_FAST_MODE_OFF;
     rocsolverRfMatrixFormat_t matrix_format = ROCSOLVERRF_MATRIX_FORMAT_CSR;
@@ -111,27 +111,25 @@ struct rocsolverRfCommon
     hipStream_cxx_t streamId;
 
     int nnzL = 0;
-    thrust::device_vector<int> csrRowPtrL ;
-    thrust::device_vector<int> csrColIndL ;
-    thrust::device_vector<double> csrValL ;
+    thrust::device_vector<int> csrRowPtrL;
+    thrust::device_vector<int> csrColIndL;
+    thrust::device_vector<double> csrValL;
 
     int nnzU = 0;
-    thrust::device_vector<int> csrRowPtrU ;
-    thrust::device_vector<int> csrColIndU ;
-    thrust::device_vector<double> csrValU ;
-
+    thrust::device_vector<int> csrRowPtrU;
+    thrust::device_vector<int> csrColIndU;
+    thrust::device_vector<double> csrValU;
 
     // int nnzA = 0;
     // thrust::device_vector<int> csrRowPtrA;
     // thrust::device_vector<int> csrColIndA;
 
-
     hipsparseMatDescr_cxx_t descrL;
     hipsparseMatDescr_cxx_t descrU;
     hipsparseMatDescr_cxx_t descrLU;
 
-    csrsv2Info_cxx_t infoL ;
-    csrsv2Info_cxx_t infoU ;
+    csrsv2Info_cxx_t infoL;
+    csrsv2Info_cxx_t infoU;
     thrust::host_vector<csrilu02Info_cxx_t> infoLU_array;
 
     int batch_count = 0;
@@ -176,41 +174,41 @@ rocsolverStatus_t rocsolverRfSetMatrixFormat(rocsolverRfHandle_t handle,
 /* ROCSOLVERRF set and get numeric properties */
 rocsolverStatus_t
     rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle, double zero, double boost);
-    
-    int* csrRowPtrU = nullptr;
-    int* csrColIndU = nullptr;
-    double* csrValU = nullptr;
 
-    int nnzA = 0;
-    int* csrRowPtrA = nullptr;
-    int* csrColIndA = nullptr;
+int* csrRowPtrU = nullptr;
+int* csrColIndU = nullptr;
+double* csrValU = nullptr;
 
-    hipsparseMatDescr_t descrL = nullptr;
-    hipsparseMatDescr_t descrU = nullptr;
-    hipsparseMatDescr_t descrLU = nullptr;
+int nnzA = 0;
+int* csrRowPtrA = nullptr;
+int* csrColIndA = nullptr;
 
-    csrsv2Info_t infoL = nullptr;
-    csrsv2Info_t infoU = nullptr;
-    csrilu02Info_t* infoLU_array = nullptr;
+hipsparseMatDescr_t descrL = nullptr;
+hipsparseMatDescr_t descrU = nullptr;
+hipsparseMatDescr_t descrLU = nullptr;
 
-    int batch_count = 0;
+csrsv2Info_t infoL = nullptr;
+csrsv2Info_t infoU = nullptr;
+csrilu02Info_t* infoLU_array = nullptr;
 
-    int* P_new2old = nullptr;
-    int* Q_new2old = nullptr;
-    int* Q_old2new = nullptr;
+int batch_count = 0;
 
-    int n = 0;
-    int nnzLU = 0;
-    int* csrRowPtrLU = nullptr;
-    int* csrColIndLU = nullptr;
-    // double* csrValLU;
-    double** csrValLU_array = nullptr;
+int* P_new2old = nullptr;
+int* Q_new2old = nullptr;
+int* Q_old2new = nullptr;
 
-    double effective_zero = 0;
-    double boost_val = 0;
+int n = 0;
+int nnzLU = 0;
+int* csrRowPtrLU = nullptr;
+int* csrColIndLU = nullptr;
+// double* csrValLU;
+double** csrValLU_array = nullptr;
 
-    void* buffer = nullptr;
-    size_t buffer_size = 0;
+double effective_zero = 0;
+double boost_val = 0;
+
+void* buffer = nullptr;
+size_t buffer_size = 0;
 };
 typedef struct rocsolverRfCommon* rocsolverRfHandle_t;
 

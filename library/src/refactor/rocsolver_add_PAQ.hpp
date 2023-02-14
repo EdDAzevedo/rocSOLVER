@@ -159,8 +159,8 @@ rocsolverStatus_t rocsolver_add_PAQ(hipStream_t stream,
 {
     // check arguments
     bool const isok_scalar = (nrow >= 0) && (ncol >= 0);
-    bool const isok_PQ = (P_new2old != nullptr) && (Q_old2new != nullptr)&& bool const isok_A
-        = (Ap != nullptr) && (Ai != nullptr) && (Ax != nullptr);
+    bool const isok_PQ = (P_new2old != nullptr) && (Q_old2new != nullptr);
+    bool const isok_A = (Ap != nullptr) && (Ai != nullptr) && (Ax != nullptr);
     bool const isok_LU = (LUp != nullptr) && (LUi != nullptr) && (LUx != nullptr);
 
     bool const isok_all = isok_scalar && isok_PQ && isok_A && isok_LU;
@@ -172,8 +172,21 @@ rocsolverStatus_t rocsolver_add_PAQ(hipStream_t stream,
     int const nthreads = ADD_PAQ_MAX_THDS;
     int const nblocks = (nrow + (nthreads - 1)) / nthreads;
 
-    rocsolver_add_PAQ_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, stream>>>(
-        nrow, ncol, P_new2old, Q_old2new, alpha, Ap, Ai, Ax, beta, LUp, LUi, LUx);
-    return (ROCSOLVER_STATUS_SUCCESS);
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+
+    try
+    {
+        rocsolver_add_PAQ_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, stream>>>(
+            nrow, ncol, P_new2old, Q_old2new, alpha, Ap, Ai, Ax, beta, LUp, LUi, LUx);
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
+    };
+    return (istat_return);
 }
 #endif

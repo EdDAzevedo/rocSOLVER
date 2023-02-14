@@ -38,7 +38,6 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
 
                                           Ilong* const LUp)
 {
-
     // ---------------------------
     // setup LUp row pointer array
     // ---------------------------
@@ -144,37 +143,36 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         };
     };
 
+    bool constexpr perform_check = true;
+    if(perform_check)
+    {
+        // ------------
+        // check
+        // ------------
 
+        __syncthreads();
 
-   bool constexpr perform_check = true;
-   if (perform_check) {
-   // ------------
-   // check
-   // ------------
+        for(Iint i = i_start; i < nrow; i += i_inc)
+        {
+            Iint const irow = i;
+            Iint const nnz_L = Lp[irow + 1] - Lp[irow];
+            Iint const nnz_U = Up[irow + 1] - Up[irow];
+            Iint const nnz_LU = (nnz_L - 1) + nnz_U;
 
-    __syncthreads();
+            Iint const nz_irow = (LUp[irow + 1] - LUp[irow]);
+            bool const isok = (nz_irow == nnz_LU);
 
-   for(Iint i=i_start; i < nrows; i += i_inc) {
-        Iint const irow = i;
-        Iint const nnz_L = Lp[irow + 1] - Lp[irow];
-        Iint const nnz_U = Up[irow + 1] - Up[irow];
-        Iint const nnz_LU = (nnz_L - 1) + nnz_U;
-
-        Iint const nz_irow = (LUp[irow+1] - LUp[irow]);
-        bool const isok = (nz_irow  == nnz_LU);
-
-        assert( isok );
+            assert(isok);
         };
-            
-    __syncthreads();
 
-   Ilong const nnzL = (Lp[nrow] - Lp[0]);
-   Ilong const nnzU = (Up[nrow] - Up[0]);
-   Ilong const nnzLU = (LUp[nrow] - LUp[0]);
-   bool const isok = (  ((nnzL - nrow) + (nnzU)) == nnzLU  );
-   assert( isok );
-   };
-      
+        __syncthreads();
+
+        Ilong const nnzL = (Lp[nrow] - Lp[0]);
+        Ilong const nnzU = (Up[nrow] - Up[0]);
+        Ilong const nnzLU = (LUp[nrow] - LUp[0]);
+        bool const isok = (((nnzL - nrow) + (nnzU)) == nnzLU);
+        assert(isok);
+    };
 
     __syncthreads();
 };
@@ -204,8 +202,8 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
     Ilong const nnzLU = LUp[nrow] - LUp[0];
 
     {
-    bool const isok = (nnzLU == (nnzL + nnzU - nrow));
-    assert(isok);
+        bool const isok = (nnzLU == (nnzL + nnzU - nrow));
+        assert(isok);
     };
 
     Iint const irow_start = threadIdx.x + blockIdx.x * blockDim.x;
@@ -228,11 +226,12 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
         // zero out array LUi[], LUx[]
         // --------------
         T const zero = 0.0;
-        for(Iint k=0; k < nz_LU; k++) {
-             Ilong const ip = kstart_LU + k;
-             LUi[ ip ] = 0;
-             LUx[ ip ] = zero;
-             };
+        for(Iint k = 0; k < nz_LU; k++)
+        {
+            Ilong const ip = kstart_LU + k;
+            LUi[ip] = 0;
+            LUx[ip] = zero;
+        };
 
         // --------------
         // copy L into LU
@@ -262,21 +261,21 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
 
             Iint const jcol = Ui[jp];
             T const Uij = Ux[jp];
-    
+
             bool const is_upper = (irow <= jcol);
 
-            if (is_upper) {
-              LUi[ip] = jcol;
-              LUx[ip] = Uij;
-              ip++;
-              };
+            if(is_upper)
+            {
+                LUi[ip] = jcol;
+                LUx[ip] = Uij;
+                ip++;
+            };
         };
 
         {
-         bool const is_filled = (ip == kend_LU);
-         assert( is_filled );
+            bool const is_filled = (ip == kend_LU);
+            assert(is_filled);
         };
-        
 
         // ----------------------------------------
         // check column indices are in sorted order
@@ -308,7 +307,7 @@ static __global__ void rf_sumLU_kernel(Iint const nrow,
 }
 
 template <typename Iint, typename Ilong, typename T>
-rocsolverStatus_t rf_sumLU(rocsolverRfHandle_t handle,
+rocsolverStatus_t rf_sumLU(hipStream_t streamId,
                            Iint const nrow,
                            Iint const ncol,
 
@@ -326,38 +325,47 @@ rocsolverStatus_t rf_sumLU(rocsolverRfHandle_t handle,
 
 )
 {
-    //  ----------------
-    //  form (L - I) + U
-    //  assume storage for LUp, LUi, LUx has been allocated
-    // ---------------------------------------------------
+    rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
 
-    hipStream_t streamId;
-    HIPSPARSE_CHECK(hipsparseGetStream(handle->hipsparse_handle, &streamId),
-                    ROCSOLVER_STATUS_INTERNAL_ERROR);
-
-    // -----------------------------
-    // Step 1: setup row pointer LUp
-    // -----------------------------
+    try
     {
-        Iint const nthreads = 1024;
-        Iint const nblocks = 1; // special case
+        //  ----------------
+        //  form (L - I) + U
+        //  assume storage for LUp, LUi, LUx has been allocated
+        // ---------------------------------------------------
 
-        rf_setupLUp_kernel<Iint, Ilong, T>
-            <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Up, LUp);
+        // -----------------------------
+        // Step 1: setup row pointer LUp
+        // -----------------------------
+        {
+            Iint const nthreads = 1024;
+            Iint const nblocks = 1; // special case
+
+            rf_setupLUp_kernel<Iint, Ilong, T>
+                <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Up, LUp);
+        };
+
+        // ----------------------------------------------------
+        // Step 2: copy entries of Li, Lx, Ui, Ux into LUi, LUx
+        // ----------------------------------------------------
+        {
+            Iint const nthreads = 128;
+            Iint const nblocks = (nrow + (nthreads - 1)) / nthreads;
+
+            rf_sumLU_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(
+                nrow, ncol, Lp, Li, Lx, Up, Ui, Ux, LUp, LUi, LUx);
+        };
+    }
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
-    // ----------------------------------------------------
-    // Step 2: copy entries of Li, Lx, Ui, Ux into LUi, LUx
-    // ----------------------------------------------------
-    {
-        Iint const nthreads = 128;
-        Iint const nblocks = (nrow + (nthreads - 1)) / nthreads;
-
-        rf_sumLU_kernel<Iint, Ilong, T><<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(
-            nrow, ncol, Lp, Li, Lx, Up, Ui, Ux, LUp, LUi, LUx);
-    };
-
-    return (ROCSOLVER_STATUS_SUCCESS);
+    return (istat_return);
 }
 
 #endif
