@@ -46,114 +46,117 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
 
     Iint const m = n;
     {
-        bool const isok_arg
-            = (d_LUp != nullptr) && (d_LUi != nullptr) && (d_LUx != nullptr) && (d_b != nullptr);
+        bool const isok_scalar = (n >= 0) && (nnz >= 0);
+        bool const isok_arg = (d_LUp != nullptr) && (d_LUi != nullptr) && (d_LUx != nullptr)
+            && (d_b != nullptr) && (d_Temp != nullptr);
 
+        bool const isok_all = isok_arg && isok_scalar;
         if(!isok_arg)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
     };
 
-    hipsparseMatDescr_t descrL = handle->descrL.data();
-
-    csrsv2Info_t infoL = handle->infoL.data();
-
-    hipsparseMatDescr_t descrU = handle->descrU.data();
-
-    csrsv2Info_t infoU = handle->infoU.data();
-
-    // --------------------------------
-    // Allocate workspace for hipSPARSE
-    // --------------------------------
-
-    Ilong const lnnz = nnz;
-    size_t bufferSize = 1;
-    int stmp = 0;
-
-    T* const csrSortedValA = d_LUx;
-    Ilong* const csrSortedRowPtrA = d_LUp;
-    Iint* const csrSortedColIndA = d_LUi;
-
-    hipsparseSolvePolicy_t policy = (handle->solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1)
-        ? HIPSPARSE_SOLVE_POLICY_USE_LEVEL
-        : HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
-
-    hipsparseOperation_t transL = HIPSPARSE_OPERATION_NON_TRANSPOSE;
-    hipsparseOperation_t transU = HIPSPARSE_OPERATION_NON_TRANSPOSE;
-
-    stmp = 0;
-    HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle, transL, m, lnnz, descrL, csrSortedValA,
-                                                csrSortedRowPtrA, csrSortedColIndA, infoL, &stmp),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    if(stmp > bufferSize)
+    rocsparseStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+    try
     {
-        bufferSize = stmp;
+        hipsparseHandle_t hipsparse_handle = handle->hipsparse_handle.data();
+
+        hipsparseMatDescr_t descrL = handle->descrL.data();
+
+        csrsv2Info_t infoL = handle->infoL.data();
+
+        hipsparseMatDescr_t descrU = handle->descrU.data();
+
+        csrsv2Info_t infoU = handle->infoU.data();
+
+        // --------------------------------
+        // Allocate workspace for hipSPARSE
+        // --------------------------------
+
+        Ilong const lnnz = nnz;
+        size_t bufferSize = 1;
+        int stmp_L = 0;
+        int stmp_U = 0;
+
+        T* const csrSortedValA = d_LUx;
+        Ilong* const csrSortedRowPtrA = d_LUp;
+        Iint* const csrSortedColIndA = d_LUi;
+
+        hipsparseSolvePolicy_t policy = (handle->solve_alg == ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1)
+            ? HIPSPARSE_SOLVE_POLICY_USE_LEVEL
+            : HIPSPARSE_SOLVE_POLICY_NO_LEVEL;
+
+        hipsparseOperation_t transL = HIPSPARSE_OPERATION_NON_TRANSPOSE;
+        hipsparseOperation_t transU = HIPSPARSE_OPERATION_NON_TRANSPOSE;
+
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_bufferSize(hipsparse_handle, transL, m, lnnz,
+                                                             descrL, csrSortedValA, csrSortedRowPtrA,
+                                                             csrSortedColIndA, infoL, &stmp_L));
+
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_bufferSize(hipsparse_handle, transU, m, lnnz,
+                                                             descrU, csrSortedValA, csrSortedRowPtrA,
+                                                             csrSortedColIndA, infoU, &stmp_U));
+
+        int const bufferSize = std::max(stmp_L, stmp_U);
+        bool const isok_size = (handle->buffer.size() >= bufferSize);
+        if(!isok_size)
+        {
+            handle->buffer.resize(bufferSize);
+        };
+
+        T* const d_y = d_Temp;
+
+        void* const buffer = handle->buffer.data().get();
+
+        T* const d_x = d_b;
+
+        // -------------------------------------------
+        // If A = LU
+        // Solve A x = (LU) x b as
+        // (1)   solve L y = b,   L unit diagonal
+        // (2)   solve U x = y,   U non-unit diagonal
+        // -------------------------------------------
+
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transL, m, lnnz,
+                                                           descrL, csrSortedValA, csrSortedRowPtrA,
+                                                           csrSortedColIndA, infoL, policy, buffer));
+
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(handle, transU, m, lnnz, descrU,
+                                                           csrSortedValA, csrSortedRowPtrA,
+                                                           csrSortedColIndA, infoU, policy, buffer));
+
+        // ----------------------
+        // step (1) solve L y = b
+        // ----------------------
+
+        T alpha = 1.0;
+
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_solve(
+            hipsparse_handle, transL, m, lnnz, &alpha, descrL, csrSortedValA, csrSortedRowPtrA,
+            csrSortedColIndA, infoL, d_b, d_y, policy, buffer));
+
+        // ----------------------
+        // step (2) solve U x = y
+        // ----------------------
+
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_solve(
+            hipsparse_handle, transU, m, lnnz, &alpha, descrU, csrSortedValA, csrSortedRowPtrA,
+            csrSortedColIndA, infoU, d_y, d_x, policy, buffer));
     }
-
-    stmp = 0;
-    HIPSPARSE_CHECK(hipsparseDcsrsv2_bufferSize(handle, transU, m, lnnz, descrU, csrSortedValA,
-                                                csrSortedRowPtrA, csrSortedColIndA, infoU, &stmp),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    if(stmp > bufferSize)
+    catch(const std::bad_alloc& e)
     {
-        bufferSize = stmp;
+        istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
     }
-    bool const isok_size = (handle->buffer_size >= bufferSize);
-    assert(isok_size);
+    catch(const std::runtime_error& e)
+    {
+        istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+    }
+    catch(...)
+    {
+        istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
+    };
 
-    T* const d_y = d_Temp;
-
-    void* const buffer = handle->buffer.data().get();
-
-    T* const d_x = d_b;
-
-    /*
-   -------------------------------------------
-   If A = LU
-   Solve A x = (LU) x b as
-   (1)   solve L y = b,   L unit diagonal
-   (2)   solve U x = y,   U non-unit diagonal
-
-   -------------------------------------------
-   */
-
-    HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle, transL, m, lnnz, descrL, csrSortedValA,
-                                              csrSortedRowPtrA, csrSortedColIndA, infoL, policy,
-                                              buffer),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    HIPSPARSE_CHECK(hipsparseDcsrsv2_analysis(handle, transU, m, lnnz, descrU, csrSortedValA,
-                                              csrSortedRowPtrA, csrSortedColIndA, infoU, policy,
-                                              buffer),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    /*
-     ----------------------
-     step (1) solve L y = b
-     ----------------------
-     */
-
-    T alpha = 1.0;
-
-    HIPSPARSE_CHECK(hipsparseDcsrsv2_solve(handle, transL, m, lnnz, &alpha, descrL, csrSortedValA,
-                                           csrSortedRowPtrA, csrSortedColIndA, infoL, d_b, d_y,
-                                           policy, buffer),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    /*
-          ----------------------
-          step (2) solve U x = y
-          ----------------------
-         */
-
-    HIPSPARSE_CHECK(hipsparseDcsrsv2_solve(handle, transU, m, lnnz, &alpha, descrU, csrSortedValA,
-                                           csrSortedRowPtrA, csrSortedColIndA, infoU, d_y, d_x,
-                                           policy, buffer),
-                    ROCSOLVER_STATUS_EXECUTION_FAILED);
-
-    return (ROCSOLVER_STATUS_SUCCESS);
+    return (istat_return);
 }
 #endif
