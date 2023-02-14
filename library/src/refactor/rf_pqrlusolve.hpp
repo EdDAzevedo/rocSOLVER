@@ -72,6 +72,9 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         };
     };
 
+
+ rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+ try {
     bool const need_apply_P = (P_new2old != nullptr);
     bool const need_apply_Q = (Q_new2old != nullptr);
     bool const need_apply_Rs = (Rs != nullptr);
@@ -96,12 +99,15 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         // bhat[k] = brhs[k]
         // -----------------
 
+       thrust::copy(  d_brhs, d_brhs + n, d_bhat );
+#if (0)
         void* const src = (void*)d_brhs;
         void* const dest = (void*)d_bhat;
         size_t const nbytes = sizeof(T) * n;
 
         HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice, stream),
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
+#endif
     };
 
     if(need_apply_Rs)
@@ -149,14 +155,30 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         // ---------------------
         // brhs[ k ] = bhat[ k ]
         // ---------------------
+        thrust::copy( d_bhat, d_bhat + n,  d_brhs );
+#if (0)
         void* src = (void*)d_bhat;
         void* dest = (void*)d_brhs;
         size_t nbytes = sizeof(T) * n;
         HIP_CHECK(hipMemcpyAsync(dest, src, nbytes, hipMemcpyDeviceToDevice, stream),
                   ROCSOLVER_STATUS_EXECUTION_FAILED);
+#endif
     };
 
-    return (ROCSOLVER_STATUS_SUCCESS);
+  }
+
+  catch(const std::bad_alloc& e ) {
+   istat_return = ROCSOLVER_STATUS_ALLOC_FAILED;
+  }
+  catch( const std::runtime_error& e) {
+   istat_return = ROCSOLVER_STATUS_EXECUTION_FAILED;
+  }
+  catch(...) 
+  {
+  istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
+  };
+
+    return (istat_return);
 }
 
 #endif
