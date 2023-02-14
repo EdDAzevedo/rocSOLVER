@@ -33,6 +33,12 @@
 
 #include "rocsolver_status.h"
 
+#include "hip_cxx.hpp"
+#include "hipsparse_cxx.hpp"
+
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
+
 typedef enum
 {
     ROCSOLVERRF_RESET_VALUES_FAST_MODE_OFF = 0, //default
@@ -91,6 +97,8 @@ typedef enum
 /* structure holding ROCSOLVERRF library common */
 struct rocsolverRfCommon
 {
+    size_t const ialign = (4*1024)/sizeof(double);
+
     rocsolverRfResetValuesFastMode_t fast_mode = ROCSOLVERRF_RESET_VALUES_FAST_MODE_OFF;
     rocsolverRfMatrixFormat_t matrix_format = ROCSOLVERRF_MATRIX_FORMAT_CSR;
     rocsolverRfUnitDiagonal_t diag_format = ROCSOLVERRF_UNIT_DIAGONAL_STORED_L;
@@ -99,14 +107,76 @@ struct rocsolverRfCommon
     rocsolverRfFactorization_t fact_alg = ROCSOLVERRF_FACTORIZATION_ALG0;
     rocsolverRfTriangularSolve_t solve_alg = ROCSOLVERRF_TRIANGULAR_SOLVE_ALG1;
 
-    hipsparseHandle_t hipsparse_handle = nullptr;
+    hipsparseHandle_cxx_t hipsparse_handle;
+    hipStream_cxx_t streamId;
 
     int nnzL = 0;
-    int* csrRowPtrL = nullptr;
-    int* csrColIndL = nullptr;
-    double* csrValL = nullptr;
+    thrust::device_vector<int> csrRowPtrL ;
+    thrust::device_vector<int> csrColIndL ;
+    thrust::device_vector<double> csrValL ;
 
     int nnzU = 0;
+    thrust::device_vector<int> csrRowPtrU ;
+    thrust::device_vector<int> csrColIndU ;
+    thrust::device_vector<double> csrValU ;
+
+
+    // int nnzA = 0;
+    // thrust::device_vector<int> csrRowPtrA;
+    // thrust::device_vector<int> csrColIndA;
+
+
+    hipsparseMatDescr_cxx_t descrL;
+    hipsparseMatDescr_cxx_t descrU;
+    hipsparseMatDescr_cxx_t descrLU;
+
+    csrsv2Info_cxx_t infoL ;
+    csrsv2Info_cxx_t infoU ;
+    thrust::host_vector<csrilu02Info_cxx_t> infoLU_array;
+
+    int batch_count = 0;
+
+    thrust::device_vector<int> P_new2old;
+    thrust::device_vector<int> Q_new2old;
+    thrust::device_vector<int> Q_old2new;
+
+    int n = 0;
+    int nnzLU = 0;
+
+    thrust::device_vector<int> csrRowPtrLU;
+    thrust::device_vector<int> csrColIndLU;
+    thrust::device_vector<double> csrValLU_array;
+
+    double effective_zero = 0;
+    double boost_val = 0;
+
+    thrust::device_vector<uint8_t> buffer;
+    size_t buffer_size = 0;
+};
+typedef struct rocsolverRfCommon rocsolverRfHandle;
+typedef rocsolverRfHandle* rocsolverRfHandle_t;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ROCSOLVERRF create (allocate memory) and destroy (free memory) in the handle */
+rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* handle);
+rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle);
+
+/* ROCSOLVERRF set and get input format */
+rocsolverStatus_t rocsolverRfGetMatrixFormat(rocsolverRfHandle_t handle,
+                                             rocsolverRfMatrixFormat_t* format,
+                                             rocsolverRfUnitDiagonal_t* diag);
+
+rocsolverStatus_t rocsolverRfSetMatrixFormat(rocsolverRfHandle_t handle,
+                                             rocsolverRfMatrixFormat_t format,
+                                             rocsolverRfUnitDiagonal_t diag);
+
+/* ROCSOLVERRF set and get numeric properties */
+rocsolverStatus_t
+    rocsolverRfSetNumericProperties(rocsolverRfHandle_t handle, double zero, double boost);
+    
     int* csrRowPtrU = nullptr;
     int* csrColIndU = nullptr;
     double* csrValU = nullptr;
