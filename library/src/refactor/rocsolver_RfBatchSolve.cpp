@@ -111,21 +111,13 @@ rocsolverStatus_t rocsolverRfBatchSolve(
         };
     };
 
-    int* const P_new2old = handle->P_new2old.data().get();
-    int* const Q_new2old = handle->Q_new2old.data().get();
-
-    {
-        bool const isok = (P == P_new2old) && (Q == Q_new2old);
-        if(!isok)
-        {
-            return (ROCSOLVER_STATUS_INVALID_VALUE);
-        };
-    };
-
     rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
-
     try
     {
+        int* const P_new2old = handle->P_new2old.data().get();
+        int* const Q_new2old = handle->Q_new2old.data().get();
+
+        int nerrors = 0;
         for(int ibatch = 0; ibatch < batch_count; ibatch++)
         {
             double* const XF = XF_array[ibatch];
@@ -141,14 +133,20 @@ rocsolverStatus_t rocsolverRfBatchSolve(
                 size_t const offset = ibatch * isize;
                 double* const LUx = handle->csrValLU_array.data().get() + offset;
 
-                rocsolverStatus_t isok = rf_pqrlusolve(handle, n, P_new2old, Q_new2old, Rs, LUp,
-                                                       LUi, LUx, brhs, d_Temp);
+                rocsolverStatus_t istat = rf_pqrlusolve(handle, n, P_new2old, Q_new2old, Rs, LUp,
+                                                        LUi, LUx, brhs, d_Temp);
+
+                bool const isok = (istat == ROCSOLVER_STATUS_SUCCESS);
                 if(!isok)
                 {
-                    throw std::runtime_error(__FILE__);
+                    nerrors++;
                 };
             };
         }; // end for ibatch
+        if(nerrors != 0)
+        {
+            throw std::runtime_error(__FILE__);
+        };
     }
     catch(const std::bad_alloc& e)
     {
