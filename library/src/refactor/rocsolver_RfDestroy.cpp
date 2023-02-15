@@ -44,6 +44,24 @@ rocsolverStatus_t rocsolverRfDestroy(rocsolverRfHandle_t handle)
 
     try
     {
+        // -------------------------------------
+        // cleanup by using  destroy() method that can throw
+        // to avoid throw in destructor method
+        // -------------------------------------
+
+        handle->streamId.destroy();
+        handle->descrL.destroy();
+        handle->descrU.destroy();
+        handle->descrLU.destroy();
+
+        handle->infoL.destroy();
+        handle->infoU.destroy();
+
+        for(int ibatch = 0; ibatch < handle->batch_count; ibatch++)
+        {
+            handle->infoLU_array[ibatch].destroy();
+        };
+
         delete handle;
     }
     catch(const std::bad_alloc& e)
