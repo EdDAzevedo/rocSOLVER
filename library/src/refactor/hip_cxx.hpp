@@ -64,13 +64,34 @@ struct hipStream_cxx_t
         };
     };
 
+    void destroy()
+    {
+        if(_data != nullptr)
+        {
+            hipError_t istat = hipStreamDestroy(_data);
+            _data = nullptr;
+            bool const isok = (istat == HIP_SUCCESS);
+            if(!isok)
+            {
+                throw std::runtime_error("Error in hipStream_cxx_t.destroy()");
+            };
+        };
+    };
+
     ~hipStream_cxx_t()
     {
-        hipError_t istat = hipStreamDestroy(_data);
-        bool const isok = (istat == HIP_SUCCESS);
-        _data = nullptr;
-        // note: destructor should not throw
-        assert(isok);
+        if(_data != nullptr)
+        {
+            hipError_t istat = hipStreamDestroy(_data);
+            bool const isok = (istat == HIP_SUCCESS);
+            _data = nullptr;
+
+            if(!isok)
+            {
+                // note: destructor should not throw
+                std::cerr << "Error in ~hipStream_cxx_t()" << std::endl;
+            };
+        };
     };
 };
 
