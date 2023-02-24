@@ -34,10 +34,17 @@ template <typename Iint, typename Ilong, typename T>
 static __global__ void rf_setupLUp_kernel(Iint const nrow,
 
                                           Ilong const* const Lp,
+                                          Iint  const* const Li,
+                                          T     const* const Lx,
+
                                           Ilong const* const Up,
+                                          Iint  const* const Ui,
+                                          T     const* const Ux,
 
                                           Ilong* const LUp)
 {
+    int const idebug = 1;
+
     // ---------------------------
     // setup LUp row pointer array
     // ---------------------------
@@ -66,6 +73,54 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         Iint const nnz_L = Lp[irow + 1] - Lp[irow];
         Iint const nnz_U = Up[irow + 1] - Up[irow];
 
+        if (idebug >= 1) {
+           // ------------
+           // extra checks
+           // ------------
+           Ilong const lstart = Lp[irow];
+           Ilong const lend = Lp[irow+1];
+           Ilong const ustart = Up[irow];
+           Ilong const uend = Up[irow+1];
+           T const one = 1.0;
+           T const zero = 0.0;
+
+           nerrors = 0;
+           Iint nzL = 0;
+           Iint nzU = 0;
+           for(Ilong k=lstart; k < (lend-1); k++) {
+              Iint const jcol = Li[k];
+              bool const is_strictly_lower = (irow > jcol) && (jcol >= 0);
+              if (is_strict_lower) {  nzL++; } else { nerrors++; };
+              };
+           {
+           Iint const jcol = Li[ (lend-1) ];
+           bool const is_unit_diag = (jcol == irow) && (Lx[k] == one);
+           if (!is_unit_diag) { nerrors++; };
+           };
+
+           {
+           Iint const jcol = Ui[ ustart ];
+           bool const is_diag = (jcol == irow ) && ( Ux[k] != zero);
+           if (!is_diag) { nerrors++; };
+           };
+           
+           for(Ilong k=(ustart+1); k < uend; k++) {
+             Iint const jcol = Ui[k];
+             bool const is_upper = (irow <= jcol);
+             if (is_upper) { nzU++; } else { nerrors++; };
+             };
+
+           assert( (1 + nzL) == nnzL );
+
+           assert( (1 + nzU) == nnzU );
+
+           assert( nerrors == 0 );
+
+           };
+             
+
+    
+
         // -----------------------------------------
         // note: assume L has explicit unit diagonal
         // so use (nnzL - 1)
@@ -84,7 +139,8 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
     int constexpr MAX_THREADS = 1024;
     __shared__ Ilong isum[MAX_THREADS];
 
-    for(Iint i = i_start; i < nthreads; i += i_inc)
+    
+    for(Iint i=i_start; i < nthreads; i += i_inc) 
     {
         // ---------------------------------------------
         // the i-th thread computes
@@ -113,7 +169,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
 
     Ilong offset = 0;
     Ilong nnz_LU = 0;
-    bool const is_root_thread = (threadIdx.x == 0);
+    bool const is_root_thread = (i_start == 0);
     if(is_root_thread)
     {
         for(Iint i = 0; i < nthreads; i++)
@@ -150,11 +206,11 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
 
     __syncthreads();
 
-    bool constexpr perform_check = true;
+    bool constexpr perform_check = (idebug >= 1);
     if(perform_check)
     {
         // ------------
-        // check
+        // extra check
         // ------------
 
         __syncthreads();
@@ -357,7 +413,8 @@ rocsolverStatus_t rf_sumLU(hipStream_t streamId,
             Iint const nblocks = 1; // special case use only a single block
 
             rf_setupLUp_kernel<Iint, Ilong, T>
-                <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Up, LUp);
+                <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Li, Lx,
+                                                                       Up, Ui, Ux,  LUp);
         };
 
         // ----------------------------------------------------

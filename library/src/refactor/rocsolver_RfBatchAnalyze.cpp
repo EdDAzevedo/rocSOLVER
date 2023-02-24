@@ -46,12 +46,20 @@ extern "C" {
 
 rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
 {
+    int const idebug = 1;
+
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+
     if(handle == nullptr)
     {
         return (ROCSOLVER_STATUS_NOT_INITIALIZED);
     };
 
     rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
+
+
+
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
 
     try
     {
@@ -72,9 +80,14 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         hipsparseHandle_t hipsparse_handle = handle->hipsparse_handle.data();
         void* const buffer = handle->buffer.data().get();
 
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+
         hipsparseMatDescr_t const descrL = handle->descrL.data();
         hipsparseMatDescr_t const descrU = handle->descrU.data();
         hipsparseMatDescr_t const descrLU = handle->descrLU.data();
+
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+
         {
             bool const isok = (n >= 0) && (nnzLU >= 0) && (batch_count >= 0) && (csrRowPtrLU != 0)
                 && (csrColIndLU != 0) && (csrValLU_array != 0) && (descrL != 0) && (descrU != 0)
@@ -97,13 +110,19 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         // perform analysis
         // ----------------
 
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transL, n, nnzLU,
                                                            descrL, csrValLU, csrRowPtrLU,
                                                            csrColIndLU, infoL, policy, buffer));
 
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transU, n, nnzLU,
                                                            descrU, csrValLU, csrRowPtrLU,
                                                            csrColIndLU, infoU, policy, buffer));
+
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
 
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02_analysis(hipsparse_handle, n, nnzLU, descrLU,
                                                              csrValLU, csrRowPtrLU, csrColIndLU,
@@ -121,6 +140,9 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
     {
         istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
+
+        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+
     return (istat_return);
 };
 };
