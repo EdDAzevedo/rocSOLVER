@@ -31,28 +31,50 @@
 
 #include "hipsparse/hipsparse.h"
 
+#ifndef hipsparseGetErrorName
+#define hipsparseGetErrorName(istat)                                                            \
+    (((istat) == HIPSPARSE_STATUS_SUCCESS)                ? "HIPSPARSE_STATUS_SUCCESS"          \
+         : ((istat) == HIPSPARSE_STATUS_MAPPING_ERROR)    ? "HIPSPARSE_STATUS_MAPPING_ERROR"    \
+         : ((istat) == HIPSPARSE_STATUS_ZERO_PIVOT)       ? "HIPSPARSE_STATUS_ZERO_PIVOT"       \
+         : ((istat) == HIPSPARSE_STATUS_NOT_SUPPORTED)    ? "HIPSPARSE_STATUS_NOT_SUPPORTED"    \
+         : ((istat) == HIPSPARSE_STATUS_NOT_INITIALIZED)  ? "HIPSPARSE_STATUS_NOT_INITIALIZED"  \
+         : ((istat) == HIPSPARSE_STATUS_ALLOC_FAILED)     ? "HIPSPARSE_STATUS_ALLOC_FAILED"     \
+         : ((istat) == HIPSPARSE_STATUS_INVALID_VALUE)    ? "HIPSPARSE_STATUS_INVALID_VALUE"    \
+         : ((istat) == HIPSPARSE_STATUS_ARCH_MISMATCH)    ? "HIPSPARSE_STATUS_ARCH_MISMATCH"    \
+         : ((istat) == HIPSPARSE_STATUS_EXECUTION_FAILED) ? "HIPSPARSE_STATUS_EXECUTION_FAILED" \
+         : ((istat) == HIPSPARSE_STATUS_INTERNAL_ERROR)   ? "HIPSPARSE_STATUS_INTERNAL_ERROR"   \
+         : ((istat) == HIPSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED)                              \
+         ? "HIPSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED"                                         \
+         : ((istat) == HIPSPARSE_STATUS_INSUFFICIENT_RESOURCES)                                 \
+         ? "HIPSPARSE_STATUS_INSUFFICIENT_RESOURCES"                                            \
+         : "unknown status code")
+#endif
+
 #ifndef HIPSPARSE_CHECK
-#define HIPSPARSE_CHECK(fcn, error_code)                                                    \
-    {                                                                                       \
-        hipsparseStatus_t const istat = (fcn);                                              \
-        if(istat != HIPSPARSE_STATUS_SUCCESS)                                               \
-        {                                                                                   \
-            printf("HIPSPARSE API failed at line %d in file %s with error: %d\n", __LINE__, \
-                   __FILE__, istat);                                                        \
-            return ((error_code));                                                          \
-        };                                                                                  \
+#define HIPSPARSE_CHECK(fcn, error_code)                                                        \
+    {                                                                                           \
+        hipsparseStatus_t const istat = (fcn);                                                  \
+        if(istat != HIPSPARSE_STATUS_SUCCESS)                                                   \
+        {                                                                                       \
+            printf("HIPSPARSE API failed at line %d in file %s with error: %s(%d)\n", __LINE__, \
+                   __FILE__, hipsparseGetErrorName(istat), istat);                              \
+            fflush(stdout);                                                                     \
+            return ((error_code));                                                              \
+        };                                                                                      \
     };
 #endif
 
 #ifndef THROW_IF_HIPSPARSE_ERROR
-#define THROW_IF_HIPSPARSE_ERROR(fcn)                                  \
-    {                                                                  \
-        hipsparseStatus_t const istat = (fcn);                         \
-        if(istat != HIPSPARSE_STATUS_SUCCESS)                          \
-        {                                                              \
-            printf("HIPSPARSE failed at %s:%d\n", __FILE__, __LINE__); \
-            throw std::runtime_error(__FILE__);                        \
-        };                                                             \
+#define THROW_IF_HIPSPARSE_ERROR(fcn)                                                    \
+    {                                                                                    \
+        hipsparseStatus_t const istat = (fcn);                                           \
+        if(istat != HIPSPARSE_STATUS_SUCCESS)                                            \
+        {                                                                                \
+            printf("HIPSPARSE failed at %s:%d, with error %s(%d)\n", __FILE__, __LINE__, \
+                   hipsparseGetErrorName(istat), istat);                                 \
+            fflush(stdout);                                                              \
+            throw std::runtime_error(__FILE__);                                          \
+        };                                                                               \
     };
 
 #endif
