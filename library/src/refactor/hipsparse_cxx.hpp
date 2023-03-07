@@ -181,7 +181,7 @@ struct csrilu02Info_cxx_t
         {
             hipsparseStatus_t istat = hipsparseDestroyCsrilu02Info(_data);
             _data = nullptr;
-            bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS) && (_data != nullptr);
+            bool const isok = (istat == HIPSPARSE_STATUS_SUCCESS);
 
             if(!isok)
             {
