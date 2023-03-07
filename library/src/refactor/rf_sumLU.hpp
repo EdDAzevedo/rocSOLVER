@@ -34,12 +34,12 @@ template <typename Iint, typename Ilong, typename T>
 static __global__ void rf_setupLUp_kernel(Iint const nrow,
 
                                           Ilong const* const Lp,
-                                          Iint  const* const Li,
-                                          T     const* const Lx,
+                                          Iint const* const Li,
+                                          T const* const Lx,
 
                                           Ilong const* const Up,
-                                          Iint  const* const Ui,
-                                          T     const* const Ux,
+                                          Iint const* const Ui,
+                                          T const* const Ux,
 
                                           Ilong* const LUp)
 {
@@ -73,53 +73,74 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         Iint const nnz_L = Lp[irow + 1] - Lp[irow];
         Iint const nnz_U = Up[irow + 1] - Up[irow];
 
-        if (idebug >= 1) {
-           // ------------
-           // extra checks
-           // ------------
-           Ilong const lstart = Lp[irow];
-           Ilong const lend = Lp[irow+1];
-           Ilong const ustart = Up[irow];
-           Ilong const uend = Up[irow+1];
-           T const one = 1.0;
-           T const zero = 0.0;
+        if(idebug >= 1)
+        {
+            // ------------
+            // extra checks
+            // ------------
+            Ilong const lstart = Lp[irow];
+            Ilong const lend = Lp[irow + 1];
+            Ilong const ustart = Up[irow];
+            Ilong const uend = Up[irow + 1];
+            T const one = 1.0;
+            T const zero = 0.0;
 
-           nerrors = 0;
-           Iint nzL = 0;
-           Iint nzU = 0;
-           for(Ilong k=lstart; k < (lend-1); k++) {
-              Iint const jcol = Li[k];
-              bool const is_strictly_lower = (irow > jcol) && (jcol >= 0);
-              if (is_strict_lower) {  nzL++; } else { nerrors++; };
-              };
-           {
-           Iint const jcol = Li[ (lend-1) ];
-           bool const is_unit_diag = (jcol == irow) && (Lx[k] == one);
-           if (!is_unit_diag) { nerrors++; };
-           };
+            Iint nerrors = 0;
+            Iint nzL = 0;
+            Iint nzU = 0;
+            for(Ilong k = lstart; k < (lend - 1); k++)
+            {
+                Iint const jcol = Li[k];
+                bool const is_strictly_lower = (irow > jcol) && (jcol >= 0);
+                if(is_strictly_lower)
+                {
+                    nzL++;
+                }
+                else
+                {
+                    nerrors++;
+                };
+            };
+            {
+                Ilong const k = lend - 1;
+                Iint const jcol = Li[k];
+                bool const is_unit_diag = (jcol == irow) && (Lx[k] == one);
+                if(!is_unit_diag)
+                {
+                    nerrors++;
+                };
+            };
 
-           {
-           Iint const jcol = Ui[ ustart ];
-           bool const is_diag = (jcol == irow ) && ( Ux[k] != zero);
-           if (!is_diag) { nerrors++; };
-           };
-           
-           for(Ilong k=(ustart+1); k < uend; k++) {
-             Iint const jcol = Ui[k];
-             bool const is_upper = (irow <= jcol);
-             if (is_upper) { nzU++; } else { nerrors++; };
-             };
+            {
+                Ilong const k = ustart;
+                Iint const jcol = Ui[k];
+                bool const is_diag = (jcol == irow) && (Ux[k] != zero);
+                if(!is_diag)
+                {
+                    nerrors++;
+                };
+            };
 
-           assert( (1 + nzL) == nnzL );
+            for(Ilong k = (ustart + 1); k < uend; k++)
+            {
+                Iint const jcol = Ui[k];
+                bool const is_upper = (irow <= jcol);
+                if(is_upper)
+                {
+                    nzU++;
+                }
+                else
+                {
+                    nerrors++;
+                };
+            };
 
-           assert( (1 + nzU) == nnzU );
+            assert((1 + nzL) == nnz_L);
 
-           assert( nerrors == 0 );
+            assert((1 + nzU) == nnz_U);
 
-           };
-             
-
-    
+            assert(nerrors == 0);
+        };
 
         // -----------------------------------------
         // note: assume L has explicit unit diagonal
@@ -139,8 +160,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
     int constexpr MAX_THREADS = 1024;
     __shared__ Ilong isum[MAX_THREADS];
 
-    
-    for(Iint i=i_start; i < nthreads; i += i_inc) 
+    for(Iint i = i_start; i < nthreads; i += i_inc)
     {
         // ---------------------------------------------
         // the i-th thread computes
@@ -413,8 +433,7 @@ rocsolverStatus_t rf_sumLU(hipStream_t streamId,
             Iint const nblocks = 1; // special case use only a single block
 
             rf_setupLUp_kernel<Iint, Ilong, T>
-                <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Li, Lx,
-                                                                       Up, Ui, Ux,  LUp);
+                <<<dim3(nthreads), dim3(nblocks), 0, streamId>>>(nrow, Lp, Li, Lx, Up, Ui, Ux, LUp);
         };
 
         // ----------------------------------------------------

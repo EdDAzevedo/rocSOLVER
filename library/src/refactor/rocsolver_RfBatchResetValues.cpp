@@ -62,7 +62,7 @@ rocsolverStatus_t rocsolverRfBatchResetValues(
     /* Output */
     rocsolverRfHandle_t handle)
 {
-    return (rocsolver_RfBatchResetValues_template<int, int, double>(
-        batch_count, n, nnzA, csrRowPtrA, csrColIndA, csrValA_array, P, Q, handle));
+    return (rocsolver_RfBatchResetValues_template(batch_count, n, nnzA, csrRowPtrA, csrColIndA,
+                                                  csrValA_array, P, Q, handle));
 };
 }

@@ -128,14 +128,14 @@ rocsolverStatus_t rocsolverRfBatchSolve(
                 int* const LUp = handle->csrRowPtrLU.data().get();
                 int* const LUi = handle->csrColIndLU.data().get();
 
-                size_t const nnzLU = handle->nnzLU;
+                int const nnzLU = handle->nnzLU;
                 size_t const ialign = handle->ialign;
                 size_t const isize = ((nnzLU + (ialign - 1)) / ialign) * ialign;
                 size_t const offset = ibatch * isize;
                 double* const LUx = handle->csrValLU_array.data().get() + offset;
 
-                rocsolverStatus_t istat = rf_pqrlusolve(handle, n, P_new2old, Q_new2old, Rs, LUp,
-                                                        LUi, LUx, brhs, d_Temp);
+                rocsolverStatus_t istat = rf_pqrlusolve(handle, n, nnzLU, P_new2old, Q_new2old, Rs,
+                                                        LUp, LUi, LUx, brhs, d_Temp);
 
                 bool const isok = (istat == ROCSOLVER_STATUS_SUCCESS);
                 if(!isok)

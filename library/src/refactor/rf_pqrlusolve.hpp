@@ -42,6 +42,7 @@
 template <typename Iint, typename Ilong, typename T>
 static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
                                        Iint const n,
+                                       Ilong const nnzLU,
                                        Iint* const P_new2old,
                                        Iint* const Q_new2old,
                                        T* const Rs,
@@ -51,6 +52,7 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
                                        T* const brhs,
                                        T* Temp)
 {
+    int const idebug = 1;
     /*
     -------------------------------------------------
     Rs \ (P * A * Q) = LU
@@ -64,12 +66,24 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
 */
 
     {
-        bool const isok_arg
-            = (LUp != nullptr) && (LUi != nullptr) && (LUx != nullptr) && (brhs != nullptr);
+        bool const isok_arg = (n >= 0) && (nnzLU >= 0) && (LUp != nullptr) && (LUi != nullptr)
+            && (LUx != nullptr) && (brhs != nullptr) && (Temp != nullptr);
         if(!isok_arg)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
+
+        bool const has_work = (n >= 1) && (nnzLU >= 1);
+        if(!has_work)
+        {
+            return (ROCSOLVER_STATUS_SUCCESS);
+        };
+    };
+
+    if(idebug >= 1)
+    {
+        printf("%s line %d\n", __FILE__, __LINE__);
+        fflush(stdout);
     };
 
     rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
@@ -84,6 +98,12 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         T* const d_brhs = brhs;
         T* const d_bhat = Temp;
         T* const d_Rs = Rs;
+
+        if(idebug >= 1)
+        {
+            printf("%s line %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         if(need_apply_P)
         {
@@ -102,6 +122,12 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
             thrust::copy(d_brhs, d_brhs + n, d_bhat);
         };
 
+        if(idebug >= 1)
+        {
+            printf("%s line %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
+
         if(need_apply_Rs)
         {
             // -------------------------
@@ -110,12 +136,22 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
             rf_applyRs(stream, n, d_Rs, d_bhat);
         };
 
+        if(idebug >= 1)
+        {
+            printf("%s line %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
         // -----------------------------------------------
         // prepare to call triangular solvers rf_lusolve()
         // -----------------------------------------------
 
         {
-            Ilong const nnz = LUp[n] - LUp[0];
+            Ilong const nnz = nnzLU;
+            if(idebug >= 1)
+            {
+                printf("%s line %d, nnz=%d\n", __FILE__, __LINE__, nnz);
+                fflush(stdout);
+            };
 
             // ---------------------------------------
             // allocate device memory and copy LU data
@@ -134,6 +170,11 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
                 throw std::runtime_error(__FILE__);
             };
         };
+        if(idebug >= 1)
+        {
+            printf("%s line %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         if(need_apply_Q)
         {
@@ -149,6 +190,12 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
             // ---------------------
             thrust::copy(d_bhat, d_bhat + n, d_brhs);
         };
+
+        if(idebug >= 1)
+        {
+            printf("%s line %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
     }
     catch(const std::bad_alloc& e)
     {
@@ -163,6 +210,11 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
         istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
+    if(idebug >= 1)
+    {
+        printf("%s line %d, istat_return=%d\n", __FILE__, __LINE__, istat_return);
+        fflush(stdout);
+    };
     return (istat_return);
 }
 

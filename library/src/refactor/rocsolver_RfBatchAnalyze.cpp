@@ -48,7 +48,11 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
 {
     int const idebug = 1;
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+    if(idebug >= 1)
+    {
+        fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+        fflush(stderr);
+    };
 
     if(handle == nullptr)
     {
@@ -57,9 +61,11 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
 
     rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
 
-
-
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+    if(idebug >= 1)
+    {
+        fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+        fflush(stderr);
+    };
 
     try
     {
@@ -75,18 +81,44 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
 
         csrsv2Info_t const infoL = handle->infoL.data();
         csrsv2Info_t const infoU = handle->infoU.data();
+
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
         csrilu02Info_t const infoLU = handle->infoLU_array[ibatch].data();
 
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
+
         hipsparseHandle_t hipsparse_handle = handle->hipsparse_handle.data();
+
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
         void* const buffer = handle->buffer.data().get();
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
 
         hipsparseMatDescr_t const descrL = handle->descrL.data();
         hipsparseMatDescr_t const descrU = handle->descrU.data();
         hipsparseMatDescr_t const descrLU = handle->descrLU.data();
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
 
         {
             bool const isok = (n >= 0) && (nnzLU >= 0) && (batch_count >= 0) && (csrRowPtrLU != 0)
@@ -110,23 +142,40 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         // perform analysis
         // ----------------
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
 
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transL, n, nnzLU,
                                                            descrL, csrValLU, csrRowPtrLU,
                                                            csrColIndLU, infoL, policy, buffer));
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
 
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transU, n, nnzLU,
                                                            descrU, csrValLU, csrRowPtrLU,
                                                            csrColIndLU, infoU, policy, buffer));
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
 
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02_analysis(hipsparse_handle, n, nnzLU, descrLU,
                                                              csrValLU, csrRowPtrLU, csrColIndLU,
                                                              infoLU, policy, buffer));
+        if(idebug >= 1)
+        {
+            fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+            fflush(stderr);
+        };
     }
     catch(const std::bad_alloc& e)
     {
@@ -141,7 +190,11 @@ rocsolverStatus_t rocsolverRfBatchAnalyze(rocsolverRfHandle_t handle)
         istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+    if(idebug >= 1)
+    {
+        fprintf(stderr, "%s : %d\n", __FILE__, __LINE__);
+        fflush(stderr);
+    };
 
     return (istat_return);
 };

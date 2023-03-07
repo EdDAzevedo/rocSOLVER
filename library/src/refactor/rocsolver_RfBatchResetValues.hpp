@@ -47,6 +47,12 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
 
                                                         rocsolverRfHandle_t handle)
 {
+    int constexpr idebug = 1;
+    if(idebug >= 1)
+    {
+        printf("%s:%d\n", __FILE__, __LINE__);
+        fflush(stdout);
+    };
     // ------------
     // Check arguments
     // ------------
@@ -59,6 +65,12 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         };
     };
 
+    if(idebug >= 1)
+    {
+        printf("%s:%d\n", __FILE__, __LINE__);
+        fflush(stdout);
+    };
+
     {
         bool const isok_scalar = (batch_count >= 0) && (n >= 0) && (nnzA >= 0);
 
@@ -66,6 +78,12 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
+    };
+
+    if(idebug >= 1)
+    {
+        printf("%s:%d\n", __FILE__, __LINE__);
+        fflush(stdout);
     };
 
     {
@@ -76,6 +94,12 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
+    };
+
+    if(idebug >= 1)
+    {
+        printf("%s:%d\n", __FILE__, __LINE__);
+        fflush(stdout);
     };
 
     {
@@ -92,6 +116,13 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
                 nerrors++;
             };
         };
+
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
+
         bool const isok_csrValA = (nerrors == 0);
         if(!isok_csrValA)
         {
@@ -103,12 +134,27 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
     int const* const Q_new2old = handle->Q_new2old.data().get();
     int const* const Q_old2new = handle->Q_old2new.data().get();
 
+    if(idebug >= 1)
+    {
+        printf("%s:%d\n", __FILE__, __LINE__);
+        fflush(stdout);
+    };
+
+    bool const check_PQ = false;
+
+    if(check_PQ)
     {
         bool const is_ok = (P == P_new2old) && (Q == Q_new2old) && (Q_old2new != nullptr);
         if(!is_ok)
         {
             return (ROCSOLVER_STATUS_INVALID_VALUE);
         };
+    };
+
+    if(idebug >= 1)
+    {
+        printf("%s:%d\n", __FILE__, __LINE__);
+        fflush(stdout);
     };
 
     rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
@@ -136,9 +182,21 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         size_t const ialign = handle->ialign;
         size_t const isize = ((nnzA + (ialign - 1)) / ialign) * ialign;
 
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
+
         T const zero = 0;
         handle->csrValLU_array.resize(batch_count * isize);
         thrust::fill(handle->csrValLU_array.begin(), handle->csrValLU_array.end(), zero);
+
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         int nerrors = 0;
         for(int ibatch = 0; ibatch < batch_count; ibatch++)
@@ -148,14 +206,34 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
             T* const LUx = handle->csrValLU_array.data().get() + offset;
             T const* const Ax = csrValA_array[ibatch];
 
+            if(idebug >= 1)
+            {
+                printf("%s:%d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
+
             rocsolverStatus_t istat = rocsolver_add_PAQ(stream, nrow, ncol, P_new2old, Q_old2new,
                                                         alpha, Ap, Ai, Ax, beta, LUp, LUi, LUx);
+
+            if(idebug >= 1)
+            {
+                printf("%s:%d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
+
             bool const isok = (istat == ROCSOLVER_STATUS_SUCCESS);
             if(!isok)
             {
                 nerrors++;
             };
         };
+
+        if(idebug >= 1)
+        {
+            printf("%s:%d, nerrors=%d\n", __FILE__, __LINE__, nerrors);
+            fflush(stdout);
+        };
+
         if(nerrors != 0)
         {
             throw std::runtime_error(__FILE__);
@@ -174,6 +252,11 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
         istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
+    if(idebug >= 1)
+    {
+        printf("%s:%d, istat_return=%d\n", __FILE__, __LINE__, istat_return);
+        fflush(stdout);
+    };
     return (istat_return);
 }
 

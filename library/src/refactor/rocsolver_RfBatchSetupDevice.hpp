@@ -219,8 +219,6 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         // setup descrL
         // -------------
         {
-         
-         
             THROW_IF_HIPSPARSE_ERROR(
                 hipsparseSetMatType(handle->descrL.data(), HIPSPARSE_MATRIX_TYPE_GENERAL));
 
@@ -302,7 +300,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             };
         };
 
-        if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+        if(idebug >= 1)
+        {
+            printf("%s : %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         // -----------------------------
         // copy the values of A into L+U
@@ -311,7 +313,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         rocsolverStatus_t const istat_ResetValues
             = rocsolverRfBatchResetValues(batch_count, n, nnzA, csrRowPtrA_in, csrColIndA_in,
                                           csrValA_array_in, P_in, Q_in, handle);
-        if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+        if(idebug >= 1)
+        {
+            printf("%s : %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         bool const isok_ResetValues = (istat_ResetValues == ROCSOLVER_STATUS_SUCCESS);
         if(!isok_ResetValues)
@@ -319,7 +325,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             throw std::runtime_error(__FILE__);
         };
 
-        if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+        if(idebug >= 1)
+        {
+            printf("%s : %d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
         // ----------------
         // allocate buffer
         // ----------------
@@ -332,7 +342,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
 
             int stmp = 0;
 
-        if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+            if(idebug >= 1)
+            {
+                printf("%s : %d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
 
             {
                 hipsparseHandle_t const hipsparse_handle = handle->hipsparse_handle.data();
@@ -342,25 +356,30 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 hipsparseMatDescr_t const descrL = handle->descrL.data();
                 csrsv2Info_t const infoL = handle->infoL.data();
 
+                assert(hipsparse_handle != nullptr);
+                assert(Li != nullptr);
+                assert(Lp != nullptr);
+                assert(Lx != nullptr);
+                assert(n >= 1);
+                assert(nnzL >= 1);
+                assert(infoL != nullptr);
+                assert(descrL != nullptr);
 
-                assert( hipsparse_handle != nullptr);
-                assert( Li != nullptr );
-                assert( Lp != nullptr );
-                assert( Lx != nullptr );
-                assert( n >= 1);
-                assert( nnzL >= 1);
-                assert( infoL != nullptr );
-                assert( descrL != nullptr );
+                if(idebug >= 1)
+                {
+                    printf("%s : %d\n", __FILE__, __LINE__);
+                    fflush(stdout);
+                };
 
-           if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
-
-
-                THROW_IF_HIPSPARSE_ERROR(
-                    hipsparseDcsrsv2_bufferSize(hipsparse_handle, transL, n, nnzL, 
-                          descrL,  Lx, Lp, Li, infoL,  &stmp));
+                THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_bufferSize(
+                    hipsparse_handle, transL, n, nnzL, descrL, Lx, Lp, Li, infoL, &stmp));
             };
 
-           if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+            if(idebug >= 1)
+            {
+                printf("%s : %d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
 
             if(stmp > bufferSize)
             {
@@ -378,17 +397,20 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 hipsparseMatDescr_t const descrU = handle->descrU.data();
                 csrsv2Info_t const infoU = handle->infoU.data();
 
-                assert( Ui != nullptr );
-                assert( Up != nullptr );
-                assert( Ux != nullptr );
-                assert( descrU != nullptr );
-                assert( infoU != nullptr );
+                assert(Ui != nullptr);
+                assert(Up != nullptr);
+                assert(Ux != nullptr);
+                assert(descrU != nullptr);
+                assert(infoU != nullptr);
 
-                THROW_IF_HIPSPARSE_ERROR(
-                    hipsparseDcsrsv2_bufferSize(hipsparse_handle, transU, n, nnzU, 
-                        descrU,  Ux, Up, Ui, infoU,  &stmp));
+                THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_bufferSize(
+                    hipsparse_handle, transU, n, nnzU, descrU, Ux, Up, Ui, infoU, &stmp));
             };
-           if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+            if(idebug >= 1)
+            {
+                printf("%s : %d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
 
             if(stmp > bufferSize)
             {
@@ -413,8 +435,8 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 size_t const mat_size = ((nnzLU + (ialign - 1)) / ialign) * ialign;
                 size_t const offset = ibatch * mat_size;
 
-                double *base = handle->csrValLU_array.data().get();
-                assert( base != nullptr);
+                double* base = handle->csrValLU_array.data().get();
+                assert(base != nullptr);
 
                 double* LUx = base + offset;
 
@@ -422,25 +444,36 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 hipsparseMatDescr_t const descrLU = handle->descrLU.data();
                 csrilu02Info_t infoLU = (handle->infoLU_array[ibatch]).data();
 
-                assert( infoLU != nullptr );
-                assert( descrLU != nullptr );
-            
+                assert(infoLU != nullptr);
+                assert(descrLU != nullptr);
 
                 THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02_bufferSize(
                     hipsparse_handle, n, nnz, descrLU, LUx, LUp, LUi, infoLU, &isize));
 
                 stmp = max(isize, stmp);
             };
-           if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+            if(idebug >= 1)
+            {
+                printf("%s : %d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
 
             if(stmp > bufferSize)
             {
                 bufferSize = stmp;
             }
 
-           if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+            if(idebug >= 1)
+            {
+                printf("%s : %d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
             handle->buffer.resize(bufferSize);
-           if(idebug >= 1) { printf("%s : %d\n", __FILE__, __LINE__); fflush(stdout); };
+            if(idebug >= 1)
+            {
+                printf("%s : %d\n", __FILE__, __LINE__);
+                fflush(stdout);
+            };
         };
     }
     catch(const std::bad_alloc& e)
@@ -456,6 +489,10 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
-   if(idebug >= 1) { printf("%s : %d, istat_return=%d\n", __FILE__, __LINE__,istat_return); fflush(stdout); };
+    if(idebug >= 1)
+    {
+        printf("%s : %d, istat_return=%d\n", __FILE__, __LINE__, istat_return);
+        fflush(stdout);
+    };
     return (istat_return);
 }

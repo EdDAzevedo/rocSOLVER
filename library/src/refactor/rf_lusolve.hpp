@@ -36,6 +36,8 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
                              T* const d_b,
                              T* const d_Temp)
 {
+    int const idebug = 1;
+
     {
         bool isok = (handle != nullptr);
         if(!isok)
@@ -57,6 +59,12 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         };
     };
 
+    if(idebug >= 1)
+    {
+        printf("%s:%d\n", __FILE__, __LINE__);
+        fflush(stdout);
+    };
+
     rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
     try
     {
@@ -69,6 +77,18 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         hipsparseMatDescr_t descrU = handle->descrU.data();
 
         csrsv2Info_t infoU = handle->infoU.data();
+
+        assert(hipsparse_handle != nullptr);
+        assert(descrL != nullptr);
+        assert(infoL != nullptr);
+        assert(descrU != nullptr);
+        assert(infoU != nullptr);
+
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         // --------------------------------
         // Allocate workspace for hipSPARSE
@@ -89,13 +109,30 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         hipsparseOperation_t transL = HIPSPARSE_OPERATION_NON_TRANSPOSE;
         hipsparseOperation_t transU = HIPSPARSE_OPERATION_NON_TRANSPOSE;
 
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
+
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_bufferSize(hipsparse_handle, transL, m, lnnz,
                                                              descrL, csrSortedValA, csrSortedRowPtrA,
                                                              csrSortedColIndA, infoL, &stmp_L));
 
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
+
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_bufferSize(hipsparse_handle, transU, m, lnnz,
                                                              descrU, csrSortedValA, csrSortedRowPtrA,
                                                              csrSortedColIndA, infoU, &stmp_U));
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         int const bufferSize = std::max(stmp_L, stmp_U);
         bool const isok_size = (handle->buffer.size() >= bufferSize);
@@ -117,13 +154,31 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         // (2)   solve U x = y,   U non-unit diagonal
         // -------------------------------------------
 
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
+
         THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transL, m, lnnz,
                                                            descrL, csrSortedValA, csrSortedRowPtrA,
                                                            csrSortedColIndA, infoL, policy, buffer));
 
-        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(handle, transU, m, lnnz, descrU,
-                                                           csrSortedValA, csrSortedRowPtrA,
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
+
+        THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_analysis(hipsparse_handle, transU, m, lnnz,
+                                                           descrU, csrSortedValA, csrSortedRowPtrA,
                                                            csrSortedColIndA, infoU, policy, buffer));
+
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
 
         // ----------------------
         // step (1) solve L y = b
@@ -135,6 +190,11 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
             hipsparse_handle, transL, m, lnnz, &alpha, descrL, csrSortedValA, csrSortedRowPtrA,
             csrSortedColIndA, infoL, d_b, d_y, policy, buffer));
 
+        if(idebug >= 1)
+        {
+            printf("%s:%d\n", __FILE__, __LINE__);
+            fflush(stdout);
+        };
         // ----------------------
         // step (2) solve U x = y
         // ----------------------
@@ -156,6 +216,11 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
         istat_return = ROCSOLVER_STATUS_INTERNAL_ERROR;
     };
 
+    if(idebug >= 1)
+    {
+        printf("%s:%d, istat_return=%d\n", __FILE__, __LINE__, istat_return);
+        fflush(stdout);
+    };
     return (istat_return);
 }
 #endif

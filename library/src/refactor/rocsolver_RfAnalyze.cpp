@@ -46,9 +46,13 @@ extern "C" {
 
 rocsolverStatus_t rocsolverRfAnalyze(rocsolverRfHandle_t handle)
 {
-  int const idebug = 1;
+    int const idebug = 1;
 
-        if (idebug >= 1) { printf("%s : %d\n",__FILE__,__LINE__); fflush(stdout);};
+    if(idebug >= 1)
+    {
+        printf("%s : %d\n", __FILE__, __LINE__);
+        fflush(stdout);
+    };
 
     return (rocsolverRfBatchAnalyze(handle));
 };
