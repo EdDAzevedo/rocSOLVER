@@ -64,6 +64,7 @@ static __global__
                                                                       Iint const* const LUi,
                                                                       T* const LUx)
 {
+    int const idebug = 1;
     //  ------------------------
     // inline lambda expression
     // ------------------------
@@ -128,6 +129,22 @@ static __global__
 
                 ipos = rf_search(len, arr, key);
                 bool const is_found = (0 <= ipos) && (ipos < len) && (arr[ipos] == key);
+
+                if(!is_found)
+                {
+                    if(idebug >= 1)
+                    {
+                        printf("%s:%d\n", __FILE__, __LINE__);
+                        printf("irow=%d, len=%d, key=%d, kstart_A=%d, kend_A=%d, kstart_LU=%d "
+                               "kend_LU=%d\n",
+                               irow, len, key, kstart_A, kend_A, kstart_LU, kend_LU);
+                        printf("irow=%d: jcol_old=%d, jcol=%d\n", irow, jcol_old, jcol);
+                        for(int i = 0; i < len; i++)
+                        {
+                            printf("irow=%d:arr[%d]=%d\n", irow, i, arr[i]);
+                        };
+                    };
+                };
                 assert(is_found);
             };
 

@@ -468,7 +468,17 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 printf("%s : %d\n", __FILE__, __LINE__);
                 fflush(stdout);
             };
-            handle->buffer.resize(bufferSize);
+            if(bufferSize > handle->buffer.size())
+            {
+                if(idebug >= 1)
+                {
+                    printf("%s : %d, bufferSize=%zu, buffer.size()=%zu\n", __FILE__, __LINE__,
+                           bufferSize, handle->buffer.size());
+                    fflush(stdout);
+                };
+
+                handle->buffer.resize(bufferSize);
+            };
             if(idebug >= 1)
             {
                 printf("%s : %d\n", __FILE__, __LINE__);
