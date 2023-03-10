@@ -25,6 +25,8 @@
 #ifndef HIPSOLVERRF_H
 #define HIPSOLVERRF_H
 
+#ifdef __HIP_PLATFORM_AMD__
+
 #include "hipsolver_enum.h"
 #include "hipsolver_status.h"
 #include "rocsolverRf.h"
@@ -221,6 +223,11 @@ hipsolverStatus_t hipsolverRfBatchZeroPivot(hipsolverRfHandle_t handle,
 
 #ifdef __cplusplus
 };
+#endif
+
+
+#else
+#include "cusolverRf.h"
 #endif
 
 #endif
