@@ -44,6 +44,8 @@
 #include <thrust/replace.h>
 #include <thrust/functional.h>
 #include <thrust/sequence.h>
+#include <thrust/gather.h>
+#include <thrust/scatter.h>
 
 #include <thrust/iterator/permutation_iterator.h>
 
