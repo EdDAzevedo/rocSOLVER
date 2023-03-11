@@ -183,8 +183,13 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             // inew = Q_new2old[ iold ]
             // Q_old2new[ iold ] = inew;
             // -------------------------
-            rocsolver_ipvec_template(handle->streamId.data(), n, handle->Q_new2old.data().get(),
-                                     handle->Q_old2new.data().get());
+            // rocsolver_ipvec_template(handle->streamId.data(), n, handle->Q_new2old.data().get(),
+            //                         handle->Q_old2new.data().get());
+
+        thrust::sequence(
+	 thrust::make_permutation_iterator( handle->Q_old2new.begin(), handle->Q_new2old.begin()),
+	 thrust::make_permutation_iterator( handle->Q_old2new.end(), handle->Q_new2old.end()));
+
         };
 
         if(idebug >= 1)

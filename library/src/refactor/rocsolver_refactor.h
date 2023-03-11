@@ -39,6 +39,14 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
+#include <thrust/reduce.h>
+#include <thrust/transform.h>
+#include <thrust/replace.h>
+#include <thrust/functional.h>
+#include <thrust/sequence.h>
+
+#include <thrust/iterator/permutation_iterator.h>
+
 typedef enum
 {
     ROCSOLVERRF_RESET_VALUES_FAST_MODE_OFF = 0, //default
