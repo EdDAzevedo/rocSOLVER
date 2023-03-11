@@ -85,7 +85,10 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
             T const one = 1.0;
             T const zero = 0.0;
 
-            Iint nerrors = 0;
+            Iint nerrorsL = 0;
+            Iint nerrorsU = 0;
+            Iint nerrorsDL = 0;
+            Iint nerrorsDU = 0;
             Iint nzL = 0;
             Iint nzU = 0;
             for(Ilong k = lstart; k < (lend - 1); k++)
@@ -98,7 +101,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
                 }
                 else
                 {
-                    nerrors++;
+                    nerrorsL++;
                 };
             };
             {
@@ -107,7 +110,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
                 bool const is_unit_diag = (jcol == irow) && (Lx[k] == one);
                 if(!is_unit_diag)
                 {
-                    nerrors++;
+                    nerrorsDL++;
                 };
             };
 
@@ -117,7 +120,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
                 bool const is_diag = (jcol == irow) && (Ux[k] != zero);
                 if(!is_diag)
                 {
-                    nerrors++;
+                    nerrorsDU++;
                 };
             };
 
@@ -131,7 +134,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
                 }
                 else
                 {
-                    nerrors++;
+                    nerrorsU++;
                 };
             };
 
@@ -139,7 +142,10 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
 
             assert((1 + nzU) == nnz_U);
 
-            assert(nerrors == 0);
+            assert(nerrorsDL == 0);
+            assert(nerrorsDU == 0);
+            assert(nerrorsL == 0);
+            assert(nerrorsU == 0);
         };
 
         // -----------------------------------------
