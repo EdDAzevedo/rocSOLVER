@@ -86,12 +86,22 @@ rocsolverStatus_t rocsolverRfExtractBundledFactorsHost(rocsolverRfHandle_t handl
         int const n = handle->n;
         int const nnzLU = handle->nnzLU;
 
+        int *Mp =  *h_Mp;
+        int *Mi =  *h_Mi;
+        double *Mx =  *h_Mx;
+
+
         // ------------------------
         // allocate storage on host
         // ------------------------
-        int* const Mp = new int[n + 1];
-        int* const Mi = new int[nnzLU];
-        double* const Mx = new double[nnzLU];
+        bool const need_alloc_Mp = (Mp == nullptr);
+        bool const need_alloc_Mi = (Mi == nullptr);
+        bool const need_alloc_Mx = (Mx == nullptr);
+
+        if (need_alloc_Mp) { Mp = new int[n+1]; };
+        if (need_alloc_Mi) { Mi = new int[nnzLU]; };
+        if (need_alloc_Mx) { Mx = new double[nnzLU]; };
+
 
         if(idebug >= 1)
         {
