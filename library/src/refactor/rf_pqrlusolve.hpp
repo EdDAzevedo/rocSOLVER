@@ -191,14 +191,21 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
             // -------------------------------
             // brhs[ Q_new2old[i] ] = bhat[i]
             // -------------------------------
-            rf_scatter(stream, n, Q_new2old, d_bhat, d_brhs);
+            // rf_scatter(stream, n, Q_new2old, d_bhat, d_brhs);
+           thrust::scatter( thrust::device_ptr<double>(d_bhat), 
+                            thrust::device_ptr<double>(d_bhat + n), 
+                            thrust::device_ptr<int>(Q_new2old),
+                            thrust::device_ptr<double>(d_brhs)  );
+ 
         }
         else
         {
             // ---------------------
             // brhs[ k ] = bhat[ k ]
             // ---------------------
-            thrust::copy(d_bhat, d_bhat + n, d_brhs);
+            thrust::copy(thrust::device_ptr<double>(d_bhat), 
+                         thrust::device_ptr<double>(d_bhat + n), 
+                         thrust::device_ptr<double>(d_brhs)   );
         };
 
         if(idebug >= 1)

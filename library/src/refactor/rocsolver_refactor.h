@@ -36,6 +36,7 @@
 #include "hip_cxx.hpp"
 #include "hipsparse_cxx.hpp"
 
+#include <thrust/device_ptr.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
