@@ -180,16 +180,17 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             // -------------------------
             // generate inverse permutation Q_old2new[]
             //
-            // inew = Q_new2old[ iold ]
-            // Q_old2new[ iold ] = inew;
+            // Q_old2new[ Q_new2old[ i ] = i
             // -------------------------
             // rocsolver_ipvec_template(handle->streamId.data(), n, handle->Q_new2old.data().get(),
             //                         handle->Q_old2new.data().get());
 
-        thrust::sequence(
-	 thrust::make_permutation_iterator( handle->Q_old2new.begin(), handle->Q_new2old.begin()),
-	 thrust::make_permutation_iterator( handle->Q_old2new.end(), handle->Q_new2old.end()));
+            {
+                thrust::counting_iterator<int> first(0);
+                thrust::counting_iterator<int> last = first + n;
 
+                thrust::scatter(first, last, handle->Q_new2old.begin(), handle->Q_old2new.begin());
+            };
         };
 
         if(idebug >= 1)
