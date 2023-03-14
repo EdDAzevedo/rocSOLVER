@@ -113,8 +113,6 @@ rocsolverStatus_t rocsolverRfExtractBundledFactorsHost(rocsolverRfHandle_t handl
         // copy from device to host
         // ------------------------
 
-        // int* d_Mp = handle->csrRowPtrLU.data().get();
-        // thrust::copy(d_Mp, d_Mp + (n + 1), Mp);
         thrust::copy(handle->csrRowPtrLU.begin(), handle->csrRowPtrLU.end(), Mp);
         if(idebug >= 1)
         {
@@ -122,8 +120,6 @@ rocsolverStatus_t rocsolverRfExtractBundledFactorsHost(rocsolverRfHandle_t handl
             fflush(stdout);
         };
 
-        // int* d_Mi = handle->csrColIndLU.data().get();
-        // thrust::copy(d_Mi, d_Mi + nnzLU, Mi);
         thrust::copy(handle->csrColIndLU.begin(), handle->csrColIndLU.end(), Mi);
         if(idebug >= 1)
         {
@@ -131,8 +127,6 @@ rocsolverStatus_t rocsolverRfExtractBundledFactorsHost(rocsolverRfHandle_t handl
             fflush(stdout);
         };
 
-        // double* d_Mx = handle->csrValLU_array.data().get();
-        // thrust::copy(d_Mx, d_Mx + nnzLU, Mx);
         thrust::copy(handle->csrValLU_array.begin(), handle->csrValLU_array.begin() + nnzLU, Mx);
         if(idebug >= 1)
         {

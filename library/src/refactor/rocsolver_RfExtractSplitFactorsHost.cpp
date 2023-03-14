@@ -190,36 +190,40 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
             {
                 int const kcol = Mi[k];
                 double const mij = Mx[k];
-                bool const is_upper = (irow <= kcol);
-                if(is_upper)
-                {
-                    int const ip = nzUp[irow];
-                    nzUp[irow]++;
+                bool const is_strict_upper = (irow < kcol);
+                bool const is_strict_lower = (irow > kcol);
+                bool const is_diag = (irow == kcol);
 
-                    Ui[ip] = kcol;
-                    Ux[ip] = mij;
-                }
-                else
-                {
-                    int const ip = nzLp[irow];
-                    nzLp[irow]++;
+                if (is_diag) {
+                    int const ip_U = nzUp[ irow ]; 
+                    nzUp[ irow ]++;
+                    Ui[ip_U] = kcol;
+                    Ux[ip_U] = mij;
 
-                    Li[ip] = kcol;
-                    Lx[ip] = mij;
+                    int const ip_L = nzLp[ irow ]; 
+                    nzLp[ irow ]++;
+                    Li[ip_L] = kcol;
+                    Lx[ip_L] = one;
+                    };
+
+                if(is_strict_upper)
+                {
+                    int const ip_U = nzUp[ irow ]; 
+                    nzUp[ irow ]++;
+                    Ui[ip_U] = kcol;
+                    Ux[ip_U] = mij;
                 };
-            };
-        };
 
-        // ------------------------
-        // set unit diagonal entry in L
-        // ------------------------
-        for(int irow = 0; irow < n; irow++)
-        {
-            int const kend = Lp[irow + 1];
-            int const ip = kend - 1;
-            Li[ip] = irow;
-            Lx[ip] = one;
-        };
+                if (is_strict_lower) {
+                   int const ip_L = nzLp[ irow ]; 
+                   nzLp[ irow ]++;
+                   Li[ ip_L ] = kcol;
+                   Lx[ ip_L ] = mij;
+                   };
+
+            };
+        }; // end for irow
+
 
         *h_nnzL = nnzL;
         *h_Lp = Lp;
