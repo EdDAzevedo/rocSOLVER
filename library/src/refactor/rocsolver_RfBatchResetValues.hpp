@@ -215,7 +215,6 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
             rocsolverStatus_t istat = rocsolver_add_PAQ(stream, nrow, ncol, P_new2old, Q_old2new,
                                                         alpha, Ap, Ai, Ax, beta, LUp, LUi, LUx);
 
-
             if(idebug >= 1)
             {
                 printf("%s:%d\n", __FILE__, __LINE__);
@@ -235,7 +234,7 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
             fflush(stdout);
         };
 
-        THROW_IF_HIP_ERROR( hipDeviceSynchronize() );
+        THROW_IF_HIP_ERROR(hipDeviceSynchronize());
 
         if(nerrors != 0)
         {

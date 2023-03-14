@@ -113,12 +113,8 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
 
             // rf_gather(stream, n, P_new2old, d_brhs, d_bhat);
 
-
-            thrust::gather( 
-              thrust::device_ptr<int>(P_new2old),
-              thrust::device_ptr<int>(P_new2old + n),
-              thrust::device_ptr<double>( d_brhs ),
-              thrust::device_ptr<double>( d_bhat )  );
+            thrust::gather(thrust::device_ptr<int>(P_new2old), thrust::device_ptr<int>(P_new2old + n),
+                           thrust::device_ptr<double>(d_brhs), thrust::device_ptr<double>(d_bhat));
         }
         else
         {
@@ -126,10 +122,8 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
             // bhat[k] = brhs[k]
             // -----------------
 
-            thrust::copy(
-              thrust::device_ptr<T>(d_brhs), 
-              thrust::device_ptr<T>(d_brhs + n), 
-              thrust::device_ptr<T>(d_bhat) );
+            thrust::copy(thrust::device_ptr<T>(d_brhs), thrust::device_ptr<T>(d_brhs + n),
+                         thrust::device_ptr<T>(d_bhat));
         };
 
         if(idebug >= 1)
@@ -192,20 +186,17 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
             // brhs[ Q_new2old[i] ] = bhat[i]
             // -------------------------------
             // rf_scatter(stream, n, Q_new2old, d_bhat, d_brhs);
-           thrust::scatter( thrust::device_ptr<double>(d_bhat), 
-                            thrust::device_ptr<double>(d_bhat + n), 
-                            thrust::device_ptr<int>(Q_new2old),
-                            thrust::device_ptr<double>(d_brhs)  );
- 
+            thrust::scatter(thrust::device_ptr<double>(d_bhat),
+                            thrust::device_ptr<double>(d_bhat + n),
+                            thrust::device_ptr<int>(Q_new2old), thrust::device_ptr<double>(d_brhs));
         }
         else
         {
             // ---------------------
             // brhs[ k ] = bhat[ k ]
             // ---------------------
-            thrust::copy(thrust::device_ptr<double>(d_bhat), 
-                         thrust::device_ptr<double>(d_bhat + n), 
-                         thrust::device_ptr<double>(d_brhs)   );
+            thrust::copy(thrust::device_ptr<double>(d_bhat), thrust::device_ptr<double>(d_bhat + n),
+                         thrust::device_ptr<double>(d_brhs));
         };
 
         if(idebug >= 1)

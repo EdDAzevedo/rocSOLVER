@@ -194,36 +194,36 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
                 bool const is_strict_lower = (irow > kcol);
                 bool const is_diag = (irow == kcol);
 
-                if (is_diag) {
-                    int const ip_U = nzUp[ irow ]; 
-                    nzUp[ irow ]++;
+                if(is_diag)
+                {
+                    int const ip_U = nzUp[irow];
+                    nzUp[irow]++;
                     Ui[ip_U] = kcol;
                     Ux[ip_U] = mij;
 
-                    int const ip_L = nzLp[ irow ]; 
-                    nzLp[ irow ]++;
+                    int const ip_L = nzLp[irow];
+                    nzLp[irow]++;
                     Li[ip_L] = kcol;
                     Lx[ip_L] = one;
-                    };
+                };
 
                 if(is_strict_upper)
                 {
-                    int const ip_U = nzUp[ irow ]; 
-                    nzUp[ irow ]++;
+                    int const ip_U = nzUp[irow];
+                    nzUp[irow]++;
                     Ui[ip_U] = kcol;
                     Ux[ip_U] = mij;
                 };
 
-                if (is_strict_lower) {
-                   int const ip_L = nzLp[ irow ]; 
-                   nzLp[ irow ]++;
-                   Li[ ip_L ] = kcol;
-                   Lx[ ip_L ] = mij;
-                   };
-
+                if(is_strict_lower)
+                {
+                    int const ip_L = nzLp[irow];
+                    nzLp[irow]++;
+                    Li[ip_L] = kcol;
+                    Lx[ip_L] = mij;
+                };
             };
         }; // end for irow
-
 
         *h_nnzL = nnzL;
         *h_Lp = Lp;
