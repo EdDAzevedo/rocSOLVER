@@ -1,5 +1,5 @@
-#ifndef RF_ASSERT_HPP
-#define RF_ASSERT_HPP
+#ifndef RF_ASSERT_H
+#define RF_ASSERT_H
 #pragma once
 
 #include <stdexcept>

@@ -33,7 +33,7 @@
 #include <hip/hip_runtime_api.h>
 #include <hipsparse/hipsparse.h>
 
-#include "rf_assert.hpp"
+#include "rf_assert.h"
 
 #include "rocsolverRf.h"
 #include "rocsolver_status.h"

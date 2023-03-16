@@ -22,11 +22,12 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-#include "stdio.h"
-#include "stdlib.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "hip_check.h"
 #include "hipsparse_check.h"
+#include "rf_assert.h"
 #include "rocsolver_refactor.h"
 
 /*

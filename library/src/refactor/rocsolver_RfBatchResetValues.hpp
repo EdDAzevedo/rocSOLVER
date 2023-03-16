@@ -30,7 +30,7 @@
 
 #include "hip_check.h"
 #include "hipsparse_check.h"
-#include <assert.h>
+#include "rf_assert.h"
 
 #include "rocsolver_aXpbY.hpp"
 #include "rocsolver_add_PAQ.hpp"
