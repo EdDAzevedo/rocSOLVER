@@ -225,7 +225,6 @@ hipsolverStatus_t hipsolverRfBatchZeroPivot(hipsolverRfHandle_t handle,
 };
 #endif
 
-
 #else
 #include "cusolverRf.h"
 #endif

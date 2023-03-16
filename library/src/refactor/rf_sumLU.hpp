@@ -43,7 +43,10 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
 
                                           Ilong* const LUp)
 {
-    int const idebug = 1;
+    int constexpr idebug = 1;
+
+    bool const has_Lx = (Lx != nullptr);
+    bool const has_Ux = (Ux != nullptr);
 
     // ---------------------------
     // setup LUp row pointer array
@@ -104,6 +107,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
                     nerrorsL++;
                 };
             };
+            if(has_Lx)
             {
                 Ilong const k = lend - 1;
                 Iint const jcol = Li[k];
@@ -114,6 +118,7 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
                 };
             };
 
+            if(has_Ux)
             {
                 Ilong const k = ustart;
                 Iint const jcol = Ui[k];
@@ -138,14 +143,17 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
                 };
             };
 
-            assert((1 + nzL) == nnz_L);
+            if(idebug >= 1)
+            {
+                assert((1 + nzL) == nnz_L);
 
-            assert((1 + nzU) == nnz_U);
+                assert((1 + nzU) == nnz_U);
 
-            assert(nerrorsDL == 0);
-            assert(nerrorsDU == 0);
-            assert(nerrorsL == 0);
-            assert(nerrorsU == 0);
+                assert(nerrorsDL == 0);
+                assert(nerrorsDU == 0);
+                assert(nerrorsL == 0);
+                assert(nerrorsU == 0);
+            };
         };
 
         // -----------------------------------------
@@ -264,8 +272,11 @@ static __global__ void rf_setupLUp_kernel(Iint const nrow,
         Ilong const nnzL = (Lp[nrow] - Lp[0]);
         Ilong const nnzU = (Up[nrow] - Up[0]);
         Ilong const nnzLU = (LUp[nrow] - LUp[0]);
-        bool const isok = (((nnzL - nrow) + (nnzU)) == nnzLU);
-        assert(isok);
+        if(idebug >= 1)
+        {
+            bool const isok = (((nnzL - nrow) + (nnzU)) == nnzLU);
+            assert(isok);
+        };
     };
 
     __syncthreads();

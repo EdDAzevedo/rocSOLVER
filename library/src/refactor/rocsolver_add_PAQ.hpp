@@ -64,7 +64,7 @@ static __global__
                                                                       Iint const* const LUi,
                                                                       T* const LUx)
 {
-    int const idebug = 1;
+    int constexpr idebug = 1;
     //  ------------------------
     // inline lambda expression
     // ------------------------

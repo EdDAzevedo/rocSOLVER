@@ -36,7 +36,7 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
                              T* const d_b,
                              T* const d_Temp)
 {
-    int const idebug = 1;
+    int constexpr idebug = 0;
 
     {
         bool isok = (handle != nullptr);
@@ -78,11 +78,11 @@ rocsolverStatus_t rf_lusolve(rocsolverRfHandle_t handle,
 
         csrsv2Info_t infoU = handle->infoU.data();
 
-        assert(hipsparse_handle != nullptr);
-        assert(descrL != nullptr);
-        assert(infoL != nullptr);
-        assert(descrU != nullptr);
-        assert(infoU != nullptr);
+        {
+            bool const isok = (hipsparse_handle != nullptr) && (descrL != nullptr)
+                && (infoL != nullptr) && (descrU != nullptr) && (infoU != nullptr);
+            RF_ASSERT(isok);
+        };
 
         if(idebug >= 1)
         {

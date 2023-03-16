@@ -169,10 +169,7 @@ static rocsolverStatus_t rf_pqrlusolve(rocsolverRfHandle_t handle,
             rocsolverStatus_t const istat_lusolve
                 = rf_lusolve(handle, n, nnz, d_LUp, d_LUi, d_LUx, d_bhat, d_Temp);
             bool const isok_lusolve = (istat_lusolve == ROCSOLVER_STATUS_SUCCESS);
-            if(!isok_lusolve)
-            {
-                throw std::runtime_error(__FILE__);
-            };
+            RF_ASSERT(isok_lusolve);
         };
         if(idebug >= 1)
         {

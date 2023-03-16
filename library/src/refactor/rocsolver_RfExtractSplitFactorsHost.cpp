@@ -94,10 +94,7 @@ rocsolverStatus_t rocsolverRfExtractSplitFactorsHost(rocsolverRfHandle_t handle,
             rocsolverStatus_t istat
                 = rocsolverRfExtractBundledFactorsHost(handle, &nnzM, &Mp, &Mi, &Mx);
 
-            if(istat != ROCSOLVER_STATUS_SUCCESS)
-            {
-                throw std::runtime_error(__FILE__);
-            };
+            RF_ASSERT(istat == ROCSOLVER_STATUS_SUCCESS);
         };
 
         // --------------------

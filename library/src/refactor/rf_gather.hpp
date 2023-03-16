@@ -27,7 +27,6 @@
 #ifndef RF_GATHER_HPP
 #define RF_GATHER_HPP
 
-#include <assert.h>
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 
@@ -35,6 +34,10 @@
 #define GATHER_BLOCKSIZE 1024
 #endif
 
+// ---------------------
+// gather operation
+// dest[i] = src[ P[i] ]
+// ---------------------
 template <typename Iint, typename T>
 static __global__ void
     rf_gather_kernel(Iint const n, Iint const* const P, T const* const src, T* const dest)
@@ -45,9 +48,11 @@ static __global__ void
     for(Iint i = i_start; i < n; i += i_inc)
     {
         Iint const ip = P[i];
-        assert((0 <= ip) && (ip < n));
-
-        dest[i] = src[ip];
+        bool const is_valid = (0 <= ip) && (ip < n);
+        if(is_valid)
+        {
+            dest[i] = src[ip];
+        };
     };
 }
 

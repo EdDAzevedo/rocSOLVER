@@ -4,7 +4,12 @@
 
 #include <stdexcept>
 
-#define RF_ASSERT( tcond ) {   if (!(tcond)) { throw std::runtime_error(__FILE__); }; }
-
+#define RF_ASSERT(tcond)                        \
+    {                                           \
+        if(!(tcond))                            \
+        {                                       \
+            throw std::runtime_error(__FILE__); \
+        };                                      \
+    }
 
 #endif

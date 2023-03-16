@@ -27,7 +27,6 @@
 #ifndef RF_SCATTER_HPP
 #define RF_SCATTER_HPP
 
-#include <assert.h>
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 
@@ -35,6 +34,10 @@
 #define SCATTER_THREADS 1024
 #endif
 
+// ------------------------
+// scatter operation
+// dest[ P[i] ] = src[ i ]
+// ------------------------
 template <typename Iint, typename T>
 static __global__ void
     rf_scatter_kernel(Iint const n, Iint const* const P, T const* const src, T* const dest)
@@ -45,9 +48,12 @@ static __global__ void
     for(Iint i = i_start; i < n; i += i_inc)
     {
         Iint const ip = P[i];
-        assert((0 <= ip) && (ip < n));
+        bool const is_valid = (0 <= ip);
 
-        dest[ip] = src[i];
+        if(is_valid)
+        {
+            dest[ip] = src[i];
+        };
     };
 }
 

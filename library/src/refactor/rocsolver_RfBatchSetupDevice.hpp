@@ -114,7 +114,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                                                    /* Output */
                                                    rocsolverRfHandle_t handle)
 {
-    int const idebug = 1;
+    int constexpr idebug = 1;
     rocsolverStatus_t istat_return = ROCSOLVER_STATUS_SUCCESS;
 
     try
@@ -300,10 +300,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
             rocsolverStatus_t istat
                 = rf_sumLU(stream, nrow, ncol, Lp, Li, Lx, Up, Ui, Ux, LUp, LUi, LUx);
             bool const isok = (istat == ROCSOLVER_STATUS_SUCCESS);
-            if(!isok)
-            {
-                throw std::runtime_error(__FILE__);
-            };
+            RF_ASSERT(isok);
         };
 
         if(idebug >= 1)
@@ -326,10 +323,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
         };
 
         bool const isok_ResetValues = (istat_ResetValues == ROCSOLVER_STATUS_SUCCESS);
-        if(!isok_ResetValues)
-        {
-            throw std::runtime_error(__FILE__);
-        };
+        RF_ASSERT(isok_ResetValues);
 
         if(idebug >= 1)
         {
@@ -362,14 +356,12 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 hipsparseMatDescr_t const descrL = handle->descrL.data();
                 csrsv2Info_t const infoL = handle->infoL.data();
 
-                assert(hipsparse_handle != nullptr);
-                assert(Li != nullptr);
-                assert(Lp != nullptr);
-                assert(Lx != nullptr);
-                assert(n >= 1);
-                assert(nnzL >= 1);
-                assert(infoL != nullptr);
-                assert(descrL != nullptr);
+                {
+                    bool const isok = (hipsparse_handle != nullptr) && (Li != nullptr)
+                        && (Lp != nullptr) && (Lx != nullptr) && (n >= 1) && (nnzL >= 1)
+                        && (infoL != nullptr) && (descrL != nullptr);
+                    RF_ASSERT(isok);
+                };
 
                 if(idebug >= 1)
                 {
@@ -403,11 +395,11 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 hipsparseMatDescr_t const descrU = handle->descrU.data();
                 csrsv2Info_t const infoU = handle->infoU.data();
 
-                assert(Ui != nullptr);
-                assert(Up != nullptr);
-                assert(Ux != nullptr);
-                assert(descrU != nullptr);
-                assert(infoU != nullptr);
+                {
+                    bool const isok = (Ui != nullptr) && (Up != nullptr) && (Ux != nullptr)
+                        && (descrU != nullptr) && (infoU != nullptr);
+                    RF_ASSERT(isok);
+                };
 
                 THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrsv2_bufferSize(
                     hipsparse_handle, transU, n, nnzU, descrU, Ux, Up, Ui, infoU, &stmp));
@@ -442,7 +434,7 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 size_t const offset = ibatch * mat_size;
 
                 double* base = handle->csrValLU_array.data().get();
-                assert(base != nullptr);
+                RF_ASSERT(base != nullptr);
 
                 double* LUx = base + offset;
 
@@ -450,8 +442,8 @@ rocsolverStatus_t rocsolverRfBatchSetupDevice_impl(/* Input (in the device memor
                 hipsparseMatDescr_t const descrLU = handle->descrLU.data();
                 csrilu02Info_t infoLU = (handle->infoLU_array[ibatch]).data();
 
-                assert(infoLU != nullptr);
-                assert(descrLU != nullptr);
+                RF_ASSERT(infoLU != nullptr);
+                RF_ASSERT(descrLU != nullptr);
 
                 THROW_IF_HIPSPARSE_ERROR(hipsparseDcsrilu02_bufferSize(
                     hipsparse_handle, n, nnz, descrLU, LUx, LUp, LUi, infoLU, &isize));

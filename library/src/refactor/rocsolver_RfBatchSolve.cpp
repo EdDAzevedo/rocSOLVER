@@ -144,10 +144,8 @@ rocsolverStatus_t rocsolverRfBatchSolve(
                 };
             };
         }; // end for ibatch
-        if(nerrors != 0)
-        {
-            throw std::runtime_error(__FILE__);
-        };
+
+        RF_ASSERT(nerrors == 0);
     }
     catch(const std::bad_alloc& e)
     {

@@ -57,10 +57,7 @@ rocsolverStatus_t rocsolverRfCreate(rocsolverRfHandle_t* p_handle)
         hipsparseStatus_t istat_stream
             = hipsparseSetStream(handle->hipsparse_handle.data(), handle->streamId.data());
         bool const isok_stream = (istat_stream == HIPSPARSE_STATUS_SUCCESS);
-        if(!isok_stream)
-        {
-            throw std::runtime_error(__FILE__);
-        };
+        RF_ASSERT(isok_stream);
 
         *p_handle = handle;
     }

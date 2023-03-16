@@ -234,12 +234,7 @@ rocsolverStatus_t rocsolver_RfBatchResetValues_template(Iint batch_count,
             fflush(stdout);
         };
 
-        THROW_IF_HIP_ERROR(hipDeviceSynchronize());
-
-        if(nerrors != 0)
-        {
-            throw std::runtime_error(__FILE__);
-        };
+        RF_ASSERT(nerrors == 0);
     }
     catch(const std::bad_alloc& e)
     {
