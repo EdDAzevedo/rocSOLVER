@@ -37,6 +37,7 @@
 #include "rocblas.hpp"
 #include "roclapack_geqr2.hpp"
 #include "rocsolver/rocsolver.h"
+#include "roclapack_rgeqr3.hpp"
 
 ROCSOLVER_BEGIN_NAMESPACE
 
@@ -139,10 +140,25 @@ rocblas_status rocsolver_geqrf_template(rocblas_handle handle,
     rocblas_int ldw = GEQxF_BLOCKSIZE;
     rocblas_stride strideW = rocblas_stride(ldw) * ldw;
 
+    bool const use_rgeqr3 = (m >= n);
+
     while(j < dim - GEQxF_GEQx2_SWITCHSIZE)
     {
         // Factor diagonal and subdiagonal blocks
         jb = std::min(dim - j, nb); // number of columns in the block
+
+	if (use_rgeqr3) {
+          auto const mm = m - j;
+	  auto const nn = jb;
+	  auto const tau = (ipiv + j);
+	  T * const work = (T * ) work_workArr;
+          rocsolver_rgeqr3_template<T>(handle, mm,nn,
+			  A, shiftA + idx2D(j,j,lda), lda, strideA,
+			  tau, strideP, batch_count,
+			  scalars, work, workArr);
+
+	}
+	else {
         rocsolver_geqr2_template<T>(handle, m - j, jb, A, shiftA + idx2D(j, j, lda), lda, strideA,
                                     (ipiv + j), strideP, batch_count, scalars, work_workArr,
                                     Abyx_norms_trfact, diag_tmptr);
@@ -163,6 +179,11 @@ rocblas_status rocsolver_geqrf_template(rocblas_handle handle,
                 shiftA + idx2D(j, j, lda), lda, strideA, Abyx_norms_trfact, 0, ldw, strideW, A,
                 shiftA + idx2D(j, j + jb, lda), lda, strideA, batch_count, diag_tmptr, workArr);
         }
+
+	}
+
+
+
         j += nb;
     }
 
