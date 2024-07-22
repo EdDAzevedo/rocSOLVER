@@ -39,6 +39,8 @@
 #include "roclapack_syev_heev.hpp"
 #include "rocsolver/rocsolver.h"
 
+#include "roclapack_rsyevj.hpp"
+
 ROCSOLVER_BEGIN_NAMESPACE
 
 /************** Kernels and device functions for small size*******************/
