@@ -46,6 +46,19 @@ ROCSOLVER_BEGIN_NAMESPACE
 
 #define RSYEVJ_BDIM 1024 // Max number of threads per thread-block used in syevj_small kernel
 
+// --------------------------------------------------
+// need to fit n by n copy of A,  cosines, sines, and
+// optional n by n copy of V
+// --------------------------------------------------
+#define RSYEVJ_BLOCKED_SWITCH(T, need_V)            \
+    (((need_V) && (sizeof(T) == 4))           ? 90  \
+         : ((need_V) && (sizeof(T) == 8))     ? 62  \
+         : ((need_V) && (sizeof(T) == 16))    ? 44  \
+         : ((!(need_V)) && (sizeof(T) == 4))  ? 126 \
+         : ((!(need_V)) && (sizeof(T) == 8))  ? 88  \
+         : ((!(need_V)) && (sizeof(T) == 16)) ? 62  \
+                                              : 32)
+
 // ------------------------------------------------------------------------------------------
 // symmetrize_matrix make the square matrix a symmetric or hermitian matrix
 // if (uplo == 'U') use the entries in upper triangular part to set the lower triangular part
@@ -467,16 +480,18 @@ static __device__ double cal_norm(I const n,
 }
 
 /** RSYEVJ_SMALL_KERNEL/RUN_RSYEVJ applies the Jacobi eigenvalue algorithm to matrices of size
-    n <= RSYEVJ_BLOCKED_SWITCH. For each off-diagonal element A[i,j], a Jacobi rotation J is
-    calculated so that (J'AJ)[i,j] = 0. J only affects rows i and j, and J' only affects
-    columns i and j. Therefore, ceil(n / 2) rotations can be computed and applied
-    in parallel, so long as the rotations do not conflict between threads. We use top/bottom pairs
-    to obtain i's and j's that do not conflict, and cycle them to cover all off-diagonal indices.
+    n <= RSYEVJ_BLOCKED_SWITCH(T,need_V). For each off-diagonal element A(p,q), a Jacobi rotation J is
+    calculated so that (J'AJ)(p,q) = 0. J only affects rows i and j, and J' only affects
+    columns (and rows) p and q. Therefore, (n / 2) rotations can be computed and applied
+    in parallel, so long as the rotations do not conflict. We use a precompute tournament schedule
+    for n players to obtain the set of independent pairs (p,q) that do not conflict.
 
     (Call the rsyevj_small_kernel with batch_count groups in z, of dim = ddx * ddy threads in x.
 	Then, the run_syevj device function will be run by all threads organized in a ddx-by-ddy array.
-	Normally, ddx <= ceil(n / 2), and ddy <= ceil(n / 2). Any thread with index i >= ceil(n / 2) or
-	j >= ceil(n / 2) will not execute any computations). **/
+	Normally, ddx = 32, and ddy <= min(32,ceil(n / 2)). Any index pair (p,q)  with invalid values
+	for p or q will be skipped.
+
+ **/
 
 template <typename T, typename I, typename S>
 __device__ void run_rsyevj(const I dimx,
@@ -503,10 +518,11 @@ __device__ void run_rsyevj(const I dimx,
                            I const* const schedule_)
 
 {
-    // note n can be an odd number
-    // but the schedule is generated for
-    // n_even
-    auto const even_n = n + (n % 2);
+    // ---------------------------------------------
+    // ** NOTE **  n can be an odd number
+    // but the tournament schedule is generated for
+    // n_even players
+    // ---------------------------------------------
     auto const n_even = n + (n % 2);
 
     auto const cosine = cosines_res;
@@ -524,17 +540,14 @@ __device__ void run_rsyevj(const I dimx,
 
     // ---------------------------------------
     // reuse storage
-    // note use both arrays of cosine and sine
+    // ** NOTE ** need to  use both arrays of cosine and sine
     // ---------------------------------------
     S* const dwork = cosine;
-    I* const map = (I*)dwork;
-
-    auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
-    auto is_odd = [](auto ix) -> bool { return ((ix % 2) == 1); };
 
     // ----------------------------------------------------
     // schedule_(:)  is array of size n_even * (n_even - 1)
-    // that contains the tournament schedule
+    // that contains the tournament schedule for n_even number
+    // of players
     // ----------------------------------------------------
     auto schedule = [=](auto i1, auto itable, auto iround) {
         return (schedule_[i1 + itable * 2 + iround * n_even]);
@@ -543,26 +556,8 @@ __device__ void run_rsyevj(const I dimx,
     auto V = [=](auto i, auto j) -> T& { return (V_[i + j * ldv]); };
     auto A = [=](auto i, auto j) -> T& { return (A_[i + j * lda]); };
 
-    bool need_diagonal = true;
-
     auto const num_rounds = (n_even - 1);
     auto const ntables = (n_even / 2);
-
-    {
-        // -----------------------------
-        // initialize as identity matrix
-        // -----------------------------
-        char const c_uplo = 'A';
-        T const alpha_offdiag = 0;
-        T const beta_diag = 1;
-
-        auto const mm = n;
-        auto const nn = n;
-        auto const ld1 = mm;
-
-        laset_body(c_uplo, mm, nn, alpha_offdiag, beta_diag, A_, ld1, i_start, i_inc, j_start, j_inc);
-        __syncthreads();
-    }
 
     {
         bool const is_same = (dA_ == A_);
@@ -615,7 +610,12 @@ __device__ void run_rsyevj(const I dimx,
     }
 
     bool has_converged = false;
-    auto isweep = 0 * max_sweeps;
+
+    // ----------------------------------------------------------
+    // NOTE: need to preserve value of isweep outside of for loop
+    // ----------------------------------------------------------
+    I isweep = 0;
+
     for(isweep = 0; isweep < max_sweeps; isweep++)
     {
         // ----------------------------------------------------------
@@ -723,13 +723,13 @@ __device__ void run_rsyevj(const I dimx,
 
                 auto const cs1 = cosine[j];
                 auto const sn1 = sine[j];
+                auto const sn2 = -conj(sn1);
 
                 // -------------------------------
                 // update columns p, q in matrix A
                 // -------------------------------
                 for(auto i = i_start; i < n; i += i_inc)
                 {
-                    auto const sn2 = -conj(sn1);
                     {
                         auto const Aip = A(i, p);
                         auto const Aiq = A(i, q);
@@ -751,7 +751,7 @@ __device__ void run_rsyevj(const I dimx,
             __syncthreads();
         } // end for iround
 
-    } // for n_sweeps
+    } // for isweeps
 
     // -----------------
     // copy eigen values
@@ -773,6 +773,7 @@ __device__ void run_rsyevj(const I dimx,
     // -----------------
     if(need_sort)
     {
+        I* const map = (I*)dwork;
         shell_sort(n, W, map);
         __syncthreads();
 
@@ -1146,21 +1147,22 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
 
         S* const W = WW + bid * strideW;
         S* const residual = residualA + bid;
-        rocblas_int* const n_sweeps = n_sweepsA + bid;
-        rocblas_int* const info = infoA + bid;
+        I* const n_sweeps = n_sweepsA + bid;
+        I* const info = infoA + bid;
 
         // get dimensions of 2D thread array
-        rocblas_int ddx = 32;
-        rocblas_int ddy = RSYEVJ_BDIM / ddx;
+        I ddx = 32;
+        I ddy = RSYEVJ_BDIM / ddx;
         rsyevj_get_dims(n, RSYEVJ_BDIM, &ddx, &ddy);
 
         bool const need_V = (esort != rocblas_esort_none);
 
         // shared memory
+        auto const ntables = half_n;
         extern __shared__ double lmem[];
         S* cosines_res = reinterpret_cast<S*>(lmem);
-        T* sines_diag = reinterpret_cast<T*>(cosines_res + half_n);
-        T* pfree = reinterpret_cast<rocblas_int*>(sines_diag + half_n);
+        T* sines_diag = reinterpret_cast<T*>(cosines_res + ntables);
+        T* pfree = reinterpret_cast<I*>(sines_diag + ntables);
         T* const A_ = pfree;
         pfree += n * n;
         T* const V_ = (need_V) ? pfree : nullptr;
@@ -1187,7 +1189,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
             // ---------------------------------------------
             // check cosine and sine arrays still fit in LDS
             // ---------------------------------------------
-            assert((sizeof(S) * n + sizeof(T) * n) <= max_lds);
+            assert((sizeof(S) + sizeof(T)) * ntables <= max_lds);
         }
 
         // re-arrange threads in 2D array
@@ -1197,6 +1199,8 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
         // execute
         run_rsyevj(ddx, ddy, tix, tiy, esort, evect, uplo, n, dA, lda, abstol, eps, residual,
                    max_sweeps, n_sweeps, W, info, A_, V_, cosines_res, sines_diag, schedule_);
+
+        __syncthreads();
 
         // ------------------------------
         // over-write original matrix dA
@@ -2087,22 +2091,20 @@ ROCSOLVER_KERNEL void syevj_finalize(const rocblas_esort esort,
 /****** Template function, workspace size and argument validation **********/
 /***************************************************************************/
 
-#if(0)
 /** Helper to calculate workspace sizes **/
-template <bool BATCHED, typename T, typename S>
-void rocsolver_syevj_heevj_getMemorySize(const rocblas_evect evect,
-                                         const rocblas_fill uplo,
-                                         const rocblas_int n,
-                                         const rocblas_int batch_count,
-                                         size_t* size_Acpy,
-                                         size_t* size_J,
-                                         size_t* size_norms,
-                                         size_t* size_top,
-                                         size_t* size_bottom,
-                                         size_t* size_completed)
+template <bool BATCHED, typename T, typename I, typename S>
+void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
+                                           const rocblas_fill uplo,
+                                           const I n,
+                                           const I batch_count,
+                                           size_t* size_Acpy,
+                                           size_t* size_J,
+                                           size_t* size_norms,
+                                           size_t* size_top,
+                                           size_t* size_bottom,
+                                           size_t* size_completed)
 {
-    // if quick return, set workspace to zero
-    if(n <= 1 || batch_count == 0)
+    // set workspace to zero
     {
         *size_Acpy = 0;
         *size_J = 0;
@@ -2110,13 +2112,20 @@ void rocsolver_syevj_heevj_getMemorySize(const rocblas_evect evect,
         *size_top = 0;
         *size_bottom = 0;
         *size_completed = 0;
+    }
+
+    // quick return
+    if(n <= 1 || batch_count == 0)
+    {
         return;
     }
 
     // size of temporary workspace for copying A
     *size_Acpy = sizeof(T) * n * n * batch_count;
 
-    if(n <= SYEVJ_BLOCKED_SWITCH)
+    bool const need_V = (evect == rocblas_evect_none);
+
+    if(n <= RSYEVJ_BLOCKED_SWITCH(T, need_V))
     {
         *size_J = 0;
         *size_norms = 0;
@@ -2126,27 +2135,63 @@ void rocsolver_syevj_heevj_getMemorySize(const rocblas_evect evect,
         return;
     }
 
-    rocblas_int half_n = (n - 1) / 2 + 1;
-    rocblas_int blocks = (n - 1) / BS2 + 1;
-    rocblas_int half_blocks = (blocks - 1) / 2 + 1;
+    auto const ceil(auto n, auto nb)
+    {
+        return ((n - 1) / nb + 1);
+    };
+    auto const is_even = [](auto n) { return ((n % 2) == 0); };
+
+    I const nb0 = RSYEVJ_BLOCKED_SWITCH(T, need_V) / 2;
+    auto nb = nb0;
+
+    I n_even = n + (n % 2);
+    I half_n = n_even / 2;
+
+    I nblocks = ceil(n, nb);
+    I nblocks_even = nblocks + (nblocks % 2);
+
+    // ------------------------------------------------------------
+    // adjust block size nb so that there are even number of blocks
+    //
+    // For example, if n = 97, initial nb = 16, then
+    // 97/16  = 6.06, so ceil(97,16) = 7
+    // want even number of  blocks, so need 8 blocks
+    // we have 97/8 = 12.125, so adjust nb = 13
+    // note 13 * 7 = 91, and 13 * 8 = 104
+    // so n = 97 = 13 * 7 + 6,  so there are 8 blocks but the last
+    // block is only partially filled with only 6 rows and 6 columns
+    // ------------------------------------------------------------
+    nb = ceil(n, nblocks_even);
+    nb_even = nb + (nb % 2);
+    assert((nb <= nb0));
+
+    nblocks = ceil(n, nb);
+    nblocks_even = nblocks + (nblocks % 2);
+    assert(is_even(nblocks));
 
     // size of temporary workspace to store the block rotation matrices
-    if(half_blocks == 1 && evect == rocblas_evect_none)
-        *size_J = sizeof(T) * blocks * BS2 * BS2 * batch_count;
-    else
-        *size_J = sizeof(T) * half_blocks * 4 * BS2 * BS2 * batch_count;
+    *size_J = (sizeof(T) * (2 * nb) * (2 * nb)) * (nblocks / 2) * batch_count;
+
+    // size of copy of eigen vectors
+    if(need_V)
+    {
+        *size_J += (sizeof(T) * n * n) * batch_count;
+    }
 
     // size of temporary workspace to store the full matrix norm
     *size_norms = sizeof(S) * batch_count;
 
-    // size of arrays for temporary top/bottom pairs
-    *size_top = sizeof(rocblas_int) * half_blocks * batch_count;
-    *size_bottom = sizeof(rocblas_int) * half_blocks * batch_count;
+    // --------------------------------------------------
+    // size of arrays for top/bottom tournament schedules
+    // to look up independent pairs (p,q) for use in
+    // Jacobi method
+    // --------------------------------------------------
+    *size_top = nblocks_even * (nblocks_even - 1);
+    *size_bottom = (2 * nb) * ((2 * nb) - 1);
 
     // size of temporary workspace to indicate problem completion
-    *size_completed = sizeof(rocblas_int) * (batch_count + 1);
+    *size_completed = sizeof(I) * (batch_count + 1);
 }
-#endif
 
 #if(0)
 /** Argument checking **/
@@ -2193,29 +2238,29 @@ rocblas_status rocsolver_syevj_heevj_argCheck(rocblas_handle handle,
 
 #if(0)
 template <bool BATCHED, bool STRIDED, typename T, typename S, typename U>
-rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
-                                              const rocblas_esort esort,
-                                              const rocblas_evect evect,
-                                              const rocblas_fill uplo,
-                                              const rocblas_int n,
-                                              U A,
-                                              const rocblas_int shiftA,
-                                              const rocblas_int lda,
-                                              const rocblas_stride strideA,
-                                              const S abstol,
-                                              S* residual,
-                                              const rocblas_int max_sweeps,
-                                              rocblas_int* n_sweeps,
-                                              S* W,
-                                              const rocblas_stride strideW,
-                                              rocblas_int* info,
-                                              const rocblas_int batch_count,
-                                              T* Acpy,
-                                              T* J,
-                                              S* norms,
-                                              rocblas_int* top,
-                                              rocblas_int* bottom,
-                                              rocblas_int* completed)
+rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
+                                                const rocblas_esort esort,
+                                                const rocblas_evect evect,
+                                                const rocblas_fill uplo,
+                                                const rocblas_int n,
+                                                U A,
+                                                const rocblas_int shiftA,
+                                                const rocblas_int lda,
+                                                const rocblas_stride strideA,
+                                                const S abstol,
+                                                S* residual,
+                                                const rocblas_int max_sweeps,
+                                                rocblas_int* n_sweeps,
+                                                S* W,
+                                                const rocblas_stride strideW,
+                                                rocblas_int* info,
+                                                const rocblas_int batch_count,
+                                                T* Acpy,
+                                                T* J,
+                                                S* norms,
+                                                rocblas_int* top,
+                                                rocblas_int* bottom,
+                                                rocblas_int* completed)
 {
     ROCSOLVER_ENTER("syevj_heevj", "esort:", esort, "evect:", evect, "uplo:", uplo, "n:", n,
                     "shiftA:", shiftA, "lda:", lda, "abstol:", abstol, "max_sweeps:", max_sweeps,
@@ -2258,7 +2303,7 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
     rocblas_int half_n = even_n / 2;
     bool const need_V = (evect != rocblas_evect_none);
 
-    if(n <= SYEVJ_BLOCKED_SWITCH)
+    if(n <= RSYEVJ_BLOCKED_SWITCH(T, need_V))
     {
         // *** USE SINGLE SMALL-SIZE KERNEL ***
         // (TODO: SYEVJ_BLOCKED_SWITCH may need re-tuning as it could be larger than 64 now).
@@ -2266,6 +2311,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
         rocblas_int ddx = 32;
         rocblas_int ddy = 32;
+
+        constexpr bool use_rsyevj = true;
         if(use_rsyevj)
         {
             rsyevj_get_dims(n, RSYEVJ_BDIM, &ddx, &ddy);
