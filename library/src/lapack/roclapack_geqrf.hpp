@@ -36,8 +36,8 @@
 #include "auxiliary/rocauxiliary_larft.hpp"
 #include "rocblas.hpp"
 #include "roclapack_geqr2.hpp"
-#include "rocsolver/rocsolver.h"
 #include "roclapack_rgeqr3.hpp"
+#include "rocsolver/rocsolver.h"
 
 ROCSOLVER_BEGIN_NAMESPACE
 
@@ -147,42 +147,38 @@ rocblas_status rocsolver_geqrf_template(rocblas_handle handle,
         // Factor diagonal and subdiagonal blocks
         jb = std::min(dim - j, nb); // number of columns in the block
 
-	if (use_rgeqr3) {
-          auto const mm = m - j;
-	  auto const nn = jb;
-	  auto const tau = (ipiv + j);
-	  T * const work = (T * ) work_workArr;
-          rocsolver_rgeqr3_template<T>(handle, mm,nn,
-			  A, shiftA + idx2D(j,j,lda), lda, strideA,
-			  tau, strideP, batch_count,
-			  scalars, work, workArr);
-
-	}
-	else {
-        rocsolver_geqr2_template<T>(handle, m - j, jb, A, shiftA + idx2D(j, j, lda), lda, strideA,
-                                    (ipiv + j), strideP, batch_count, scalars, work_workArr,
-                                    Abyx_norms_trfact, diag_tmptr);
-
-        // apply transformation to the rest of the matrix
-        if(j + jb < n)
+        if(use_rgeqr3)
         {
-            // compute block reflector
-            rocsolver_larft_template<T>(handle, rocblas_forward_direction, rocblas_column_wise,
-                                        m - j, jb, A, shiftA + idx2D(j, j, lda), lda, strideA,
-                                        (ipiv + j), strideP, Abyx_norms_trfact, ldw, strideW,
-                                        batch_count, scalars, (T*)work_workArr, workArr);
-
-            // apply the block reflector
-            rocsolver_larfb_template<BATCHED, STRIDED, T>(
-                handle, rocblas_side_left, rocblas_operation_conjugate_transpose,
-                rocblas_forward_direction, rocblas_column_wise, m - j, n - j - jb, jb, A,
-                shiftA + idx2D(j, j, lda), lda, strideA, Abyx_norms_trfact, 0, ldw, strideW, A,
-                shiftA + idx2D(j, j + jb, lda), lda, strideA, batch_count, diag_tmptr, workArr);
+            auto const mm = m - j;
+            auto const nn = jb;
+            auto const tau = (ipiv + j);
+            T* const work = (T*)work_workArr;
+            rocsolver_rgeqr3_template<T>(handle, mm, nn, A, shiftA + idx2D(j, j, lda), lda, strideA,
+                                         tau, strideP, batch_count, scalars, work, workArr);
         }
+        else
+        {
+            rocsolver_geqr2_template<T>(handle, m - j, jb, A, shiftA + idx2D(j, j, lda), lda,
+                                        strideA, (ipiv + j), strideP, batch_count, scalars,
+                                        work_workArr, Abyx_norms_trfact, diag_tmptr);
 
-	}
+            // apply transformation to the rest of the matrix
+            if(j + jb < n)
+            {
+                // compute block reflector
+                rocsolver_larft_template<T>(handle, rocblas_forward_direction, rocblas_column_wise,
+                                            m - j, jb, A, shiftA + idx2D(j, j, lda), lda, strideA,
+                                            (ipiv + j), strideP, Abyx_norms_trfact, ldw, strideW,
+                                            batch_count, scalars, (T*)work_workArr, workArr);
 
-
+                // apply the block reflector
+                rocsolver_larfb_template<BATCHED, STRIDED, T>(
+                    handle, rocblas_side_left, rocblas_operation_conjugate_transpose,
+                    rocblas_forward_direction, rocblas_column_wise, m - j, n - j - jb, jb, A,
+                    shiftA + idx2D(j, j, lda), lda, strideA, Abyx_norms_trfact, 0, ldw, strideW, A,
+                    shiftA + idx2D(j, j + jb, lda), lda, strideA, batch_count, diag_tmptr, workArr);
+            }
+        }
 
         j += nb;
     }
