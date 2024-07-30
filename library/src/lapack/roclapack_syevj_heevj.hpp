@@ -1477,11 +1477,61 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         syevj_get_dims(n, SYEVJ_BDIM, &ddx, &ddy);
         dim3 grid(1, 1, batch_count);
         dim3 threads(ddx * ddy, 1, 1);
-        size_t lmemsize = (sizeof(S) + sizeof(T)) * ddx + 2 * sizeof(rocblas_int) * half_n;
 
-        ROCSOLVER_LAUNCH_KERNEL(syevj_small_kernel<T>, grid, threads, lmemsize, stream, esort,
-                                evect, uplo, n, A, shiftA, lda, strideA, atol, eps, residual,
-                                max_sweeps, n_sweeps, W, strideW, info, Acpy);
+        const bool use_rsyevj = true;
+        if(use_rsyevj)
+        {
+            std::vector<rocblas_int> h_schedule_small(even_n * (even_n - 1));
+
+            {
+                auto const nplayers = even_n;
+                generateTournamentSequence(nplayers, h_schedule_small);
+
+                // ------------------------------------
+                // double check the schedule is correct
+                // ------------------------------------
+                assert(check_schedule<rocblas_int>(nplayers, h_schedule_small));
+            }
+
+            rocblas_int* d_schedule_small = nullptr;
+            {
+                // ------------------------------------
+                // allocate device storage for schedule
+                // ------------------------------------
+                size_t nbytes = sizeof(rocblas_int) * even_n * (even_n - 1);
+                HIP_CHECK(hipMallocAsync(&d_schedule_small, nbytes, stream));
+            }
+
+            {
+                void* const dst = (void*)d_schedule_small;
+                void* const src = (void*)&(h_schedule_small[0]);
+                size_t const nbytes = sizeof(rocblas_int) * even_n * (even_n - 1);
+
+                HIP_CHECK(hipMemcpyAsync(dst, src, nbytes, hipMemcpyHostToDevice, stream));
+            }
+
+            size_t lmemsize = 64 * 1024;
+            ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, batch_count),
+                                    dim3(32, 32, 1), lmemsize, stream, esort, evect, uplo, n, A,
+                                    shiftA, lda, strideA, atol, eps, residual, max_sweeps, n_sweeps,
+                                    W, strideW, info, Acpy, batch_count, d_schedule_small);
+
+            {
+                // -------------------------
+                // free storage for schedule
+                // -------------------------
+                HIP_CHECK(hipFreeAsync(d_schedule_small, stream));
+                d_schedule_small = nullptr;
+            }
+        }
+        else
+        {
+            size_t lmemsize = (sizeof(S) + sizeof(T)) * ddx + 2 * sizeof(rocblas_int) * half_n;
+
+            ROCSOLVER_LAUNCH_KERNEL(syevj_small_kernel<T>, grid, threads, lmemsize, stream, esort,
+                                    evect, uplo, n, A, shiftA, lda, strideA, atol, eps, residual,
+                                    max_sweeps, n_sweeps, W, strideW, info, Acpy);
+        }
     }
     else
     {
