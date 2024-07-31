@@ -363,8 +363,58 @@ static bool check_schedule(I const nplayers, std::vector<I>& result)
 template <typename I>
 static __device__ I idx2D(I const i, I const j, I const ld)
 {
+    assert((0 <= i) && (i < ld) && (0 <= j));
     return (i + j * static_cast<int64_t>(ld));
 };
+
+template <typename T, typename I>
+static __device__ bool check_symmetry(I const n,
+                                      T* A_,
+                                      I const lda,
+                                      I const i_start,
+                                      I const i_inc,
+                                      I const j_start,
+                                      I const j_inc)
+{
+    auto A = [=](auto i, auto j) -> T& {
+        assert((0 <= i) && (i < n) && (i < lda) && (0 <= j) && (j < n));
+
+        return (A_[idx2D(i, j, lda)]);
+    };
+
+    // ----------------------------------------
+    // ** note ** atomicAnd works on type "int"
+    // not on type "bool"
+    // ----------------------------------------
+    __shared__ int is_symmetric;
+
+    bool const is_root = (i_start == 0) && (j_start == 0);
+    if(is_root)
+    {
+        is_symmetric = true;
+    };
+    __syncthreads();
+
+    for(auto j = j_start; j < n; j += j_inc)
+    {
+        for(auto i = i_start; i < n; i += i_inc)
+        {
+            auto const aij = A(i, j);
+            auto const aji = A(j, i);
+            bool const is_same = (aij == conj(aji));
+            if(!is_same)
+            {
+                // -----------------------
+                // matrix is not symmetric
+                // -----------------------
+                atomicAnd(&is_symmetric, false);
+                break;
+            }
+        }
+    }
+    __syncthreads();
+    return (is_symmetric);
+}
 
 // ------------------------------------------------------------------------------------------
 // symmetrize_matrix make the square matrix a symmetric or hermitian matrix
@@ -383,8 +433,13 @@ static __device__ void symmetrize_matrix_body(char const uplo,
 {
     bool const use_upper = (uplo == 'U') || (uplo == 'u');
     bool const use_lower = (uplo == 'L') || (uplo == 'l');
+    assert(use_upper || use_lower);
 
-    auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+    auto A = [=](auto i, auto j) -> T& {
+        assert((0 <= i) && (i < n) && (i < lda) && (0 <= j) && (j < n));
+
+        return (A_[idx2D(i, j, lda)]);
+    };
 
     for(auto j = j_start; j < n; j += j_inc)
     {
@@ -394,20 +449,11 @@ static __device__ void symmetrize_matrix_body(char const uplo,
             bool const is_strictly_upper = (i < j);
             bool const is_diagonal = (i == j);
 
-            if(use_upper)
+            bool const do_assignment
+                = (use_upper && is_strictly_upper) || (use_lower && is_strictly_lower);
+            if(do_assignment)
             {
-                if(is_strictly_upper)
-                {
-                    A(j, i) = conj(A(i, j));
-                }
-            }
-
-            if(use_lower)
-            {
-                if(is_strictly_lower)
-                {
-                    A(j, i) = conj(A(i, j));
-                }
+                A(j, i) = conj(A(i, j));
             }
 
             if(is_diagonal)
@@ -416,10 +462,41 @@ static __device__ void symmetrize_matrix_body(char const uplo,
             }
         }
     }
+    __syncthreads();
+
+#ifdef NDEBUG
+#else
+    {
+        // --------------------------------
+        // double check matrix is symmetric
+        // --------------------------------
+        bool is_symmetric = true;
+        for(auto j = j_start; j < n; j += j_inc)
+        {
+            for(auto i = i_start; i < n; i += i_inc)
+            {
+                auto const aij = A(i, j);
+                auto const aji = A(j, i);
+                bool const is_same = (aij == conj(aji));
+                if(!is_same)
+                {
+                    printf(
+                        "symmetrize_matrix: use_upper=%d,i=%d,j=%d, abs(aij)=%le, abs(aji)=%le\n",
+                        (int)use_upper, (int)i, (int)j, (double)std::abs(aij), (double)std::abs(aji));
+
+                    is_symmetric = false;
+                    break;
+                }
+            }
+        }
+
+        assert(is_symmetric);
+    }
+#endif
 }
 
 // ----------------------------------------
-// copy submatrix from matrix A to matrix B
+// copy m by n submatrix from matrix A to matrix B
 // if (uplo == 'U') copy only the upper triangular part
 // if (uplo == 'L') copy only the lower triangular part
 // otherwise, copy the entire m by n  matrix
@@ -441,20 +518,24 @@ static __device__ void lacpy_body(char const uplo,
     bool const use_lower = (uplo == 'L') || (uplo == 'l');
     bool const use_full = (!use_upper) && (!use_lower);
 
-    auto A = [=](auto i, auto j) -> const T& { return (A_[idx2D(i, j, lda)]); };
+    auto A = [=](auto i, auto j) -> const T& {
+        assert((0 <= i) && (i < m) && (i < lda) && (0 <= j) && (j < n));
 
-    auto B = [=](auto i, auto j) -> T& { return (B_[idx2D(i, j, ldb)]); };
+        return (A_[idx2D(i, j, lda)]);
+    };
+
+    auto B = [=](auto i, auto j) -> T& {
+        assert((0 <= i) && (i < m) && (i < ldb) && (0 <= j) && (j < n));
+
+        return (B_[idx2D(i, j, ldb)]);
+    };
 
     for(auto j = j_start; j < n; j += j_inc)
     {
         for(auto i = i_start; i < m; i += i_inc)
         {
-            bool const is_diagonal = (i == j);
-            bool const is_strictly_upper = (i < j);
-            bool const is_strictly_lower = (i > j);
-
-            bool const is_upper = (is_diagonal || is_strictly_upper);
-            bool const is_lower = (is_diagonal || is_strictly_lower);
+            bool const is_upper = (i <= j);
+            bool const is_lower = (i >= j);
 
             bool const do_assignment = use_full || (use_upper && is_upper) || (use_lower && is_lower);
             if(do_assignment)
@@ -463,6 +544,7 @@ static __device__ void lacpy_body(char const uplo,
             }
         }
     }
+    __syncthreads();
 }
 
 // --------------------------------------------------------------------
@@ -476,8 +558,8 @@ template <typename T, typename I>
 static __device__ void laset_body(char const uplo,
                                   I const m,
                                   I const n,
-                                  T const alpha,
-                                  T const beta,
+                                  T const alpha_offdiag,
+                                  T const beta_diag,
                                   T* A_,
                                   I const lda,
                                   I const i_start,
@@ -485,14 +567,19 @@ static __device__ void laset_body(char const uplo,
                                   I const j_start,
                                   I const j_inc)
 {
-    // set offdiagonal to alpha
-    // set diagonal to beta
+    // ------------------------
+    // set offdiagonal to alpha_offdiag
+    // set diagonal to beta_diag
+    // ------------------------
 
     bool const use_upper = (uplo == 'U') || (uplo == 'u');
     bool const use_lower = (uplo == 'L') || (uplo == 'l');
     bool const use_full = (!use_upper) && (!use_lower);
 
-    auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+    auto A = [=](auto i, auto j) -> T& {
+        assert((0 <= i) && (i < m) && (i < lda) && (0 <= j) && (j < n));
+        return (A_[idx2D(i, j, lda)]);
+    };
 
     for(I j = j_start; j < n; j += j_inc)
     {
@@ -507,15 +594,16 @@ static __device__ void laset_body(char const uplo,
 
             if(do_assignment)
             {
-                A(i, j) = alpha;
+                A(i, j) = alpha_offdiag;
             }
 
             if(is_diag)
             {
-                A(i, i) = beta;
+                A(i, i) = beta_diag;
             }
         }
     }
+    __syncthreads();
 }
 
 // --------------------------------------------------
@@ -630,12 +718,14 @@ __global__ static void reorder_body(I const n,
 template <typename I>
 static __device__ I idx_upper(I const i, I const j, I const n)
 {
+    assert((0 <= i) && (i < n) && (0 <= j) && (j < n));
     return (i + (j * (j + 1)) / 2);
 };
 
 template <typename I>
 static __device__ I idx_lower(I const i, I const j, I const n)
 {
+    assert((0 <= i) && (i < n) && (0 <= j) && (j < n));
     return ((i - j) + (j * (2 * n + 1 - j)) / 2);
 };
 
@@ -699,7 +789,7 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
         //        to get fully accurate smaller eigenvalue,
         //        next line needs to be executed in higher precision.
         //
-        rt2 = (acmx / rt1) * acmn - (b / rt1) * b;
+        rt2 = (dble(acmx) / dble(rt1)) * dble(acmn) - (dble(b) / dble(rt1)) * dble(b);
     }
     else if(sm > zero)
     {
@@ -761,6 +851,47 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
         cs1 = -sn1;
         sn1 = tn;
     }
+#ifdef NDEBUG
+#else
+    // ---------------------------------------------------------
+    // double check results
+    //
+    // [ cs1  sn1 ]  [ a       b]  [ cs1   -sn1 ] = [ rt1    0  ]
+    // [-sn1  cs1 ]  [ b       c]  [ sn1    cs1 ]   [ 0      rt2]
+    // ---------------------------------------------------------
+
+    // -----------------------------------------
+    // [ cs1  sn1 ]  [ a       b]  -> [a11  a12]
+    // [-sn1  cs1 ]  [ b       c]     [a21  a22]
+    // -----------------------------------------
+    auto const a11 = cs1 * a + sn1 * b;
+    auto const a12 = cs1 * b + sn1 * c;
+    auto const a21 = (-sn1) * a + cs1 * b;
+    auto const a22 = (-sn1) * b + cs1 * c;
+
+    // -----------------------------------------
+    // [a11 a12]  [ cs1   -sn1 ] = [ rt1    0  ]
+    // [a21 a22]  [ sn1    cs1 ]   [ 0      rt2]
+    // -----------------------------------------
+
+    auto e11 = a11 * cs1 + a12 * sn1 - rt1;
+    auto e12 = a11 * (-sn1) + a12 * cs1;
+    auto e21 = a21 * cs1 + a22 * sn1;
+    auto e22 = a21 * (-sn1) + a22 * cs1 - rt2;
+
+    auto const anorm = std::sqrt(std::norm(rt1) + std::norm(rt2));
+
+    auto const enorm = std::sqrt(std::norm(e11) + std::norm(e12) + std::norm(e21) + std::norm(e22));
+
+    auto const tol = 1e-6;
+    bool const isok = (enorm <= tol * anorm);
+    if(!isok)
+    {
+        printf("dlaev2: enorm = %le, anorm= %le\n", (double)enorm, (double)anorm);
+        printf("a = %le, b = %le, c = %le\n", (double)a, (double)b, (double)c);
+    };
+    assert(isok);
+#endif
     return;
 }
 
@@ -792,6 +923,49 @@ __device__ static void zlaev2(T const a, T const b, T const c, S& rt1, S& rt2, S
     }
     dlaev2(dble(a), abs(b), dble(c), rt1, rt2, cs1, t);
     sn1 = w * t;
+
+#ifdef NDEBUG
+#else
+    // --------------------
+    // double check results
+    // --------------------
+    // [cs1  conj(sn1) ]  [ a        b]  [ cs1   -conj(sn1) ] = [ rt1    0  ]
+    // [-sn1  cs1      ]  [ conj(b)  c]  [ sn1    cs1       ]   [ 0      rt2]
+
+    // -------------------------------------------------
+    // [cs1  conj(sn1) ]  [ a        b]  -> [a11   a12]
+    // [-sn1  cs1      ]  [ conj(b)  c]     [a21   a22]
+    // -------------------------------------------------
+    auto const a11 = cs1 * a + conj(sn1) * b;
+    auto const a12 = cs1 * b + conj(sn1) * c;
+    auto const a21 = (-sn1) * a + cs1 * conj(b);
+    auto const a22 = (-sn1) * b + cs1 * c;
+
+    // -----------------------------------------------
+    // [a11 a12]  [ cs1   -conj(sn1) ] = [ rt1    0  ]
+    // [a21 a22]  [ sn1    cs1       ]   [ 0      rt2]
+    // -----------------------------------------------
+
+    auto const anorm = std::sqrt(std::norm(rt1) + std::norm(rt2));
+
+    auto const e11 = a11 * cs1 + a12 * sn1 - rt1;
+    auto const e12 = a11 * (-conj(sn1)) + a12 * cs1;
+    auto const e21 = a21 * cs1 + a22 * sn1;
+    auto const e22 = a21 * (-conj(sn1)) + a22 * cs1 - rt2;
+
+    auto const enorm = std::sqrt(std::norm(e11) + std::norm(e12) + std::norm(e21) + std::norm(e22));
+
+    auto const tol = 1e-6;
+    auto isok = (enorm <= tol * anorm);
+    if(!isok)
+    {
+        printf("zlaev2: enorm=%le, anorm=%le\n", (double)enorm, (double)anorm);
+        printf("a = (%le,%le), b = (%le, %le), c = (%le, %le)\n", std::real(a), std::imag(a),
+               std::real(b), std::imag(b), std::real(c), std::imag(c));
+    }
+    assert(isok);
+#endif
+
     return;
 }
 
@@ -831,21 +1005,52 @@ __device__ static void
 #endif
 
 // -------------------------------------
-// calculate the 2-norm of n by n matrix
-// dwork(:) is array of length n
+// calculate the Frobenius-norm of n by n (complex) matrix
+//
+// ** NOTE ** assume dwork(:) is array of length n
 // -------------------------------------
 template <typename T, typename I, typename S>
-static __device__ double cal_norm(I const n,
-                                  T const* const A_,
-                                  I const lda,
-                                  S* const dwork,
-                                  I const i_start,
-                                  I const i_inc,
-                                  I const j_start,
-                                  I const j_inc,
-                                  bool const include_diagonal)
+static __device__ S cal_norm(I const n,
+                             T const* const A_,
+                             I const lda,
+                             S* const dwork,
+                             I const i_start,
+                             I const i_inc,
+                             I const j_start,
+                             I const j_inc,
+                             bool const include_diagonal)
 {
     auto A = [=](auto i, auto j) -> const T& { return (A_[i + j * lda]); };
+    bool const is_root = (i_start == 0) && (j_start == 0);
+
+    S const zero = 0.0;
+    constexpr bool use_serial = false;
+
+    if(use_serial)
+    {
+        // ------------------------------
+        // simple serial code should work
+        // ------------------------------
+
+        if(is_root)
+        {
+            S dsum = 0.0;
+            for(auto j = 0; j < n; j++)
+            {
+                for(auto i = 0; i < n; i++)
+                {
+                    bool const is_diag = (i == j);
+                    auto const aij = (is_diag && (!include_diagonal)) ? zero : A(i, j);
+
+                    dsum += std::norm(aij);
+                }
+            }
+            dwork[0] = std::sqrt(dsum);
+        }
+
+        __syncthreads();
+        return (dwork[0]);
+    }
 
     // ------------------
     // initialize dwork(:)
@@ -854,39 +1059,38 @@ static __device__ double cal_norm(I const n,
     {
         for(auto i = i_start; i < n; i += i_inc)
         {
-            dwork[i] = 0;
-        };
-    }
-    __syncthreads();
-
-    for(auto j = j_start; j < n; j += j_inc)
-    {
-        for(auto i = i_start; i < n; i += i_inc)
-        {
-            bool const is_diag = (i == j);
-            bool const need_accumulate = (!is_diag) || (is_diag && include_diagonal);
-            if(need_accumulate)
-            {
-                auto const aij = A(i, j);
-                auto const aij_norm = std::norm(aij);
-                atomicAdd(&(dwork[i]), aij_norm);
-            }
+            dwork[i] = zero;
         }
     }
+
     __syncthreads();
 
-    bool const is_root = (i_start == 0) && (j_start == 0);
-    if(is_root)
     {
-        double dnorm = 0;
-        for(auto i = 0; i < n; i++)
+        S dsum = zero;
+        for(auto j = j_start; j < n; j += j_inc)
         {
-            dnorm += dwork[i];
-        };
+            for(auto i = i_start; i < n; i += i_inc)
+            {
+                bool const is_diag = (i == j);
+                auto const aij = (is_diag && (!include_diagonal)) ? zero : A(i, j);
+                dsum += std::norm(aij);
+            }
+        }
 
-        dwork[0] = std::sqrt(dnorm);
+        atomicAdd(&(dwork[i_start]), dsum);
     }
 
+    __syncthreads();
+
+    if(is_root)
+    {
+        S dsum = zero;
+        for(auto i = 0; i < n; i++)
+        {
+            dsum += dwork[i];
+        }
+        dwork[0] = std::sqrt(dsum);
+    };
     __syncthreads();
 
     return (dwork[0]);
@@ -953,9 +1157,11 @@ __device__ void run_rsyevj(const I dimx,
 
     // ---------------------------------------
     // reuse storage
-    // ** NOTE ** need to  use both arrays of cosine and sine
     // ---------------------------------------
     S* const dwork = cosine;
+
+    auto const num_rounds = (n_even - 1);
+    auto const ntables = (n_even / 2);
 
     // ----------------------------------------------------
     // schedule_(:)  is array of size n_even * (n_even - 1)
@@ -963,14 +1169,22 @@ __device__ void run_rsyevj(const I dimx,
     // of players
     // ----------------------------------------------------
     auto schedule = [=](auto i1, auto itable, auto iround) {
+        assert((0 <= i1) && (i1 < 2) && (0 <= itable) && (itable < ntables) && (0 <= iround)
+               && (iround < num_rounds));
+
         return (schedule_[i1 + itable * 2 + iround * n_even]);
     };
 
-    auto V = [=](auto i, auto j) -> T& { return (V_[i + j * ldv]); };
-    auto A = [=](auto i, auto j) -> T& { return (A_[i + j * lda]); };
+    auto V = [=](auto i, auto j) -> T& {
+        assert((0 <= i) && (i < n) && (0 <= j) && (j < n) && (i < ldv));
 
-    auto const num_rounds = (n_even - 1);
-    auto const ntables = (n_even / 2);
+        return (V_[i + j * ldv]);
+    };
+    auto A = [=](auto i, auto j) -> T& {
+        assert((0 <= i) && (i < n) && (0 <= j) && (j < n) && (i < lda));
+
+        return (A_[i + j * lda]);
+    };
 
     {
         bool const is_same = (dA_ == A_);
@@ -987,12 +1201,18 @@ __device__ void run_rsyevj(const I dimx,
             lacpy_body(c_uplo, mm, nn, dA_, ld1, A_, ld2, i_start, i_inc, j_start, j_inc);
 
             __syncthreads();
+        }
 
+        {
             // ----------------
             // symmetrize matrix
             // ----------------
 
-            symmetrize_matrix_body(c_uplo, nn, A_, ld2, i_start, i_inc, j_start, j_inc);
+            char const c_uplo = (is_upper) ? 'U' : 'L';
+            I const nn = n;
+            I const ld1 = (is_same) ? lda : nn;
+
+            symmetrize_matrix_body(c_uplo, nn, A_, ld1, i_start, i_inc, j_start, j_inc);
 
             __syncthreads();
         }
@@ -1010,7 +1230,7 @@ __device__ void run_rsyevj(const I dimx,
         auto const nn = n;
         auto const ld1 = mm;
 
-        laset_body(c_uplo, mm, nn, alpha_offdiag, beta_diag, A_, ld1, i_start, i_inc, j_start, j_inc);
+        laset_body(c_uplo, mm, nn, alpha_offdiag, beta_diag, V_, ld1, i_start, i_inc, j_start, j_inc);
 
         __syncthreads();
     }
@@ -1019,7 +1239,7 @@ __device__ void run_rsyevj(const I dimx,
     {
         bool const need_diagonal = true;
         I ld1 = n;
-        norm_A = cal_norm(n, A_, ld1, dwork, i_start, i_inc, j_start, j_inc, need_diagonal);
+        norm_A = cal_norm(n, A_, ld1, (S*)dwork, i_start, i_inc, j_start, j_inc, need_diagonal);
     }
 
     bool has_converged = false;
@@ -1029,6 +1249,16 @@ __device__ void run_rsyevj(const I dimx,
     // ----------------------------------------------------------
     I isweep = 0;
 
+    {
+        // --------------------------------
+        // extra check that A_ is symmetric
+        // --------------------------------
+        auto ld1 = (A_ == dA_) ? lda : n;
+        bool const is_symmetric = check_symmetry(n, A_, ld1, i_start, i_inc, j_start, j_inc);
+        assert(is_symmetric);
+    }
+
+    double norm_offdiag = 0;
     for(isweep = 0; isweep < max_sweeps; isweep++)
     {
         // ----------------------------------------------------------
@@ -1037,8 +1267,7 @@ __device__ void run_rsyevj(const I dimx,
         __syncthreads();
 
         bool const need_diagonal = false;
-        auto const norm_offdiag
-            = cal_norm(n, A_, lda, dwork, i_start, i_inc, j_start, j_inc, need_diagonal);
+        norm_offdiag = cal_norm(n, A_, lda, (S*)dwork, i_start, i_inc, j_start, j_inc, need_diagonal);
 
         has_converged = (norm_offdiag <= abstol * norm_A);
         __syncthreads();
@@ -1064,16 +1293,18 @@ __device__ void run_rsyevj(const I dimx,
                 // if n is an odd number, then just skip
                 // operation for invalid values
                 // -------------------------------------
-                bool const is_valid_pq = (0 <= q) && (q < n) && (0 <= p) && (p < n);
+                bool const is_valid_p = (0 <= p) && (p < n);
+                bool const is_valid_q = (0 <= q) && (q < n);
+                bool const is_valid_pq = is_valid_p && is_valid_q;
 
                 if(!is_valid_pq)
                 {
                     continue;
                 };
 
-                T const App = A(p, p);
-                T const Apq = A(p, q);
-                T const Aqq = A(q, q);
+                auto const App = A(p, p);
+                auto const Apq = A(p, q);
+                auto const Aqq = A(q, q);
 
                 // ----------------------------------------------------------------------
                 // [ cs1  conj(sn1) ][ App        Apq ] [cs1   -conj(sn1)] = [rt1   0   ]
@@ -1084,6 +1315,30 @@ __device__ void run_rsyevj(const I dimx,
                 S rt1 = 0;
                 S rt2 = 0;
                 laev2<T, S>(App, Apq, Aqq, rt1, rt2, cs1, sn1);
+
+                //  ----------------------------------
+                //  We have
+                //
+                //  J' * [App  Apq] * J = [rt1   0  ]
+                //       [Apq' Aqq]       [0     rt2]
+                //
+                //
+                //  J = [cs1   -conj(sn1)]
+                //      [sn1    cs1      ]
+                //  ----------------------------------
+
+                auto const J11 = cs1;
+                auto const J12 = -conj(sn1);
+                auto const J21 = sn1;
+                auto const J22 = cs1;
+
+                // ------------------------
+                // J' is conj(transpose(J))
+                // ------------------------
+                auto const Jt11 = conj(J11);
+                auto const Jt12 = conj(J21);
+                auto const Jt21 = conj(J12);
+                auto const Jt22 = conj(J22);
 
                 if(i_start == 0)
                 {
@@ -1099,9 +1354,15 @@ __device__ void run_rsyevj(const I dimx,
                     auto const Api = A(p, i);
                     auto const Aqi = A(q, i);
 
-                    A(p, i) = cs1 * Api + conj(sn1) * Aqi;
-                    A(q, i) = -sn1 * Api + cs1 * Aqi;
-                }
+                    // ---------------------
+                    // [Jt11, Jt12 ] * [Api]
+                    // [Jt21, Jt22 ]   [Aqi]
+                    // ---------------------
+
+                    A(p, i) = Jt11 * Api + Jt12 * Aqi;
+                    A(q, i) = Jt21 * Api + Jt22 * Aqi;
+
+                } // end for i
 
             } // end for j
 
@@ -1123,7 +1384,9 @@ __device__ void run_rsyevj(const I dimx,
                 // if n is an odd number, then just skip
                 // operation for invalid values
                 // -------------------------------------
-                bool const is_valid_pq = (0 <= q) && (q < n) && (0 <= p) && (p < n);
+                bool const is_valid_p = (0 <= p) && (p < n);
+                bool const is_valid_q = (0 <= q) && (q < n);
+                bool const is_valid_pq = is_valid_p && is_valid_q;
                 if(!is_valid_pq)
                 {
                     continue;
@@ -1138,6 +1401,11 @@ __device__ void run_rsyevj(const I dimx,
                 auto const sn1 = sine[j];
                 auto const sn2 = -conj(sn1);
 
+                auto const J11 = cs1;
+                auto const J12 = -conj(sn1);
+                auto const J21 = sn1;
+                auto const J22 = cs1;
+
                 // -------------------------------
                 // update columns p, q in matrix A
                 // -------------------------------
@@ -1147,24 +1415,76 @@ __device__ void run_rsyevj(const I dimx,
                         auto const Aip = A(i, p);
                         auto const Aiq = A(i, q);
 
-                        A(i, p) = Aip * cs1 + Aiq * sn1;
-                        A(i, q) = Aip * sn2 + Aiq * cs1;
+                        // -----------------------
+                        // [Aip, Aiq] * [J11, J12]
+                        //              [J21, J22]
+                        // -----------------------
+
+                        A(i, p) = Aip * J11 + Aiq * J21;
+                        A(i, q) = Aip * J12 + Aiq * J22;
                     }
 
+                    // --------------------
                     // update eigen vectors
+                    // --------------------
                     if(need_V)
                     {
                         auto const Vip = V(i, p);
                         auto const Viq = V(i, q);
-                        V(i, p) = Vip * cs1 + Viq * sn1;
-                        V(i, q) = Vip * sn2 + Viq * cs1;
+
+                        // -----------------------
+                        // [Vip, Viq] * [J11, J12]
+                        //              [J21, J22]
+                        // -----------------------
+
+                        V(i, p) = Vip * J11 + Viq * J21;
+                        V(i, q) = Vip * J12 + Viq * J22;
+                    }
+                } // end for i
+
+#ifdef NDEBUG
+#else
+                if(i_start == 0)
+                {
+                    // ------------------------------
+                    // double check A(p,q) and A(q,p)
+                    // ------------------------------
+                    auto const tol = 1e-6;
+                    bool const isok_pq = std::abs(A(p, q)) <= tol * norm_A;
+                    bool const isok_qp = std::abs(A(q, p)) <= tol * norm_A;
+                    bool const isok = isok_pq && isok_qp;
+                    if(!isok)
+                    {
+                        printf("n=%d,need_V=%d,j=%d,iround=%d,isweep=%d\n", (int)n, (int)need_V,
+                               (int)j, (int)iround, (int)isweep);
+                        printf("p=%d,q=%d,abs(A(p,q))=%le,abs(A(q,p))=%le\n", (int)p, (int)q,
+                               (double)std::abs(A(p, q)), (double)std::abs(A(q, p)));
+                    }
+                    assert(isok);
+                }
+
+#endif
+
+                // -------------------------------------
+                // explicitly set A(p,q), A(q,p) be zero
+                // otherwise, abs(A(p,q)) may still be around
+                // machine epsilon
+                // -------------------------------------
+                {
+                    if(i_start == 0)
+                    {
+                        A(p, q) = 0;
+                        A(q, p) = 0;
                     }
                 }
+
             } // end for j
             __syncthreads();
         } // end for iround
 
     } // for isweeps
+
+    __syncthreads();
 
     // -----------------
     // copy eigen values
@@ -1178,15 +1498,32 @@ __device__ void run_rsyevj(const I dimx,
     }
     __syncthreads();
 
+    // debug
+    if((i_start == 0) && (j_start == 0))
+    {
+        for(auto i = 0; i < n; i++)
+        {
+            printf("W[%d] = %le\n", (int)i, (double)W[i]);
+        }
+    }
+
     *info = (has_converged) ? 0 : 1;
     *n_sweeps = (has_converged) ? isweep : max_sweeps;
+
+    // debug
+    if((i_start == 0) && (j_start == 0))
+    {
+        printf("isweep=%d, abstol=%le,norm_offdiag = %le, norm_A = %le\n", (int)isweep,
+               (double)abstol, (double)norm_offdiag, (double)norm_A);
+    }
 
     // -----------------
     // sort eigen values
     // -----------------
     if(need_sort)
     {
-        I* const map = (I*)dwork;
+        I* const map = (need_V) ? (I*)dwork : nullptr;
+
         shell_sort(n, W, map);
         __syncthreads();
 
@@ -1544,7 +1881,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
                         I batch_count,
                         I* schedule_)
 {
-    auto const tid = hipThreadIdx_x;
+    auto const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x;
     auto const bid_start = hipBlockIdx_z;
     auto const bid_inc = hipGridDim_z;
 
@@ -1566,7 +1903,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
         // get dimensions of 2D thread array
         I ddx = 32;
         I ddy = RSYEVJ_BDIM / ddx;
-        rsyevj_get_dims(n, RSYEVJ_BDIM, &ddx, &ddy);
+        // rsyevj_get_dims(n, RSYEVJ_BDIM, &ddx, &ddy);
 
         bool const need_V = (esort != rocblas_esort_none);
 
@@ -1582,12 +1919,19 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
 
         // extra check whether to use A_ and V_ in LDS
         {
-            auto const max_lds = 64 * 1024;
-            size_t total_size = 0;
-            total_size += sizeof(S) * n; // cosine_res
-            total_size += sizeof(T) * n; // sines_diag
-            total_size += sizeof(T) * n * n; // A_
-            total_size += (need_V) ? sizeof(T) * n * n : 0; // V_
+            // auto const max_lds = 64 * 1000;
+            auto const max_lds = (sizeof(T) + sizeof(S)) * n;
+
+            // ----------------------------------------------------------
+            // array cosine also used in comuputing matrix Frobenius norm
+            // ----------------------------------------------------------
+            size_t const size_cosine = sizeof(S) * n;
+            size_t const size_sine = sizeof(T) * ntables;
+
+            size_t const size_A = sizeof(T) * n * n;
+            size_t const size_V = (need_V) ? sizeof(T) * n * n : 0;
+
+            size_t const total_size = size_cosine + size_sine + size_A + size_V;
 
             bool const can_use_lds = (total_size <= max_lds);
             if(!can_use_lds)
@@ -1602,7 +1946,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
             // ---------------------------------------------
             // check cosine and sine arrays still fit in LDS
             // ---------------------------------------------
-            assert((sizeof(S) + sizeof(T)) * ntables <= max_lds);
+            assert((size_cosine + size_sine) <= max_lds);
         }
 
         // re-arrange threads in 2D array
@@ -2734,7 +3078,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
             std::vector<rocblas_int> h_schedule(n_even * (n_even - 1));
 
-            ROCSOLVER_LAUNCH_KERNEL(syevj_small_kernel<T>, grid, threads, lmemsize, stream, esort,
+            ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, grid, threads, lmemsize, stream, esort,
                                     evect, uplo, n, A, shiftA, lda, strideA, atol, eps, residual,
                                     max_sweeps, n_sweeps, W, strideW, info, Acpy, d_schedule);
         }
@@ -2879,4 +3223,3 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #endif
 
 ROCSOLVER_END_NAMESPACE
-#undef RSYEVJ_BDIM

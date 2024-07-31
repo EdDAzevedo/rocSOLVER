@@ -1512,9 +1512,9 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
             size_t lmemsize = 64 * 1024;
             ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, batch_count),
-                                    dim3(32, 32, 1), lmemsize, stream, esort, evect, uplo, n, A,
-                                    shiftA, lda, strideA, atol, eps, residual, max_sweeps, n_sweeps,
-                                    W, strideW, info, Acpy, batch_count, d_schedule_small);
+                                    dim3(RSYEVJ_BDIM, 1, 1), lmemsize, stream, esort, evect, uplo,
+                                    n, A, shiftA, lda, strideA, atol, eps, residual, max_sweeps,
+                                    n_sweeps, W, strideW, info, Acpy, batch_count, d_schedule_small);
 
             {
                 // -------------------------
