@@ -669,6 +669,40 @@ static __device__ void laset_body(char const uplo,
     __syncthreads();
 }
 
+// --------------------------------------------
+// can be used to set matrix to identity matrix
+//
+// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// --------------------------------------------
+template <typename T, typename I, typename UA, typename Istride>
+__global__ static void laset_kernel(char const c_uplo,
+                                    I const m,
+                                    I const n,
+                                    T const alpha_offdiag,
+                                    T const beta_diag,
+                                    UA A,
+                                    I const shiftA,
+                                    I const lda,
+                                    Istride const strideA,
+                                    I const batch_count)
+{
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+
+    I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipBlockDim_y;
+    I const j_inc = hipBlockDim_y * hipGridDim_y;
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T* const A_p = load_ptr_batch(A, bid, shiftA, strideA);
+
+        laset_body(m, n, alpha_offdiag, beta_diag, A_p, lda, i_start, i_inc, j_start, j_inc);
+    }
+}
+
 // --------------------------------------------------
 // symmetrically reorder matrix so that the set of independent pairs
 // becomes (0,1), (2,3), ...
@@ -681,7 +715,8 @@ static __device__ void laset_body(char const uplo,
 // col_map[ (nblocks-1) ] == (nblocks-1)
 // -------------------------------------------------------------
 template <typename T, typename I, typename Istride, typename UA, typename UC>
-__global__ static void reorder_kernel(I const n,
+__global__ static void reorder_kernel(char c_direction,
+                                      I const n,
                                       I const nb,
                                       I const* const row_map,
                                       I const* const col_map,
@@ -695,6 +730,7 @@ __global__ static void reorder_kernel(I const n,
                                       Istride const strideC,
                                       I const batch_count)
 {
+    bool const is_forward = (c_direction == 'F') || (c_direction == 'f');
     // ----------------------------------
     // use identity map if map == nullptr
     // ----------------------------------
@@ -765,18 +801,23 @@ __global__ static void reorder_kernel(I const n,
                 // (iblock_old, jblock_old) in A
                 // (iblock,jblock) in C
                 // -----------------------------
-                T const* const A = dA + idx2D(ii_old, jj_old, ldA);
-                T* const C = dC + idx2D(ii, jj, ldC);
+                Istride const offset_A
+                    = (is_forward) ? idx2D(ii_old, jj_old, ldA) : idx2D(ii, jj, ldA);
+
+                Istride const offset_C
+                    = (is_forward) ? idx2D(ii, jj, ldC) : idx2D(ii_old, jj_old, ldC);
+                T const* const A = dA + offset_A;
+                T* const C = dC + offset_C;
 
                 {
-                    char const uplo = 'A';
+                    char const c_uplo = 'A';
                     I const mm = bsize(iblock);
                     I const nn = bsize(jblock);
 
                     assert(bsize(iblock_old) == bsize(iblock));
                     assert(bsize(jblock_old) == bsize(jblock));
 
-                    lacpy_body(uplo, mm, nn, A, ldA, C, ldC, i_start, i_inc, j_start, j_inc);
+                    lacpy_body(c_uplo, mm, nn, A, ldA, C, ldC, i_start, i_inc, j_start, j_inc);
                 }
             }
         }
@@ -886,9 +927,9 @@ static void lacpy(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    ROCBLAS_LAUNCH((lacpy_kernel<T, I, AA, CC, Istride>), dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0,
-                   stream, c_uplo, m, n, A, shiftA, lda, strideA, C, shiftC, ldc, strideC,
-                   batch_count);
+    ROCBLAS_LAUNCH_KERNEL((lacpy_kernel<T, I, AA, CC, Istride>), dim3(nbx, nby, nbz),
+                          dim3(nx, ny, 1), 0, stream, c_uplo, m, n, A, shiftA, lda, strideA, C,
+                          shiftC, ldc, strideC, batch_count);
 }
 
 // --------------------------------------
@@ -1186,20 +1227,19 @@ __device__ static void
 // -------------------------------------
 // calculate the Frobenius-norm of n by n (complex) matrix
 //
-// ** NOTE ** assume dwork(:) is array of length n
-// answer is returned in dwork[0]
+// ** NOTE **  answer is returned in dwork[0]
 // -------------------------------------
 template <typename T, typename I, typename S>
-static __device__ void cal_norm(I const m,
-                                I const n,
-                                T const* const A_,
-                                I const lda,
-                                S* const dwork,
-                                I const i_start,
-                                I const i_inc,
-                                I const j_start,
-                                I const j_inc,
-                                bool const include_diagonal)
+static __device__ void cal_norm_body(I const m,
+                                     I const n,
+                                     T const* const A_,
+                                     I const lda,
+                                     S* const dwork,
+                                     I const i_start,
+                                     I const i_inc,
+                                     I const j_start,
+                                     I const j_inc,
+                                     bool const include_diagonal)
 {
     auto A = [=](auto i, auto j) -> const T& { return (A_[i + j * lda]); };
     bool const is_root = (i_start == 0) && (j_start == 0);
@@ -1463,6 +1503,7 @@ __device__ void run_rsyevj(const I dimx,
                            I const* const schedule_)
 
 {
+    constexpr int idebug = 1;
     // ---------------------------------------------
     // ** NOTE **  n can be an odd number
     // but the tournament schedule is generated for
@@ -1570,7 +1611,7 @@ __device__ void run_rsyevj(const I dimx,
         S* Swork = (S*)dwork;
         auto const mm = n;
         auto const nn = n;
-        cal_norm(mm, nn, A_, ld1, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
+        cal_norm_body(mm, nn, A_, ld1, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
         norm_A = Swork[0];
     }
 
@@ -1588,7 +1629,7 @@ __device__ void run_rsyevj(const I dimx,
         // extra check that A_ is symmetric
         // --------------------------------
         auto ld1 = (A_ == dA_) ? lda : n;
-        int is_symmetric;
+        int is_symmetric = true;
         check_symmetry_body(n, A_, ld1, i_start, i_inc, j_start, j_inc, &is_symmetric);
         assert(is_symmetric);
     }
@@ -1607,7 +1648,7 @@ __device__ void run_rsyevj(const I dimx,
 
         auto const mm = n;
         auto const nn = n;
-        cal_norm(mm, nn, A_, lda, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
+        cal_norm_body(mm, nn, A_, lda, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
         norm_offdiag = Swork[0];
 
         has_converged = (norm_offdiag <= abstol * norm_A);
@@ -1839,12 +1880,14 @@ __device__ void run_rsyevj(const I dimx,
     }
     __syncthreads();
 
-    // debug
-    if((i_start == 0) && (j_start == 0))
+    if(idebug >= 2)
     {
-        for(auto i = 0; i < n; i++)
+        if((i_start == 0) && (j_start == 0))
         {
-            printf("W[%d] = %le\n", (int)i, (double)W[i]);
+            for(auto i = 0; i < n; i++)
+            {
+                printf("W(%d) = %le;\n", (int)i + 1, (double)W[i]);
+            }
         }
     }
 
@@ -2247,8 +2290,8 @@ __global__ static void cal_Gmat_kernel(I const n,
                 auto const ii = ib * nb;
                 auto const jj = jb * nb;
                 I const ldgmat = nblocks;
-                cal_norm(ni, nj, &(Gmat(ib, jb, bid)), ldgmat, &(Ap(ii, jj)), i_start, i_inc,
-                         j_start, j_inc, need_diagonal);
+                cal_norm_body(ni, nj, &(Gmat(ib, jb, bid)), ldgmat, &(Ap(ii, jj)), i_start, i_inc,
+                              j_start, j_inc, need_diagonal);
             }
         }
     }
@@ -3388,7 +3431,7 @@ void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
         return;
     }
 
-    bool const need_V = (evect == rocblas_evect_none);
+    bool const need_V = (evect != rocblas_evect_none);
 
     if(n <= RSYEVJ_BLOCKED_SWITCH(T, need_V))
     {
@@ -3869,18 +3912,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             auto const nby = ceil(n, ny);
             auto const nbz = std::min(batch_count, max_blocks);
 
-            ROCBLAS_LAUNCH((symmetrize_matrix_kernel<T, I, U, Istride>), dim3(nbx, nby, nbz),
-                           dim3(nx, ny, 1), 0, stream, c_uplo, n, A, shiftA, lda, strideA,
-                           batch_count);
+            ROCBLAS_LAUNCH_KERNEL((symmetrize_matrix_kernel<T, I, U, Istride>), dim3(nbx, nby, nbz),
+                                  dim3(nx, ny, 1), 0, stream, c_uplo, n, A, shiftA, lda, strideA,
+                                  batch_count);
 
             bool const need_diagonal = true;
-            ROCBLAS_LAUNCH((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
-                           dim3(nx, ny, 1), 0, stream,
+            ROCBLAS_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
+                                  dim3(nx, ny, 1), 0, stream,
 
-                           n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal, batch_count);
+                                  n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal, batch_count);
 
-            ROCBLAS_LAUNCH((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), sizeof(S), stream,
-                           Gmat, Gmat_norm, batch_count);
+            ROCBLAS_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), sizeof(S),
+                                  stream, Gmat, Gmat_norm, batch_count);
 
             HIP_CHECK(hipMemcpy((void*)Amat_norm, (void*)Gmat_norm, sizeof(S) * batch_count, stream));
         }
@@ -3909,20 +3952,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 auto const nbz = std::min(max_blocks, batch_count);
 
                 bool const need_diagonal = false;
-                ROCBLAS_LAUNCH((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
-                               dim3(nx, ny, 1), 0, stream,
+                ROCBLAS_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
+                                      dim3(nx, ny, 1), 0, stream,
 
-                               n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal, batch_count);
+                                      n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal,
+                                      batch_count);
 
-                ROCBLAS_LAUNCH((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), sizeof(S),
-                               stream, Gmat, Gmat_norm, batch_count);
+                ROCBLAS_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), sizeof(S),
+                                      stream, Gmat, Gmat_norm, batch_count);
 
                 HIP_CHECK(hipMemsetAsync(&(completed[0]), 0, sizeof(I), stream));
 
                 auto const nnx = 64;
                 auto const nnb = ceil(batch_count, nnx);
-                ROCBLAS_LAUNCH((set_completed<S, I, Istride>), dim3(nnb, 1, 1), dim3(nnx, 1, 1), 0,
-                               stream, n, nb, Amat_norm, abstol, Gmat_norm, completed, batch_count);
+                ROCBLAS_LAUNCH_KERNEL((set_completed<S, I, Istride>), dim3(nnb, 1, 1),
+                                      dim3(nnx, 1, 1), 0, stream, n, nb, Amat_norm, abstol,
+                                      Gmat_norm, completed, batch_count);
             }
 
             {
@@ -3982,20 +4027,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
             for(I iround = 0; iround < num_rounds; iround++)
             {
+                // ------------------------
+                // reorder and copy to Atmp, Vtmp
+                // ------------------------
+                I const* const col_map = d_schedule_large + iround * (even_nblocks);
+                I const* const row_map = col_map;
+
+                auto const max_blocks = 64 * 1000;
+                auto const nx = 32;
+                auto const ny = RSYEVJ_BDIM / nx;
+
+                auto const nbx = std::min(max_blocks, ceil(n, nx));
+                auto const nby = std::min(max_blocks, ceil(n, ny));
+                auto const nbz = std::min(max_blocks, batch_count_remain);
+
                 {
-                    // ------------------------
-                    // reorder and copy to Atmp, Vtmp
-                    // ------------------------
-                    I const* const col_map = d_schedule_large + iround * (even_nblocks);
-                    I const* const row_map = col_map;
-
-                    auto const max_blocks = 64 * 1000;
-                    auto const nx = 32;
-                    auto const ny = RSYEVJ_BDIM / nx;
-
-                    auto const nbx = std::min(max_blocks, ceil(n, nx));
-                    auto const nby = std::min(max_blocks, ceil(n, ny));
-                    auto const nbz = std::min(max_blocks, batch_count_remain);
+                    char const c_direction = 'F';
 
                     if(need_V)
                     {
@@ -4004,155 +4051,218 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // ------------------------------------
                         I const* const null_row_map = nullptr;
 
-                        ROCBLAS_LAUNCH((reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
-                                       dim3(nx, ny, 1), 0, stream, n, nb, null_row_map, col_map,
-                                       Vtmp, shiftVtmp, ldvtmp, strideVtmp, Atmp, shiftAtmp, ldatmp,
-                                       strideAtmp, batch_count_remain);
+                        ROCBLAS_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
+                                              dim3(nx, ny, 1), 0, stream, c_direction, n, nb,
+                                              null_row_map, col_map, Vtmp, shiftVtmp, ldvtmp,
+                                              strideVtmp, Atmp, shiftAtmp, ldatmp, strideAtmp,
+                                              batch_count_remain);
 
                         swap(Atmp, Vtmp);
                     }
 
-                    ROCBLAS_LAUNCH((reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
-                                   dim3(nx, ny, 1), 0, stream, n, nb, row_map, col_map, A, shiftA,
-                                   lda, strideA, Atmp, shiftAtmp, ldatmp, strideAtmp,
-                                   batch_count_remain);
+                    ROCBLAS_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
+                                          dim3(nx, ny, 1), 0, stream, c_direction, n, nb, row_map,
+                                          col_map, A, shiftA, lda, strideA, Atmp, shiftAtmp, ldatmp,
+                                          strideAtmp, batch_count_remain);
                 }
 
-                {
-                    // ------------------------------------------------------
-                    // perform Jacobi iteration on independent sets of blocks
-                    // ------------------------------------------------------
+                {// ------------------------------------------------------
+                 // perform Jacobi iteration on independent sets of blocks
+                 // ------------------------------------------------------
 
-                }
+                 {// --------------------------
+                  // copy diagonal blocks to Aj
+                  // --------------------------
 
-                {
-                    // launch batch list to perform Vj' to update block rows
-                    // launch batch list to perform Vj' to update last block rows
+                  I const m1 = (2 * nb);
+                I const n1 = (2 * nb);
+                ROCBLAS_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>), dim3(nbx, nby, nbz),
+                                      dim3(nx, ny, 1), 0, stream, c_uplo, m1, n1, A_diag_ptr_array,
+                                      shiftA, lda, strideA, Aj_ptr_array, shiftAj, ldaj, strideAj,
+                                      (nblocks_half - 1) * batch_count_remain);
 
-                    T alpha = 1;
-                    T beta = 0;
-                    auto m1 = 2 * nb;
-                    auto n1 = n;
-                    auto k1 = 2 * nb;
-                    ROCBLAS_STATUS(rocblasCall_gemm(
-                        handle, rocblas_operation_conjugate_transpose, rocblas_operation_none, m1,
-                        n1, k1, &alpha, Vj, shift_zero, ldvj, strideVj, Atmp_row_ptr_array,
-                        shift_zero, ldatmp, strideAtmp, &beta, A_row_ptr_array, shift_zero, lda,
-                        strideA, (nblocks_half - 1) * batch_count_remain));
+                I const m2 = (nb + nb_last);
+                I const n2 = (nb + nb_last);
+                ROCBLAS_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>), dim3(nbx, nby, nbz),
+                                      dim3(nx, ny, 1), 0, stream, c_uplo, m2, n2,
+                                      A_last_diag_ptr_array, shiftA, lda, strideA, Aj_last_ptr_array,
+                                      shiftAj, ldaj, strideAj, batch_count_remain);
+            }
 
-                    auto m2 = n;
-                    auto n2 = nb + nb_last;
-                    auto k2 = nb + nb_last;
-                    ROCBLAS_STATUS(rocblasCall_gemm(
-                        handle, rocblas_operation_conjugate_transpose, rocblas_operation_none, m2,
-                        n2, k2, &alpha, Vj, shiftVj, ldvj, strideVj, Atmp_row_ptr_array, shiftAtmp,
-                        ldatmp, strideAtmp, &beta, A_row_last_ptr_array, strideA, lda, strideA,
-                        batch_count_remain));
-                }
-
-                {
-                    // -------------------------------------------------------
-                    // launch batch list to perform Vj to update block columns
-                    // -------------------------------------------------------
-
-                    T alpha = 1;
-                    T beta = 0;
-                    I m1 = n;
-                    I n1 = 2 * nb;
-                    I k1 = 2 * nb;
-
-                    ROCBLAS_STATUS(rocblasCall_gemm(
-                        handle, rocblas_operation_none, rocblas_operation_none, m1, n1, k1, &alpha,
-                        Vj_ptr_array, strideVj, ldvj, strideVj, A_col_ptr_array, strideA, lda,
-                        strideA, &beta, Atmp_col_ptr_array, strideAtmp, ldatmp, strideAtmp,
-                        (nblocks_half - 1) * batch_count_remain));
-
-                    // -----------------------------------------------------------
-                    // launch batch list to perform Vj to update last block column
-                    // -----------------------------------------------------------
-
-                    I m2 = n;
-                    I n2 = nb_last;
-                    I k2 = nb_last;
-
-                    ROCBLAS_STATUS(rocblasCall_gemm(
-                        handle, rocblas_operation_none, rocblas_operation_none, m2, n2, k2,
-                        Vj_last_ptr_array, strideVtmp, ldvtmp, strideVtmp, A_col_last_ptr_array,
-                        strideA, lda, strideA, &beta, Atmp_col_last_ptr_array, strideAtmp, ldatmp,
-                        strideAtmp, batch_count_remain));
-
-                    {
-                        // -------------------
-                        // copy Atmp back to A
-                        // -------------------
-
-                        auto const mm = n;
-                        auto const nn = n;
-                        lacpy(handle, mm, nn, Atmp_ptr_array, shiftAtmp, ldatmp, strideAtmp,
-                              A_ptr_array, shiftA, lda, strideA, batch_count_remain);
-                    }
-                }
-
-                if(need_V)
-                {
-                    // launch batch list to perform Vj to update block columns for eigen vectors
-                    // launch batch list to perform Vj to update last block columns for eigen vectors
-
-                    T alpha = 1;
-                    T beta = 0;
-
-                    I m1 = n;
-                    I n1 = (2 * nb);
-                    I k1 = (2 * nb);
-                    ROCBLAS_STATUS(rocblasCall_gemm(
-                        handle, rocblas_operation_none, rocblas_operation_none, m1, n1, k1, &alpha,
-                        Vj_ptr_array, strideVj, ldvj, strideVj, Vtmp_col_ptr_array, strideVtmp,
-                        ldvtmp, strideVtmp, &beta, Atmp_col_ptr_array, strideAtmp, ldatmp,
-                        strideAtmp, (nblocks / 2 - 1) * batch_count));
-
-                    I m2 = n;
-                    I n2 = nb + nb_last;
-                    I k2 = nb + nb_last;
-                    ROCBLAS_STATUS(rocblasCall_gemm(
-                        handle, rocblas_operation_none, rocblas_operation_none, m2, n2, k2, &alpha,
-                        Vj_last_ptr_array, strideVj, ldvj, strideVj, Vtmp_col_last_ptr_array,
-                        strideVtmp, ldvtmp, strideVtmp, &beta, Atmp_col_last_ptr_array, strideAtmp,
-                        ldatmp, strideAtmp, batch_count));
-
-                    swap(Atmp, Vtmp);
-                }
-
-            } // end for iround
-
-        } // end for sweeps
-
-        {
-            // ---------------------
-            // copy out eigen values
-            // ---------------------
-
-            auto const max_blocks = 64 * 1000;
-            auto const nx = 64;
-            auto const nbx = std::min(max_blocks, ceil(n, nx));
-            auto const nbz = std::min(max_blocks, batch_count);
-
-            ROCBLAS_LAUNCH_KERNEL((copy_diagonal_kernel<T, I, U, Istride>), dim3(1, 1, nbz),
-                                  dim3(nx, 1, 1), 0, stream, n, A, shiftA, lda, strideA, W, strideW,
-                                  batch_count);
-        }
-
-        {
-            // -----------------------------------------------
-            // over-write original matrix A with eigen vectors
-            // -----------------------------------------------
-            if(need_V)
             {
-                lacpy(handle, n, n, Vtmp, shiftVtmp, ldvtmp, strideVtmp, A, shiftA, lda, strideA,
-                      batch_count);
+                // -------------------------------------------------------
+                // perform Jacobi iteration on small diagonal blocks in Aj
+                // -------------------------------------------------------
+
+                size_t const lmemsize = 64 * 1024;
+                I const nn = (2 * nb);
+                I const rsyevj_max_sweeps = 15;
+                auto const rsyevj_atol = atol / nblocks;
+
+                rocblas_evect const rsyevj_evect = rocblas_evect_original;
+
+                // ----------------------------
+                // set Vj to be diagonal matrix
+                // ----------------------------
+
+                {
+                    char const c_uplo = 'A';
+                    I const mm = (2 * nb);
+                    I const nn = (2 * nb);
+
+                    T alpha_offdiag = 0;
+                    T beta_diag = 1;
+
+                    ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, U, Istride>), dim3(nbx, nby, nbz),
+                                            dim3(nx, ny, 1), 0, stream, c_uplo, mm, nn,
+                                            alpha_offdiag, beta_diag, Aj, shiftAj, ldaj, strideAj,
+                                            (nblocks_half)*batch_count_remain);
+                }
+
+                ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, nbz), dim3(nx, ny, 1),
+                                        lmemsize, stream, esort, rsyevj_evect, uplo, nn,
+                                        Aj_ptr_array, shiftAj, ldaj, strideA, rsyevj_atol, eps,
+                                        residual, rsyevj_max_sweeps, n_sweeps, W, strideW, info, Acpy,
+                                        (nblocks_half - 1) * batch_count_remain, d_schedule_small);
+
+                ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, nbz), dim3(nx, ny, 1),
+                                        lmemsize, stream, esort, rsyevj_evect, uplo, nn,
+                                        Aj_last_ptr_array, shiftAj, ldaj, strideA, rsyevj_atol, eps,
+                                        residual, rsyevj_max_sweeps, n_sweeps, W, strideW, info,
+                                        Acpy, batch_count_remain, d_schedule_small);
             }
         }
 
-    } // end large block
+        {
+            // launch batch list to perform Vj' to update block rows
+            // launch batch list to perform Vj' to update last block rows
+
+            T alpha = 1;
+            T beta = 0;
+            auto m1 = 2 * nb;
+            auto n1 = n;
+            auto k1 = 2 * nb;
+            ROCSOLVER_KERNEL_LAUNCH(rocblasCall_gemm(
+                handle, rocblas_operation_conjugate_transpose, rocblas_operation_none, m1, n1, k1,
+                &alpha, Vj, shift_zero, ldvj, strideVj, Atmp_row_ptr_array, shift_zero, ldatmp,
+                strideAtmp, &beta, A_row_ptr_array, shift_zero, lda, strideA,
+                (nblocks_half - 1) * batch_count_remain));
+
+            auto m2 = n;
+            auto n2 = nb + nb_last;
+            auto k2 = nb + nb_last;
+            ROCBLAS_STATUS(rocblasCall_gemm(
+                handle, rocblas_operation_conjugate_transpose, rocblas_operation_none, m2, n2, k2,
+                &alpha, Vj, shiftVj, ldvj, strideVj, Atmp_row_ptr_array, shiftAtmp, ldatmp,
+                strideAtmp, &beta, A_row_last_ptr_array, strideA, lda, strideA, batch_count_remain));
+        }
+
+        {
+            // -------------------------------------------------------
+            // launch batch list to perform Vj to update block columns
+            // -------------------------------------------------------
+
+            T alpha = 1;
+            T beta = 0;
+            I m1 = n;
+            I n1 = 2 * nb;
+            I k1 = 2 * nb;
+
+            ROCBLAS_STATUS(rocblasCall_gemm(handle, rocblas_operation_none, rocblas_operation_none,
+                                            m1, n1, k1, &alpha, Vj_ptr_array, strideVj, ldvj,
+                                            strideVj, A_col_ptr_array, strideA, lda, strideA, &beta,
+                                            Atmp_col_ptr_array, strideAtmp, ldatmp, strideAtmp,
+                                            (nblocks_half - 1) * batch_count_remain));
+
+            // -----------------------------------------------------------
+            // launch batch list to perform Vj to update last block column
+            // -----------------------------------------------------------
+
+            I m2 = n;
+            I n2 = nb_last;
+            I k2 = nb_last;
+
+            ROCBLAS_STATUS(rocblasCall_gemm(handle, rocblas_operation_none, rocblas_operation_none,
+                                            m2, n2, k2, Vj_last_ptr_array, strideVtmp, ldvtmp,
+                                            strideVtmp, A_col_last_ptr_array, strideA, lda, strideA,
+                                            &beta, Atmp_col_last_ptr_array, strideAtmp, ldatmp,
+                                            strideAtmp, batch_count_remain));
+
+            {
+                // -------------------
+                // copy Atmp back to A
+                // and undo reordering while copying
+                // -----------------------------
+                char const c_direction = 'B';
+
+                ROCBLAS_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
+                                      dim3(nx, ny, 1), 0, stream, c_direction, n, nb, row_map,
+                                      col_map,
+
+                                      Atmp_ptr_array, shiftAtmp, ldatmp, strideAtmp, A_ptr_array,
+                                      shiftA, lda, strideA, batch_count_remain);
+            }
+        }
+
+        if(need_V)
+        {
+            // launch batch list to perform Vj to update block columns for eigen vectors
+            // launch batch list to perform Vj to update last block columns for eigen vectors
+
+            T alpha = 1;
+            T beta = 0;
+
+            I m1 = n;
+            I n1 = (2 * nb);
+            I k1 = (2 * nb);
+            ROCBLAS_STATUS(rocblasCall_gemm(handle, rocblas_operation_none, rocblas_operation_none,
+                                            m1, n1, k1, &alpha, Vj_ptr_array, strideVj, ldvj,
+                                            strideVj, Vtmp_col_ptr_array, strideVtmp, ldvtmp,
+                                            strideVtmp, &beta, Atmp_col_ptr_array, strideAtmp,
+                                            ldatmp, strideAtmp, (nblocks / 2 - 1) * batch_count));
+
+            I m2 = n;
+            I n2 = nb + nb_last;
+            I k2 = nb + nb_last;
+            ROCBLAS_STATUS(rocblasCall_gemm(handle, rocblas_operation_none, rocblas_operation_none,
+                                            m2, n2, k2, &alpha, Vj_last_ptr_array, strideVj, ldvj,
+                                            strideVj, Vtmp_col_last_ptr_array, strideVtmp, ldvtmp,
+                                            strideVtmp, &beta, Atmp_col_last_ptr_array, strideAtmp,
+                                            ldatmp, strideAtmp, batch_count));
+
+            swap(Atmp, Vtmp);
+        }
+
+    } // end for iround
+
+} // end for sweeps
+
+{
+    // ---------------------
+    // copy out eigen values
+    // ---------------------
+
+    auto const max_blocks = 64 * 1000;
+    auto const nx = 64;
+    auto const nbx = std::min(max_blocks, ceil(n, nx));
+    auto const nbz = std::min(max_blocks, batch_count);
+
+    ROCBLAS_LAUNCH_KERNEL((copy_diagonal_kernel<T, I, U, Istride>), dim3(1, 1, nbz), dim3(nx, 1, 1),
+                          0, stream, n, A, shiftA, lda, strideA, W, strideW, batch_count);
+}
+
+{
+    // -----------------------------------------------
+    // over-write original matrix A with eigen vectors
+    // -----------------------------------------------
+    if(need_V)
+    {
+        lacpy(handle, n, n, Vtmp, shiftVtmp, ldvtmp, strideVtmp, A, shiftA, lda, strideA,
+              batch_count);
+    }
+}
+
+} // end large block
 }
 
 #if(0)
