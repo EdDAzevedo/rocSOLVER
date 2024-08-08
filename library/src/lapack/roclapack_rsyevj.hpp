@@ -40,6 +40,7 @@
 #include "rocsolver/rocsolver.h"
 
 ROCSOLVER_BEGIN_NAMESPACE
+static constexpr int idebug = 1;
 
 /************** CPU functions                              *******************/
 /*****************************************************************************/
@@ -1108,7 +1109,7 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
     if(!isok)
     {
         printf("dlaev2: enorm = %le, anorm= %le\n", (double)enorm, (double)anorm);
-        printf("a = %le, b = %le, c = %le\n", (double)a, (double)b, (double)c);
+        printf("a = %le; b = %le; c = %le;\n", (double)a, (double)b, (double)c);
     };
     assert(isok);
 #endif
@@ -1146,44 +1147,54 @@ __device__ static void zlaev2(T const a, T const b, T const c, S& rt1, S& rt2, S
 
 #ifdef NDEBUG
 #else
-    // --------------------
-    // double check results
-    // --------------------
-    // [cs1  conj(sn1) ]  [ a        b]  [ cs1   -conj(sn1) ] = [ rt1    0  ]
-    // [-sn1  cs1      ]  [ conj(b)  c]  [ sn1    cs1       ]   [ 0      rt2]
-
-    // -------------------------------------------------
-    // [cs1  conj(sn1) ]  [ a        b]  -> [a11   a12]
-    // [-sn1  cs1      ]  [ conj(b)  c]     [a21   a22]
-    // -------------------------------------------------
-    auto const a11 = cs1 * a + conj(sn1) * b;
-    auto const a12 = cs1 * b + conj(sn1) * c;
-    auto const a21 = (-sn1) * a + cs1 * conj(b);
-    auto const a22 = (-sn1) * b + cs1 * c;
-
-    // -----------------------------------------------
-    // [a11 a12]  [ cs1   -conj(sn1) ] = [ rt1    0  ]
-    // [a21 a22]  [ sn1    cs1       ]   [ 0      rt2]
-    // -----------------------------------------------
-
-    auto const anorm = std::sqrt(std::norm(rt1) + std::norm(rt2));
-
-    auto const e11 = a11 * cs1 + a12 * sn1 - rt1;
-    auto const e12 = a11 * (-conj(sn1)) + a12 * cs1;
-    auto const e21 = a21 * cs1 + a22 * sn1;
-    auto const e22 = a21 * (-conj(sn1)) + a22 * cs1 - rt2;
-
-    auto const enorm = std::sqrt(std::norm(e11) + std::norm(e12) + std::norm(e21) + std::norm(e22));
-
-    auto const tol = 1e-6;
-    auto isok = (enorm <= tol * anorm);
-    if(!isok)
+    if(idebug >= 2)
     {
-        printf("zlaev2: enorm=%le, anorm=%le\n", (double)enorm, (double)anorm);
-        printf("a = (%le,%le), b = (%le, %le), c = (%le, %le)\n", std::real(a), std::imag(a),
-               std::real(b), std::imag(b), std::real(c), std::imag(c));
+        // --------------------
+        // double check results
+        // --------------------
+        // [cs1  conj(sn1) ]  [ a        b]  [ cs1   -conj(sn1) ] = [ rt1    0  ]
+        // [-sn1  cs1      ]  [ conj(b)  c]  [ sn1    cs1       ]   [ 0      rt2]
+
+        // -------------------------------------------------
+        // [cs1  conj(sn1) ]  [ a        b]  -> [a11   a12]
+        // [-sn1  cs1      ]  [ conj(b)  c]     [a21   a22]
+        // -------------------------------------------------
+        auto const a11 = cs1 * a + conj(sn1) * conj(b);
+        auto const a12 = cs1 * b + conj(sn1) * c;
+        auto const a21 = (-sn1) * a + cs1 * conj(b);
+        auto const a22 = (-sn1) * b + cs1 * c;
+
+        // -----------------------------------------------
+        // [a11 a12]  [ cs1   -conj(sn1) ] = [ rt1    0  ]
+        // [a21 a22]  [ sn1    cs1       ]   [ 0      rt2]
+        // -----------------------------------------------
+
+        auto const anorm = std::sqrt(std::norm(a) + std::norm(b) * 2 + std::norm(c));
+        auto const anorm_eig = std::sqrt(std::norm(rt1) + std::norm(rt2));
+
+        auto const e11 = a11 * cs1 + a12 * sn1 - rt1;
+        auto const e12 = a11 * (-conj(sn1)) + a12 * cs1;
+        auto const e21 = a21 * cs1 + a22 * sn1;
+        auto const e22 = a21 * (-conj(sn1)) + a22 * cs1 - rt2;
+
+        auto const enorm
+            = std::sqrt(std::norm(e11) + std::norm(e12) + std::norm(e21) + std::norm(e22));
+
+        auto const tol = 1e-6;
+        auto isok = (enorm <= tol * anorm);
+
+        if(!isok)
+        {
+            printf("zlaev2: enorm=%le; anorm=%le; anorm_eig=%le;\n", (double)enorm, (double)anorm,
+                   (double)anorm_eig);
+            printf("a = %le+%le * i ; b = %le+ %le  * i; c = %le + %le *  i;\n", std::real(a),
+                   std::imag(a), std::real(b), std::imag(b), std::real(c), std::imag(c));
+            printf("abs(e11)=%le; abs(e12)=%le; abs(e21)=%le; abs(e22)=%le;\n", std::abs(e11),
+                   std::abs(e12), std::abs(e21), std::abs(e22));
+            printf("rt1 = %le; rt2 = %le;\n", (double)rt1, (double)rt2);
+        }
+        assert(isok);
     }
-    assert(isok);
 #endif
 
     return;
@@ -1503,7 +1514,6 @@ __device__ void run_rsyevj(const I dimx,
                            I const* const schedule_)
 
 {
-    constexpr int idebug = 1;
     // ---------------------------------------------
     // ** NOTE **  n can be an odd number
     // but the tournament schedule is generated for
@@ -1538,22 +1548,11 @@ __device__ void run_rsyevj(const I dimx,
     // of players
     // ----------------------------------------------------
     auto schedule = [=](auto i1, auto itable, auto iround) {
-        assert((0 <= i1) && (i1 < 2) && (0 <= itable) && (itable < ntables) && (0 <= iround)
-               && (iround < num_rounds));
-
         return (schedule_[i1 + itable * 2 + iround * n_even]);
     };
 
-    auto V = [=](auto i, auto j) -> T& {
-        assert((0 <= i) && (i < n) && (0 <= j) && (j < n) && (i < ldv));
-
-        return (V_[i + j * ldv]);
-    };
-    auto A = [=](auto i, auto j) -> T& {
-        assert((0 <= i) && (i < n) && (0 <= j) && (j < n) && (i < lda));
-
-        return (A_[i + j * lda]);
-    };
+    auto V = [=](auto i, auto j) -> T& { return (V_[i + j * ldv]); };
+    auto A = [=](auto i, auto j) -> T& { return (A_[i + j * lda]); };
 
     {
         bool const is_same = (dA_ == A_);
@@ -1624,6 +1623,7 @@ __device__ void run_rsyevj(const I dimx,
 
 #ifdef NDEBUG
 #else
+    if(idebug >= 1)
     {
         // --------------------------------
         // extra check that A_ is symmetric
@@ -1644,12 +1644,14 @@ __device__ void run_rsyevj(const I dimx,
         __syncthreads();
 
         bool const need_diagonal = false;
-        S* const Swork = (S*)dwork;
+        {
+            S* const Swork = (S*)dwork;
 
-        auto const mm = n;
-        auto const nn = n;
-        cal_norm_body(mm, nn, A_, lda, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
-        norm_offdiag = Swork[0];
+            auto const mm = n;
+            auto const nn = n;
+            cal_norm_body(mm, nn, A_, lda, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
+            norm_offdiag = Swork[0];
+        }
 
         has_converged = (norm_offdiag <= abstol * norm_A);
         __syncthreads();
@@ -1671,22 +1673,18 @@ __device__ void run_rsyevj(const I dimx,
                 auto const p = schedule(0, j, iround);
                 auto const q = schedule(1, j, iround);
 
-                // -------------------------------------
-                // if n is an odd number, then just skip
-                // operation for invalid values
-                // -------------------------------------
-                bool const is_valid_p = (0 <= p) && (p < n);
-                bool const is_valid_q = (0 <= q) && (q < n);
-                bool const is_valid_pq = is_valid_p && is_valid_q;
-
-                if(!is_valid_pq)
                 {
-                    continue;
-                };
+                    // -------------------------------------
+                    // if n is an odd number, then just skip
+                    // operation for invalid values
+                    // -------------------------------------
+                    bool const is_valid_pq = (0 <= p) && (p < n) && (0 <= q) && (q < n);
 
-                auto const App = A(p, p);
-                auto const Apq = A(p, q);
-                auto const Aqq = A(q, q);
+                    if(!is_valid_pq)
+                    {
+                        continue;
+                    }
+                }
 
                 // ----------------------------------------------------------------------
                 // [ cs1  conj(sn1) ][ App        Apq ] [cs1   -conj(sn1)] = [rt1   0   ]
@@ -1696,7 +1694,12 @@ __device__ void run_rsyevj(const I dimx,
                 S cs1 = 0;
                 S rt1 = 0;
                 S rt2 = 0;
-                laev2<T, S>(App, Apq, Aqq, rt1, rt2, cs1, sn1);
+                {
+                    auto const App = A(p, p);
+                    auto const Apq = A(p, q);
+                    auto const Aqq = A(q, q);
+                    laev2<T, S>(App, Apq, Aqq, rt1, rt2, cs1, sn1);
+                }
 
                 //  ----------------------------------
                 //  We have
@@ -1707,20 +1710,18 @@ __device__ void run_rsyevj(const I dimx,
                 //
                 //  J = [cs1   -conj(sn1)]
                 //      [sn1    cs1      ]
+                //
+                //  J' = [cs1    conj(sn1) ]
+                //       [-sn1   cs1       ]
                 //  ----------------------------------
-
-                auto const J11 = cs1;
-                auto const J12 = -conj(sn1);
-                auto const J21 = sn1;
-                auto const J22 = cs1;
 
                 // ------------------------
                 // J' is conj(transpose(J))
                 // ------------------------
-                auto const Jt11 = conj(J11);
-                auto const Jt12 = conj(J21);
-                auto const Jt21 = conj(J12);
-                auto const Jt22 = conj(J22);
+                auto const Jt11 = cs1;
+                auto const Jt12 = conj(sn1);
+                auto const Jt21 = -sn1;
+                auto const Jt22 = cs1;
 
                 if(i_start == 0)
                 {
@@ -1762,17 +1763,17 @@ __device__ void run_rsyevj(const I dimx,
                 auto const p = schedule(0, j, iround);
                 auto const q = schedule(1, j, iround);
 
-                // -------------------------------------
-                // if n is an odd number, then just skip
-                // operation for invalid values
-                // -------------------------------------
-                bool const is_valid_p = (0 <= p) && (p < n);
-                bool const is_valid_q = (0 <= q) && (q < n);
-                bool const is_valid_pq = is_valid_p && is_valid_q;
-                if(!is_valid_pq)
                 {
-                    continue;
-                };
+                    // -------------------------------------
+                    // if n is an odd number, then just skip
+                    // operation for invalid values
+                    // -------------------------------------
+                    bool const is_valid_pq = (0 <= p) && (p < n) && (0 <= q) && (q < n);
+                    if(!is_valid_pq)
+                    {
+                        continue;
+                    }
+                }
 
                 // ----------------------------------------------------------------------
                 // [ cs1  conj(sn1) ][ App        Apq ] [cs1   -conj(sn1)] = [rt1   0   ]
@@ -1781,7 +1782,6 @@ __device__ void run_rsyevj(const I dimx,
 
                 auto const cs1 = cosine[j];
                 auto const sn1 = sine[j];
-                auto const sn2 = -conj(sn1);
 
                 auto const J11 = cs1;
                 auto const J12 = -conj(sn1);
@@ -1826,23 +1826,26 @@ __device__ void run_rsyevj(const I dimx,
 
 #ifdef NDEBUG
 #else
-                if(i_start == 0)
+                if(idebug >= 2)
                 {
-                    // ------------------------------
-                    // double check A(p,q) and A(q,p)
-                    // ------------------------------
-                    auto const tol = 1e-6;
-                    bool const isok_pq = std::abs(A(p, q)) <= tol * norm_A;
-                    bool const isok_qp = std::abs(A(q, p)) <= tol * norm_A;
-                    bool const isok = isok_pq && isok_qp;
-                    if(!isok)
+                    if(i_start == 0)
                     {
-                        printf("n=%d,need_V=%d,j=%d,iround=%d,isweep=%d\n", (int)n, (int)need_V,
-                               (int)j, (int)iround, (int)isweep);
-                        printf("p=%d,q=%d,abs(A(p,q))=%le,abs(A(q,p))=%le\n", (int)p, (int)q,
-                               (double)std::abs(A(p, q)), (double)std::abs(A(q, p)));
+                        // ------------------------------
+                        // double check A(p,q) and A(q,p)
+                        // ------------------------------
+                        auto const tol = 1e-6;
+                        bool const isok_pq = std::abs(A(p, q)) <= tol * norm_A;
+                        bool const isok_qp = std::abs(A(q, p)) <= tol * norm_A;
+                        bool const isok = isok_pq && isok_qp;
+                        if(!isok)
+                        {
+                            printf("n=%d,need_V=%d,j=%d,iround=%d,isweep=%d\n", (int)n, (int)need_V,
+                                   (int)j, (int)iround, (int)isweep);
+                            printf("p=%d,q=%d,abs(A(p,q))=%le,abs(A(q,p))=%le\n", (int)p, (int)q,
+                                   (double)std::abs(A(p, q)), (double)std::abs(A(q, p)));
+                        }
+                        assert(isok);
                     }
-                    assert(isok);
                 }
 
 #endif
@@ -1896,10 +1899,13 @@ __device__ void run_rsyevj(const I dimx,
     *residual = norm_offdiag;
 
     // debug
-    if((i_start == 0) && (j_start == 0))
+    if(idebug >= 1)
     {
-        printf("isweep=%d, abstol=%le,norm_offdiag = %le, norm_A = %le\n", (int)isweep,
-               (double)abstol, (double)norm_offdiag, (double)norm_A);
+        if((i_start == 0) && (j_start == 0))
+        {
+            printf("isweep=%d, abstol=%le,norm_offdiag = %le, norm_A = %le\n", (int)isweep,
+                   (double)abstol, (double)norm_offdiag, (double)norm_A);
+        }
     }
 
     // -----------------
