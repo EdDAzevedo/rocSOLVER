@@ -474,25 +474,23 @@ static __device__ void symmetrize_matrix_body(char const uplo,
 
     for(auto j = j_start; j < n; j += j_inc)
     {
-        for(auto i = i_start; i < n; i += i_inc)
+        I const row_start = (use_upper) ? 0 : j + 1;
+        I const row_end = (use_upper) ? j : n;
+        for(auto i = row_start + i_start; i < row_end; i += i_inc)
         {
-            bool const is_strictly_lower = (i > j);
-            bool const is_strictly_upper = (i < j);
-            bool const is_diagonal = (i == j);
-
-            bool const do_assignment
-                = (use_upper && is_strictly_upper) || (use_lower && is_strictly_lower);
-            if(do_assignment)
-            {
-                A(j, i) = conj(A(i, j));
-            }
-
-            if(is_diagonal)
-            {
-                A(i, i) = (A(i, i) + conj(A(i, i))) / 2;
-            }
+            A(j, i) = conj(A(i, j));
         }
     }
+
+    auto const ij_start = i_start + j_start * i_inc;
+    auto const ij_inc = i_inc * j_inc;
+
+    for(auto ij = ij_start; ij < n; ij += ij_inc)
+    {
+        auto const diag = A(ij, ij);
+        A(ij, ij) = (diag + conj(diag)) / 2;
+    }
+
     __syncthreads();
 
 #ifdef NDEBUG
@@ -614,6 +612,7 @@ static __device__ void lacpy_body(char const uplo,
 // and diagonal entries to beta
 // if (uplo == 'U') set only the upper triangular part
 // if (uplo == 'L') set only the lower triangular part
+// if (uplo == 'F') set only the off-diagonal part
 // otherwise, set the whole m by n matrix
 // --------------------------------------------------------------------
 template <typename T, typename I>
@@ -1663,44 +1662,63 @@ __device__ void run_rsyevj(const I dimx,
 
         for(auto iround = 0; iround < num_rounds; iround++)
         {
-            __syncthreads();
+            {
+                // --------------------
+                // precompute rotations
+                // --------------------
+                auto const ij_start = i_start + j_start * i_inc;
+                auto const ij_inc = i_inc * j_inc;
+
+                for(auto ij = ij_start; ij < ntables; ij += ij_inc)
+                {
+                    // --------------------------
+                    // get independent pair (p,q)
+                    // --------------------------
+
+                    auto const p = schedule(0, ij, iround);
+                    auto const q = schedule(1, ij, iround);
+
+                    {
+                        // -------------------------------------
+                        // if n is an odd number, then just skip
+                        // operation for invalid values
+                        // -------------------------------------
+                        bool const is_valid_pq = (0 <= p) && (p < n) && (0 <= q) && (q < n);
+
+                        if(!is_valid_pq)
+                        {
+                            continue;
+                        }
+                    }
+
+                    // ----------------------------------------------------------------------
+                    // [ cs1  conj(sn1) ][ App        Apq ] [cs1   -conj(sn1)] = [rt1   0   ]
+                    // [-sn1  cs1       ][ conj(Apq)  Aqq ] [sn1    cs1      ]   [0     rt2 ]
+                    // ----------------------------------------------------------------------
+                    T sn1 = 0;
+                    S cs1 = 0;
+                    S rt1 = 0;
+                    S rt2 = 0;
+                    {
+                        auto const App = A(p, p);
+                        auto const Apq = A(p, q);
+                        auto const Aqq = A(q, q);
+                        laev2<T, S>(App, Apq, Aqq, rt1, rt2, cs1, sn1);
+
+                        cosine[ij] = cs1;
+                        sine[ij] = sn1;
+                    }
+                } // end for ij
+
+                __syncthreads();
+            }
+
+            // ---------------------------
+            // apply row update operations
+            // ---------------------------
+
             for(auto j = j_start; j < ntables; j += j_inc)
             {
-                // --------------------------
-                // get independent pair (p,q)
-                // --------------------------
-
-                auto const p = schedule(0, j, iround);
-                auto const q = schedule(1, j, iround);
-
-                {
-                    // -------------------------------------
-                    // if n is an odd number, then just skip
-                    // operation for invalid values
-                    // -------------------------------------
-                    bool const is_valid_pq = (0 <= p) && (p < n) && (0 <= q) && (q < n);
-
-                    if(!is_valid_pq)
-                    {
-                        continue;
-                    }
-                }
-
-                // ----------------------------------------------------------------------
-                // [ cs1  conj(sn1) ][ App        Apq ] [cs1   -conj(sn1)] = [rt1   0   ]
-                // [-sn1  cs1       ][ conj(Apq)  Aqq ] [sn1    cs1      ]   [0     rt2 ]
-                // ----------------------------------------------------------------------
-                T sn1 = 0;
-                S cs1 = 0;
-                S rt1 = 0;
-                S rt2 = 0;
-                {
-                    auto const App = A(p, p);
-                    auto const Apq = A(p, q);
-                    auto const Aqq = A(q, q);
-                    laev2<T, S>(App, Apq, Aqq, rt1, rt2, cs1, sn1);
-                }
-
                 //  ----------------------------------
                 //  We have
                 //
@@ -1714,6 +1732,22 @@ __device__ void run_rsyevj(const I dimx,
                 //  J' = [cs1    conj(sn1) ]
                 //       [-sn1   cs1       ]
                 //  ----------------------------------
+                auto const p = schedule(0, j, iround);
+                auto const q = schedule(1, j, iround);
+
+                // -------------------------------------
+                // if n is an odd number, then just skip
+                // operation for invalid values
+                // -------------------------------------
+                bool const is_valid_pq = (0 <= p) && (p < n) && (0 <= q) && (q < n);
+
+                if(!is_valid_pq)
+                {
+                    continue;
+                }
+
+                auto const cs1 = cosine[j];
+                auto const sn1 = sine[j];
 
                 // ------------------------
                 // J' is conj(transpose(J))
@@ -1722,12 +1756,6 @@ __device__ void run_rsyevj(const I dimx,
                 auto const Jt12 = conj(sn1);
                 auto const Jt21 = -sn1;
                 auto const Jt22 = cs1;
-
-                if(i_start == 0)
-                {
-                    cosine[j] = cs1;
-                    sine[j] = sn1;
-                }
 
                 // ----------------------------
                 // update rows p, q in matrix A
@@ -1769,6 +1797,7 @@ __device__ void run_rsyevj(const I dimx,
                     // operation for invalid values
                     // -------------------------------------
                     bool const is_valid_pq = (0 <= p) && (p < n) && (0 <= q) && (q < n);
+
                     if(!is_valid_pq)
                     {
                         continue;
@@ -1852,7 +1881,7 @@ __device__ void run_rsyevj(const I dimx,
 
                 // -------------------------------------
                 // explicitly set A(p,q), A(q,p) be zero
-                // otherwise, abs(A(p,q)) may still be around
+                // otherwise, abs(A(p,q)) might still be around
                 // machine epsilon
                 // -------------------------------------
                 {
@@ -1898,6 +1927,8 @@ __device__ void run_rsyevj(const I dimx,
     *n_sweeps = (has_converged) ? isweep : max_sweeps;
     *residual = norm_offdiag;
 
+#ifdef NDEBUG
+#else
     // debug
     if(idebug >= 1)
     {
@@ -1907,6 +1938,7 @@ __device__ void run_rsyevj(const I dimx,
                    (double)abstol, (double)norm_offdiag, (double)norm_A);
         }
     }
+#endif
 
     // -----------------
     // sort eigen values
