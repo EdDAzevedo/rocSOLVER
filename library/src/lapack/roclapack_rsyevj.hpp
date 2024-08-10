@@ -1431,17 +1431,26 @@ __global__ static void setup_ptr_arrays_kernel(
         {
             Istride const strideVj = (nblocks_half * (2 * nb) * (2 * nb));
 
-            Vj_ptr_array[ibatch] = Vj + ibatch * strideVj;
+            for(auto i = i_start; i < (nblocks_half - 1); i += i_inc)
+            {
+                auto const ip = i + ibatch * (nblocks_half - 1);
+                Vj_ptr_array[ip] = Vj + bid * strideVj + i * (2 * nb) * (2 * nb);
+            }
+
             Vj_last_ptr_array[ibatch]
-                = Vj + ibatch * strideVj + (nblocks_half - 1) * ((2 * nb) * (2 * nb));
+                = Vj + bid * strideVj + (nblocks_half - 1) * ((2 * nb) * (2 * nb));
         }
 
         {
             Istride const strideAj = (nblocks_half * (2 * nb) * (2 * nb));
 
-            Aj_ptr_array[ibatch] = Aj + ibatch * strideAj;
+            for(auto i = i_start; i < (nblocks_half - 1); i += i_inc)
+            {
+                auto const ip = i + ibatch * (nblocks_half - 1);
+                Aj_ptr_array[ip] = Aj + bid * strideAj + i * (2 * nb) * (2 * nb);
+            }
             Aj_last_ptr_array[ibatch]
-                = Aj + ibatch * strideAj + (nblocks_half - 1) * ((2 * nb) * (2 * nb));
+                = Aj + bid * strideAj + (nblocks_half - 1) * ((2 * nb) * (2 * nb));
         }
 
         for(auto i = i_start; i < (nblocks_half - 1); i += i_inc)
@@ -1696,11 +1705,11 @@ __device__ void run_rsyevj(const I dimx,
                     // [ cs1  conj(sn1) ][ App        Apq ] [cs1   -conj(sn1)] = [rt1   0   ]
                     // [-sn1  cs1       ][ conj(Apq)  Aqq ] [sn1    cs1      ]   [0     rt2 ]
                     // ----------------------------------------------------------------------
-                    T sn1 = 0;
-                    S cs1 = 0;
-                    S rt1 = 0;
-                    S rt2 = 0;
                     {
+                        T sn1 = 0;
+                        S cs1 = 0;
+                        S rt1 = 0;
+                        S rt2 = 0;
                         auto const App = A(p, p);
                         auto const Apq = A(p, q);
                         auto const Aqq = A(q, q);
@@ -1913,6 +1922,8 @@ __device__ void run_rsyevj(const I dimx,
     }
     __syncthreads();
 
+#ifdef NDEBUG
+#else
     if(idebug >= 2)
     {
         if((i_start == 0) && (j_start == 0))
@@ -1923,6 +1934,7 @@ __device__ void run_rsyevj(const I dimx,
             }
         }
     }
+#endif
 
     *info = (has_converged) ? 0 : 1;
     *n_sweeps = (has_converged) ? isweep : max_sweeps;
@@ -2474,7 +2486,8 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
                         T* AcpyA,
 
                         I batch_count,
-                        I* schedule_)
+                        I* schedule_,
+                        bool const do_overwrite_A = true)
 {
     auto const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x;
     auto const bid_start = hipBlockIdx_z;
@@ -2564,7 +2577,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
         // with V if eigen-vectors are requested
         // ------------------------------
 
-        if(need_V)
+        if(need_V && do_overwrite_A)
         {
             char const c_uplo = 'A';
             auto const mm = n;
@@ -4102,6 +4115,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                               batch_count_remain);
 
                         swap(Atmp, Vtmp);
+                        swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
+                        swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);
+                        swap(Atmp_row_last_ptr_array, Vtmp_row_last_ptr_array);
+                        swap(Atmp_col_last_ptr_array, Vtmp_col_last_ptr_array);
+                        swap(Atmp_ptr_array, Vtmp_ptr_array);
                     }
 
                     ROCBLAS_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
@@ -4138,13 +4156,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 // perform Jacobi iteration on small diagonal blocks in Aj
                 // -------------------------------------------------------
 
-                size_t const lmemsize = 64 * 1024;
-                I const nn = (2 * nb);
-                I const rsyevj_max_sweeps = 15;
-                auto const rsyevj_atol = atol / nblocks;
-
-                rocblas_evect const rsyevj_evect = rocblas_evect_original;
-
                 // ----------------------------
                 // set Vj to be diagonal matrix
                 // ----------------------------
@@ -4159,27 +4170,50 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, U, Istride>), dim3(nbx, nby, nbz),
                                             dim3(nx, ny, 1), 0, stream, c_uplo, mm, nn,
-                                            alpha_offdiag, beta_diag, Aj, shiftAj, ldaj, strideAj,
+                                            alpha_offdiag, beta_diag, Vj, shiftVj, ldvj, strideVj,
                                             (nblocks_half)*batch_count_remain);
                 }
 
-                ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, nbz), dim3(nx, ny, 1),
-                                        lmemsize, stream, esort, rsyevj_evect, uplo, nn,
-                                        Aj_ptr_array, shiftAj, ldaj, strideA, rsyevj_atol, eps,
-                                        residual, rsyevj_max_sweeps, n_sweeps, W, strideW, info, Acpy,
-                                        (nblocks_half - 1) * batch_count_remain, d_schedule_small);
+                {
+                    // -----------------------------------------
+                    // preserve the nearly diagonal matrix in Aj
+                    // -----------------------------------------
+                    bool const do_overwrite_A = false;
+                    rocblas_esort const rsyevj_esort = rocblas_esort_none;
+                    size_t const lmemsize = 64 * 1024;
 
-                ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, nbz), dim3(nx, ny, 1),
-                                        lmemsize, stream, esort, rsyevj_evect, uplo, nn,
-                                        Aj_last_ptr_array, shiftAj, ldaj, strideA, rsyevj_atol, eps,
-                                        residual, rsyevj_max_sweeps, n_sweeps, W, strideW, info,
-                                        Acpy, batch_count_remain, d_schedule_small);
+                    // ---------------------------
+                    // no need for too many sweeps
+                    // since the blocks will be over-written
+                    // ---------------------------
+                    I const rsyevj_max_sweeps = 15;
+                    auto const rsyevj_atol = atol / nblocks;
+
+                    rocblas_evect const rsyevj_evect = rocblas_evect_original;
+
+                    I const n1 = (2 * nb);
+                    ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, nbz), dim3(nx, ny, 1),
+                                            lmemsize, stream, rsyevj_esort, rsyevj_evect, uplo, n1,
+                                            Aj_ptr_array, shiftAj, ldaj, strideA, rsyevj_atol, eps,
+                                            residual, rsyevj_max_sweeps, n_sweeps, W, strideW, info,
+                                            Vj_ptr_array, (nblocks_half - 1) * batch_count_remain,
+                                            d_schedule_small, do_overwrite_A);
+
+                    I const n2 = nb + nb_last;
+                    ROCSOLVER_LAUNCH_KERNEL(rsyevj_small_kernel<T>, dim3(1, 1, nbz), dim3(nx, ny, 1),
+                                            lmemsize, stream, rsyevj_esort, rsyevj_evect, uplo, n2,
+                                            Aj_last_ptr_array, shiftAj, ldaj, strideA, rsyevj_atol,
+                                            eps, residual, rsyevj_max_sweeps, n_sweeps, W, strideW,
+                                            info, Vj_last_ptr_array, batch_count_remain,
+                                            d_schedule_small, do_overwrite_A);
+                }
             }
         }
 
         {
+            // -----------------------------------------------------
             // launch batch list to perform Vj' to update block rows
-            // launch batch list to perform Vj' to update last block rows
+            // -----------------------------------------------------
 
             T alpha = 1;
             T beta = 0;
@@ -4192,6 +4226,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 strideAtmp, &beta, A_row_ptr_array, shift_zero, lda, strideA,
                 (nblocks_half - 1) * batch_count_remain));
 
+            // ----------------------------------------------------------
+            // launch batch list to perform Vj' to update last block rows
+            // ----------------------------------------------------------
             auto m2 = n;
             auto n2 = nb + nb_last;
             auto k2 = nb + nb_last;
@@ -4275,6 +4312,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                             ldatmp, strideAtmp, batch_count));
 
             swap(Atmp, Vtmp);
+            swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
+            swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);
+            swap(Atmp_row_last_ptr_array, Vtmp_row_last_ptr_array);
+            swap(Atmp_col_last_ptr_array, Vtmp_col_last_ptr_array);
+            swap(Atmp_ptr_array, Vtmp_ptr_array);
         }
 
     } // end for iround
