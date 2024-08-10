@@ -345,9 +345,10 @@ static bool check_schedule(I const nplayers, std::vector<I>& result)
 /************** Kernels and device functions for small size*******************/
 /*****************************************************************************/
 
-#ifndef RSYEVJ_BDIM
-#define RSYEVJ_BDIM 1024 // Max number of threads per thread-block used in rsyevj_small kernel
-#endif
+static constexpr auto NX_THREADS = 32;
+
+// Max number of threads per thread-block used in rsyevj_small kernel
+static constexpr auto RSYEVJ_BDIM = 1024;
 
 // --------------------------------------------------
 // need to fit n by n copy of A,  cosines, sines, and
@@ -917,7 +918,7 @@ static void lacpy(rocblas_handle handle,
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
     I const max_blocks = 64 * 1000;
-    auto const nx = 32;
+    auto const nx = NX_THREADS;
     auto const ny = RSYEVJ_BDIM / nx;
 
     auto const nbx = std::min(max_blocks, ceil(m, nx));
@@ -2481,66 +2482,71 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
 
     auto const even_n = n + (n % 2);
     auto const half_n = even_n / 2;
+    auto const ntables = half_n;
+
+    // get dimensions of 2D thread array
+    I ddx = NX_THREADS;
+    I ddy = RSYEVJ_BDIM / ddx;
+
+    bool const need_V = (esort != rocblas_esort_none);
+
+    // check whether to use A_ and V_ in LDS
+    // auto const max_lds = 64 * 1000;
+
+    auto const max_lds = (sizeof(T) + sizeof(S)) * n;
+
+    // ----------------------------------------------------------
+    // array cosine also used in comuputing matrix Frobenius norm
+    // ----------------------------------------------------------
+    size_t const size_cosine = sizeof(S) * n;
+    size_t const size_sine = sizeof(T) * ntables;
+
+    size_t const size_A = sizeof(T) * n * n;
+    size_t const size_V = (need_V) ? sizeof(T) * n * n : 0;
+
+    size_t const total_size = size_cosine + size_sine + size_A + size_V;
+
+    bool const can_use_lds = (total_size <= max_lds);
+    // ---------------------------------------------
+    // check cosine and sine arrays still fit in LDS
+    // ---------------------------------------------
+    assert((size_cosine + size_sine) <= max_lds);
 
     for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         // array pointers
         T* const dA = load_ptr_batch<T>(AA, bid, shiftA, strideA);
         T* const Acpy = AcpyA + bid * n * n;
-        auto const dV = Acpy;
+        T* const dV = Acpy;
 
         S* const W = WW + bid * strideW;
         S* const residual = residualA + bid;
         I* const n_sweeps = n_sweepsA + bid;
         I* const info = infoA + bid;
 
-        // get dimensions of 2D thread array
-        I ddx = 32;
-        I ddy = RSYEVJ_BDIM / ddx;
-        // rsyevj_get_dims(n, RSYEVJ_BDIM, &ddx, &ddy);
-
-        bool const need_V = (esort != rocblas_esort_none);
-
         // shared memory
-        auto const ntables = half_n;
         extern __shared__ double lmem[];
-        S* cosines_res = reinterpret_cast<S*>(lmem);
-        T* sines_diag = reinterpret_cast<T*>(cosines_res + ntables);
-        T* pfree = reinterpret_cast<T*>(sines_diag + ntables);
-        T* A_ = pfree;
-        pfree += n * n;
-        T* V_ = (need_V) ? pfree : nullptr;
 
-        // extra check whether to use A_ and V_ in LDS
+        std::byte* pfree = (std::byte*)&(lmem[0]);
+
+        S* cosines_res = (S*)pfree;
+        pfree += size_cosine;
+        T* sines_diag = (T*)pfree;
+        pfree += size_sine;
+
+        T* A_ = dA;
+        T* V_ = (need_V) ? dV : nullptr;
+
+        if(can_use_lds)
         {
-            // auto const max_lds = 64 * 1000;
-            auto const max_lds = (sizeof(T) + sizeof(S)) * n;
+            T* A_ = (T*)pfree;
+            pfree += size_A;
 
-            // ----------------------------------------------------------
-            // array cosine also used in comuputing matrix Frobenius norm
-            // ----------------------------------------------------------
-            size_t const size_cosine = sizeof(S) * n;
-            size_t const size_sine = sizeof(T) * ntables;
-
-            size_t const size_A = sizeof(T) * n * n;
-            size_t const size_V = (need_V) ? sizeof(T) * n * n : 0;
-
-            size_t const total_size = size_cosine + size_sine + size_A + size_V;
-
-            bool const can_use_lds = (total_size <= max_lds);
-            if(!can_use_lds)
+            if(need_V)
             {
-                // ----------------------------
-                // need to use GPU device memory
-                // ----------------------------
-                A_ = dA;
-                V_ = (need_V) ? dV : nullptr;
+                V_ = (T*)pfree;
+                pfree += size_V;
             }
-
-            // ---------------------------------------------
-            // check cosine and sine arrays still fit in LDS
-            // ---------------------------------------------
-            assert((size_cosine + size_sine) <= max_lds);
         }
 
         // re-arrange threads in 2D array
@@ -3943,7 +3949,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             // make matrix to be symmetric
             // ---------------------------
             auto const max_blocks = 64 * 1000;
-            auto const nx = 32;
+            auto const nx = NX_THREADS;
             auto const ny = RSYEVJ_BDIM / nx;
 
             auto const nbx = ceil(n, nx);
@@ -3982,7 +3988,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 // Gmat(0:(nblocks-1), 0:(nblocks-1), 0:(batch_count-1))
                 // -----------------------------------------------------
                 I const max_blocks = 64 * 1024;
-                auto const nx = 32;
+                auto const nx = NX_THREADS;
                 auto const ny = RSYEVJ_BDIM / nx;
 
                 auto const nbx = std::min(max_blocks, ceil(n, nx));
@@ -4037,7 +4043,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 // ---------------------------------
                 HIP_CHECK(hipMemsetAsync((void*)&(completed[0]), 0, sizeof(I), stream));
 
-                auto const nx = 32;
+                auto const nx = NX_THREADS;
                 ROCSOLVER_LAUNCH_KERNEL(
                     (setup_ptr_arrays_kernel<T, I>), dim3(1, 1, batch_count), dim3(nx, 1, 1), 0,
                     stream,
@@ -4072,7 +4078,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 I const* const row_map = col_map;
 
                 auto const max_blocks = 64 * 1000;
-                auto const nx = 32;
+                auto const nx = NX_THREADS;
                 auto const ny = RSYEVJ_BDIM / nx;
 
                 auto const nbx = std::min(max_blocks, ceil(n, nx));
