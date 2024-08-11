@@ -1361,20 +1361,20 @@ __global__ static void setup_ptr_arrays_kernel(
 
     T* A_row_ptr_array[],
     T* A_col_ptr_array[],
-    T* A_row_last_ptr_array[],
-    T* A_col_last_ptr_array[],
+    T* A_last_row_ptr_array[],
+    T* A_last_col_ptr_array[],
     T* A_ptr_array[],
 
     T* Atmp_row_ptr_array[],
     T* Atmp_col_ptr_array[],
-    T* Atmp_row_last_ptr_array[],
-    T* Atmp_col_last_ptr_array[],
+    T* Atmp_last_row_ptr_array[],
+    T* Atmp_last_col_ptr_array[],
     T* Atmp_ptr_array[],
 
     T* Vtmp_row_ptr_array[],
     T* Vtmp_col_ptr_array[],
-    T* Vtmp_row_last_ptr_array[],
-    T* Vtmp_col_last_ptr_array[],
+    T* Vtmp_last_row_ptr_array[],
+    T* Vtmp_last_col_ptr_array[],
     T* Vtmp_ptr_array[],
 
     T* A_diag_ptr_array[],
@@ -1414,19 +1414,19 @@ __global__ static void setup_ptr_arrays_kernel(
         Atmp_ptr_array[ibatch] = Atmp_p;
         Vtmp_ptr_array[ibatch] = Vtmp_p;
 
-        auto const irow_last = (nblocks_half - 1) * (2 * nb);
-        auto const jcol_last = (nblocks_half - 1) * (2 * nb);
+        auto const ilast_row = (nblocks_half - 1) * (2 * nb);
+        auto const jlast_col = (nblocks_half - 1) * (2 * nb);
 
-        A_row_last_ptr_array[ibatch] = A_p + shiftA + idx2D(irow_last, 0, lda);
-        A_col_last_ptr_array[ibatch] = A_p + shiftA + idx2D(0, jcol_last, lda);
+        A_last_row_ptr_array[ibatch] = A_p + shiftA + idx2D(ilast_row, 0, lda);
+        A_last_col_ptr_array[ibatch] = A_p + shiftA + idx2D(0, jlast_col, lda);
 
-        A_last_diag_ptr_array[ibatch] = A_p + shiftA + idx2D(irow_last, jcol_last, lda);
+        A_last_diag_ptr_array[ibatch] = A_p + shiftA + idx2D(ilast_row, jlast_col, lda);
 
-        Atmp_row_last_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(irow_last, 0, ldatmp);
-        Atmp_col_last_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(0, jcol_last, ldatmp);
+        Atmp_last_row_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(ilast_row, 0, ldatmp);
+        Atmp_last_col_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(0, jlast_col, ldatmp);
 
-        Vtmp_row_last_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(irow_last, 0, ldvtmp);
-        Vtmp_col_last_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(0, jcol_last, ldvtmp);
+        Vtmp_last_row_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(ilast_row, 0, ldvtmp);
+        Vtmp_last_col_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(0, jlast_col, ldvtmp);
 
         {
             Istride const strideVj = (nblocks_half * (2 * nb) * (2 * nb));
@@ -2290,6 +2290,7 @@ __global__ static void cal_Gmat_kernel(I const n,
                                        S* const Gmat_,
                                        bool const include_diagonal_values,
 
+                                       I const completed,
                                        I const batch_count)
 {
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
@@ -2322,6 +2323,12 @@ __global__ static void cal_Gmat_kernel(I const n,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
+        bool const is_completed = completed[bid + 1];
+        if(is_completed)
+        {
+            continue;
+        }
+
         T const* const Ap_ = load_ptr_batch(A, bid, shiftA, strideA);
 
         auto Ap = [=](auto i, auto j) -> const T& { return (Ap_[idx2D(i, j, lda)]); };
@@ -2355,8 +2362,12 @@ __global__ static void cal_Gmat_kernel(I const n,
 //      sizeof(S), stream>>>
 // -----------------------------------------------------
 template <typename S, typename I>
-__global__ static void
-    sum_Gmat(I const n, I const nb, S* const Gmat_, S* const Gnorm_, I const batch_count)
+__global__ static void sum_Gmat(I const n,
+                                I const nb,
+                                S* const Gmat_,
+                                S* const Gnorm_,
+                                I const completed,
+                                I const batch_count)
 {
     auto const bid_start = hipBlockIdx_z;
     auto const bid_inc = hipGridDim_z;
@@ -2376,39 +2387,24 @@ __global__ static void
 
     auto Gnorm = [=](auto bid) -> S& { return (Gnorm_[(bid - 1)]); };
 
-    extern __shared__ S sh_mem[];
-
     for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        bool const is_root = ((i_start == 0) && (j_start == 0));
-
-        if(is_root)
+        bool const is_completed = completed[bid + 1];
+        if(is_completed)
         {
-            sh_mem[0] = 0;
-        }
-
-        __syncthreads();
-
-        S dsum = 0;
-        for(I j = j_start; j < nblocks; j += j_inc)
-        {
-            for(I i = i_start; i < nblocks; i += i_inc)
-            {
-                dsum += std::norm(Gmat(i, j, bid));
-            }
-        }
-
-        if(dsum != 0)
-        {
-            atomicAdd(&(sh_mem[0]), dsum);
+            continue;
         };
 
-        __syncthreads();
+        auto const mm = nblocks;
+        auto const nn = nblocks;
+        auto const ld1 = nblocks;
 
-        if(is_root)
-        {
-            Gnorm(bid) = std::sqrt(sh_mem[0]);
-        };
+        extern __shared__ S dwork[];
+        bool const include_diagonal = true;
+        cal_norm_body(mm, nn, &(Gmat(0, 0, bid)), ld1, dwork, i_start, i_inc, j_start, j_inc,
+                      include_diagonal);
+        S const g_norm = dwork[0];
+        Gnorm(bid) = g_norm;
     }
 }
 
@@ -2420,8 +2416,11 @@ __global__ static void set_completed(I const n,
                                      I const nb,
                                      S* const Anorm,
                                      S const abstol,
-                                     S* const Gnorm,
 
+                                     I const h_sweeps,
+                                     I n_sweeps[],
+                                     S residual[],
+                                     I info[],
                                      I completed[],
                                      I const batch_count)
 {
@@ -2434,8 +2433,14 @@ __global__ static void set_completed(I const n,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
+        bool const is_already_completed = completed[bid + 1];
+        if(is_already_completed)
+        {
+            continue;
+        };
+
         S const anorm = Anorm[bid];
-        S const gnorm = Gnorm[bid];
+        S const gnorm = residual[bid];
         bool const is_completed = (gnorm <= abstol * anorm);
 
         // -----------------
@@ -2443,10 +2448,28 @@ __global__ static void set_completed(I const n,
         // -----------------
         completed[bid + 1] = is_completed;
 
+        info[bid] = (is_completed) ? 0 : 1;
+
         if(is_completed)
         {
+            n_sweeps[bid] = h_sweeps;
+
             atomicAdd(&(completed[0]), 1);
         };
+    }
+}
+
+template <typename S, typename I>
+__global__ static void set_info_kernel(I const max_sweeps, I n_sweeps[], I info[], I const batch_count)
+{
+    auto const bid_start = hipThreadIdx_z + hipBlockIdx_z * hipBlockIdx_z;
+    auto const bid_inc = hipBlockDim_z * hipGridDim_z;
+
+    for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        bool const is_converged = (n_sweeps[bid] < max_sweeps);
+
+        info[bid] = (is_converged) ? 0 : 1;
     }
 }
 
@@ -2504,9 +2527,6 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
     bool const need_V = (esort != rocblas_esort_none);
 
     // check whether to use A_ and V_ in LDS
-    // auto const max_lds = 64 * 1000;
-
-    auto const max_lds = (sizeof(T) + sizeof(S)) * n;
 
     // ----------------------------------------------------------
     // array cosine also used in comuputing matrix Frobenius norm
@@ -2519,6 +2539,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
 
     size_t const total_size = size_cosine + size_sine + size_A + size_V;
 
+    size_t const max_lds = 64 * 1024;
     bool const can_use_lds = (total_size <= max_lds);
     // ---------------------------------------------
     // check cosine and sine arrays still fit in LDS
@@ -3545,30 +3566,30 @@ void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
 
         size_t const size_A_row_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_A_col_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
-        size_t const size_A_row_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_A_col_last_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_A_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_A_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
         size_t const size_A_ptr_array = sizeof(T*) * batch_count;
 
-        total_bytes += size_A_row_ptr_array + size_A_col_ptr_array + size_A_row_last_ptr_array
-            + size_A_col_last_ptr_array + size_A_ptr_array;
+        total_bytes += size_A_row_ptr_array + size_A_col_ptr_array + size_A_last_row_ptr_array
+            + size_A_last_col_ptr_array + size_A_ptr_array;
 
         size_t const size_Atmp_row_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_Atmp_col_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
-        size_t const size_Atmp_row_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Atmp_col_last_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Atmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Atmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
         size_t const size_Atmp_ptr_array = sizeof(T*) * batch_count;
 
         total_bytes += size_Atmp_row_ptr_array + size_Atmp_col_ptr_array
-            + size_Atmp_row_last_ptr_array + size_Atmp_col_last_ptr_array + size_Atmp_ptr_array;
+            + size_Atmp_last_row_ptr_array + size_Atmp_last_col_ptr_array + size_Atmp_ptr_array;
 
         size_t const size_Vtmp_row_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_Vtmp_col_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
-        size_t const size_Vtmp_row_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Vtmp_col_last_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Vtmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Vtmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
         size_t const size_Vtmp_ptr_array = sizeof(T) * batch_count;
 
         total_bytes += size_Vtmp_row_ptr_array + size_Vtmp_col_ptr_array
-            + size_Vtmp_row_last_ptr_array + size_Vtmp_col_last_ptr_array + size_Vtmp_ptr_array;
+            + size_Vtmp_last_row_ptr_array + size_Vtmp_last_col_ptr_array + size_Vtmp_ptr_array;
 
         size_t const size_A_diag_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_A_last_diag_ptr_array = sizeof(T*) * 1 * batch_count;
@@ -3577,11 +3598,10 @@ void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
 
         size_t const size_Gmat = sizeof(S) * (nblocks * nblocks) * batch_count;
         size_t const size_Gmat_ptr_array = sizeof(S*) * batch_count;
-        size_t const size_Gmat_norm = sizeof(S) * batch_count;
         size_t const size_Amat_norm = sizeof(S) * batch_count;
 
         total_bytes += size_Gmat + size_Gmat_ptr_array;
-        total_bytes += size_Gmat_norm + size_Amat_norm;
+        total_bytes += size_Amat_norm;
 
         size_t const size_schedule_small = sizeof(I) * (2 * nb) * ((2 * nb) - 1);
         size_t const size_schedule_large = sizeof(I) * nblocks_even * (nblocks_even - 1);
@@ -3708,6 +3728,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     auto is_even = [](auto n) { return ((n % 2) == 0); };
     auto is_odd = [](auto n) { return (!is_even(n)); };
 
+    // --------------------------------------------------------------
+    // zero out arrays to make sure there are no uninitialized values
+    // --------------------------------------------------------------
+    {
+        int const ivalue = 0;
+        HIP_CHECK(hipMemsetAsync((void*)dwork, ivalue, size_dwork, stream));
+    }
+
     std::byte* pfree = (std::byte*)dwork;
 
     // absolute tolerance for evaluating when the algorithm has converged
@@ -3758,7 +3786,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         // (TODO: RSYEVJ_BLOCKED_SWITCH may need re-tuning
         dim3 grid(1, 1, batch_count);
 
-        I ddx = 32;
+        I ddx = NX_THREADS;
         I ddy = RSYEVJ_BDIM / ddx;
 
         auto const n_even = n + (n % 2);
@@ -3830,30 +3858,30 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
         size_t const size_A_row_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_A_col_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
-        size_t const size_A_row_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_A_col_last_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_A_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_A_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
         size_t const size_A_ptr_array = sizeof(T*) * batch_count;
 
-        total_bytes += size_A_row_ptr_array + size_A_col_ptr_array + size_A_row_last_ptr_array
-            + size_A_col_last_ptr_array + size_A_ptr_array;
+        total_bytes += size_A_row_ptr_array + size_A_col_ptr_array + size_A_last_row_ptr_array
+            + size_A_last_col_ptr_array + size_A_ptr_array;
 
         size_t const size_Atmp_row_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_Atmp_col_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
-        size_t const size_Atmp_row_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Atmp_col_last_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Atmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Atmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
         size_t const size_Atmp_ptr_array = sizeof(T*) * batch_count;
 
         total_bytes += size_Atmp_row_ptr_array + size_Atmp_col_ptr_array
-            + size_Atmp_row_last_ptr_array + size_Atmp_col_last_ptr_array + size_Atmp_ptr_array;
+            + size_Atmp_last_row_ptr_array + size_Atmp_last_col_ptr_array + size_Atmp_ptr_array;
 
         size_t const size_Vtmp_row_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_Vtmp_col_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
-        size_t const size_Vtmp_row_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Vtmp_col_last_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Vtmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
+        size_t const size_Vtmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
         size_t const size_Vtmp_ptr_array = sizeof(T) * batch_count;
 
         total_bytes += size_Vtmp_row_ptr_array + size_Vtmp_col_ptr_array
-            + size_Vtmp_row_last_ptr_array + size_Vtmp_col_last_ptr_array + size_Vtmp_ptr_array;
+            + size_Vtmp_last_row_ptr_array + size_Vtmp_last_col_ptr_array + size_Vtmp_ptr_array;
 
         size_t const size_A_diag_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
         size_t const size_A_last_diag_ptr_array = sizeof(T*) * 1 * batch_count;
@@ -3862,11 +3890,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
         size_t const size_Gmat = sizeof(S) * (nblocks * nblocks) * batch_count;
         size_t const size_Gmat_ptr_array = sizeof(S*) * batch_count;
-        size_t const size_Gmat_norm = sizeof(S) * batch_count;
         size_t const size_Amat_norm = sizeof(S) * batch_count;
 
         total_bytes += size_Gmat + size_Gmat_ptr_array;
-        total_bytes += size_Gmat_norm + size_Amat_norm;
+        total_bytes += size_Amat_norm;
 
         size_t const size_schedule_small = sizeof(I) * (2 * nb) * ((2 * nb) - 1);
         size_t const size_schedule_large = sizeof(I) * nblocks_even * (nblocks_even - 1);
@@ -3903,10 +3930,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         pfree += size_A_row_ptr_array;
         T** const A_col_ptr_array = (T**)pfree;
         pfree += size_A_col_ptr_array;
-        T** const A_row_last_ptr_array = (T**)pfree;
-        pfree += size_A_row_last_ptr_array;
-        T** const A_col_last_ptr_array = (T**)pfree;
-        pfree += size_A_col_last_ptr_array;
+        T** const A_last_row_ptr_array = (T**)pfree;
+        pfree += size_A_last_row_ptr_array;
+        T** const A_last_col_ptr_array = (T**)pfree;
+        pfree += size_A_last_col_ptr_array;
         T** const A_ptr_array = (T**)pfree;
         pfree += size_A_ptr_array;
 
@@ -3914,10 +3941,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         pfree += size_Atmp_row_ptr_array;
         T** const Atmp_col_ptr_array = (T**)pfree;
         pfree += size_Atmp_col_ptr_array;
-        T** const Atmp_row_last_ptr_array = (T**)pfree;
-        pfree += size_Atmp_row_last_ptr_array;
-        T** const Atmp_col_last_ptr_array = (T**)pfree;
-        pfree += size_Atmp_col_last_ptr_array;
+        T** const Atmp_last_row_ptr_array = (T**)pfree;
+        pfree += size_Atmp_last_row_ptr_array;
+        T** const Atmp_last_col_ptr_array = (T**)pfree;
+        pfree += size_Atmp_last_col_ptr_array;
         T** const Atmp_ptr_array = (T**)pfree;
         pfree += size_Atmp_ptr_array;
 
@@ -3925,10 +3952,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         pfree += size_Vtmp_row_ptr_array;
         T** const Vtmp_col_ptr_array = (T**)pfree;
         pfree += size_Vtmp_col_ptr_array;
-        T** const Vtmp_row_last_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_row_last_ptr_array;
-        T** const Vtmp_col_last_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_col_last_ptr_array;
+        T** const Vtmp_last_row_ptr_array = (T**)pfree;
+        pfree += size_Vtmp_last_row_ptr_array;
+        T** const Vtmp_last_col_ptr_array = (T**)pfree;
+        pfree += size_Vtmp_last_col_ptr_array;
         T** const Vtmp_ptr_array = (T**)pfree;
         pfree += size_Vtmp_ptr_array;
 
@@ -3941,8 +3968,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         pfree += size_Gmat;
         S** const Gmat_ptr_array = (S**)pfree;
         pfree += size_Gmat_ptr_array;
-        S* const Gmat_norm = (S*)pfree;
-        pfree += size_Gmat_norm;
+
         S* const Amat_norm = (S*)pfree;
         pfree += size_Amat_norm;
 
@@ -3951,38 +3977,44 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         I* const d_schedule_large = (I*)pfree;
         pfree += size_schedule_large;
 
+        assert(pfree <= dwork + size_dwork);
+
         char const c_uplo = (uplo == rocblas_fill_upper) ? 'U'
             : (uplo == rocblas_fill_lower)               ? 'L'
                                                          : 'A';
-        // ----------------------------------
-        // precompute norms of orginal matrix
-        // ----------------------------------
+        // ---------------------
+        // launch configurations
+        // ---------------------
+        auto const max_lds = 64 * 1024;
+        auto const max_blocks = 64 * 1000;
+        auto const nx = NX_THREADS;
+        auto const ny = RSYEVJ_BDIM / nx;
+
+        auto const nbx = std::min(batch_count, ceil(n, nx));
+        auto const nby = std::min(batch_count, ceil(n, ny));
+        auto const nbz = std::min(batch_count, max_blocks);
         {
             // ---------------------------
             // make matrix to be symmetric
             // ---------------------------
-            auto const max_blocks = 64 * 1000;
-            auto const nx = NX_THREADS;
-            auto const ny = RSYEVJ_BDIM / nx;
-
-            auto const nbx = ceil(n, nx);
-            auto const nby = ceil(n, ny);
-            auto const nbz = std::min(batch_count, max_blocks);
 
             ROCBLAS_LAUNCH_KERNEL((symmetrize_matrix_kernel<T, I, U, Istride>), dim3(nbx, nby, nbz),
                                   dim3(nx, ny, 1), 0, stream, c_uplo, n, A, shiftA, lda, strideA,
                                   batch_count);
+        }
 
+        // ----------------------------------
+        // precompute norms of orginal matrix
+        // ----------------------------------
+        {
             bool const need_diagonal = true;
             ROCBLAS_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
-                                  dim3(nx, ny, 1), 0, stream,
+                                  dim3(nx, ny, 1), 0, stream, n, nb, A, shiftA, lda, strideA, Gmat,
+                                  need_diagonal, completed, batch_count);
 
-                                  n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal, batch_count);
-
-            ROCBLAS_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), sizeof(S),
-                                  stream, Gmat, Gmat_norm, batch_count);
-
-            HIP_CHECK(hipMemcpy((void*)Amat_norm, (void*)Gmat_norm, sizeof(S) * batch_count, stream));
+            auto const shmem_size = sizeof(S);
+            ROCBLAS_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), shmem_size,
+                                  stream, Gmat, residual, completed, batch_count);
         }
 
         I n_completed = 0;
@@ -4000,23 +4032,16 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 //
                 // Gmat(0:(nblocks-1), 0:(nblocks-1), 0:(batch_count-1))
                 // -----------------------------------------------------
-                I const max_blocks = 64 * 1024;
-                auto const nx = NX_THREADS;
-                auto const ny = RSYEVJ_BDIM / nx;
-
-                auto const nbx = std::min(max_blocks, ceil(n, nx));
-                auto const nby = std::min(max_blocks, ceil(n, ny));
-                auto const nbz = std::min(max_blocks, batch_count);
 
                 bool const need_diagonal = false;
                 ROCBLAS_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
                                       dim3(nx, ny, 1), 0, stream,
 
                                       n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal,
-                                      batch_count);
+                                      completed, batch_count);
 
                 ROCBLAS_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), sizeof(S),
-                                      stream, Gmat, Gmat_norm, batch_count);
+                                      stream, Gmat, residual, batch_count);
 
                 HIP_CHECK(hipMemsetAsync(&(completed[0]), 0, sizeof(I), stream));
 
@@ -4024,7 +4049,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 auto const nnb = ceil(batch_count, nnx);
                 ROCBLAS_LAUNCH_KERNEL((set_completed<S, I, Istride>), dim3(nnb, 1, 1),
                                       dim3(nnx, 1, 1), 0, stream, n, nb, Amat_norm, abstol,
-                                      Gmat_norm, completed, batch_count);
+                                      h_sweeps, n_sweeps, residual, info, completed, batch_count);
             }
 
             {
@@ -4070,14 +4095,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     Vj_ptr_array, Aj_ptr_array, Vj_last_ptr_array, Aj_last_ptr_array,
 
-                    A_row_ptr_array, A_col_ptr_array, A_row_last_ptr_array, A_col_last_ptr_array,
+                    A_row_ptr_array, A_col_ptr_array, A_last_row_ptr_array, A_last_col_ptr_array,
                     A_ptr_array,
 
-                    Atmp_row_ptr_array, Atmp_col_ptr_array, Atmp_row_last_ptr_array,
-                    Atmp_col_last_ptr_array, Atmp_ptr_array,
+                    Atmp_row_ptr_array, Atmp_col_ptr_array, Atmp_last_row_ptr_array,
+                    Atmp_last_col_ptr_array, Atmp_ptr_array,
 
-                    Vtmp_row_ptr_array, Vtmp_col_ptr_array, Vtmp_row_last_ptr_array,
-                    Vtmp_col_last_ptr_array, Vtmp_ptr_array,
+                    Vtmp_row_ptr_array, Vtmp_col_ptr_array, Vtmp_last_row_ptr_array,
+                    Vtmp_last_col_ptr_array, Vtmp_ptr_array,
 
                     A_diag_ptr_array, A_last_diag_ptr_array, batch_count);
             }
@@ -4117,8 +4142,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         swap(Atmp, Vtmp);
                         swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
                         swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);
-                        swap(Atmp_row_last_ptr_array, Vtmp_row_last_ptr_array);
-                        swap(Atmp_col_last_ptr_array, Vtmp_col_last_ptr_array);
+                        swap(Atmp_last_row_ptr_array, Vtmp_last_row_ptr_array);
+                        swap(Atmp_last_col_ptr_array, Vtmp_last_col_ptr_array);
                         swap(Atmp_ptr_array, Vtmp_ptr_array);
                     }
 
@@ -4235,7 +4260,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             ROCBLAS_STATUS(rocblasCall_gemm(
                 handle, rocblas_operation_conjugate_transpose, rocblas_operation_none, m2, n2, k2,
                 &alpha, Vj, shiftVj, ldvj, strideVj, Atmp_row_ptr_array, shiftAtmp, ldatmp,
-                strideAtmp, &beta, A_row_last_ptr_array, strideA, lda, strideA, batch_count_remain));
+                strideAtmp, &beta, A_last_row_ptr_array, strideA, lda, strideA, batch_count_remain));
         }
 
         {
@@ -4265,8 +4290,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
             ROCBLAS_STATUS(rocblasCall_gemm(handle, rocblas_operation_none, rocblas_operation_none,
                                             m2, n2, k2, Vj_last_ptr_array, strideVtmp, ldvtmp,
-                                            strideVtmp, A_col_last_ptr_array, strideA, lda, strideA,
-                                            &beta, Atmp_col_last_ptr_array, strideAtmp, ldatmp,
+                                            strideVtmp, A_last_col_ptr_array, strideA, lda, strideA,
+                                            &beta, Atmp_last_col_ptr_array, strideAtmp, ldatmp,
                                             strideAtmp, batch_count_remain));
 
             {
@@ -4307,15 +4332,15 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             I k2 = nb + nb_last;
             ROCBLAS_STATUS(rocblasCall_gemm(handle, rocblas_operation_none, rocblas_operation_none,
                                             m2, n2, k2, &alpha, Vj_last_ptr_array, strideVj, ldvj,
-                                            strideVj, Vtmp_col_last_ptr_array, strideVtmp, ldvtmp,
-                                            strideVtmp, &beta, Atmp_col_last_ptr_array, strideAtmp,
+                                            strideVj, Vtmp_last_col_ptr_array, strideVtmp, ldvtmp,
+                                            strideVtmp, &beta, Atmp_last_col_ptr_array, strideAtmp,
                                             ldatmp, strideAtmp, batch_count));
 
             swap(Atmp, Vtmp);
             swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
             swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);
-            swap(Atmp_row_last_ptr_array, Vtmp_row_last_ptr_array);
-            swap(Atmp_col_last_ptr_array, Vtmp_col_last_ptr_array);
+            swap(Atmp_last_row_ptr_array, Vtmp_last_row_ptr_array);
+            swap(Atmp_last_col_ptr_array, Vtmp_last_col_ptr_array);
             swap(Atmp_ptr_array, Vtmp_ptr_array);
         }
 
@@ -4346,6 +4371,25 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         lacpy(handle, n, n, Vtmp, shiftVtmp, ldvtmp, strideVtmp, A, shiftA, lda, strideA,
               batch_count);
     }
+}
+
+{
+    // ------------------------------------------------------
+    // final evaluation of residuals and test for convergence
+    // ------------------------------------------------------
+
+    bool const need_diagonal = false;
+    ROCBLAS_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
+                          dim3(nx, ny, 1), 0, stream,
+
+                          n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal, batch_count);
+
+    ROCBLAS_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), sizeof(S), stream,
+                          Gmat, residual, batch_count);
+    auto const nnx = 64;
+    auto const nnb = ceil(batch_count, nnx);
+    ROCBLAS_LAUNCH_KERNEL((set_completed<S, I, Istride>), dim3(nnb, 1, 1), dim3(nnx, 1, 1), 0,
+                          stream, n, nb, Amat_norm, abstol, residual, completed, info, batch_count);
 }
 
 } // end large block
