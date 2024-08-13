@@ -700,7 +700,7 @@ __global__ static void laset_kernel(char const c_uplo,
     {
         T* const A_p = load_ptr_batch(A, bid, shiftA, strideA);
 
-        laset_body(m, n, alpha_offdiag, beta_diag, A_p, lda, i_start, i_inc, j_start, j_inc);
+        laset_body(c_uplo, m, n, alpha_offdiag, beta_diag, A_p, lda, i_start, i_inc, j_start, j_inc);
     }
 }
 
@@ -1370,7 +1370,7 @@ static __device__ void cal_norm_body(I const m,
             }
         }
 
-        if(dsum != 0)
+        if(dsum != zero)
         {
             atomicAdd(&(dwork[0]), dsum);
         }
@@ -1671,7 +1671,8 @@ __device__ void run_rsyevj(const I dimx,
         auto const nn = n;
         auto const ld1 = mm;
 
-        laset_body(c_uplo, mm, nn, alpha_offdiag, beta_diag, V_, ld1, i_start, i_inc, j_start, j_inc);
+        laset_body<T, I>(c_uplo, mm, nn, alpha_offdiag, beta_diag, V_, ld1, i_start, i_inc, j_start,
+                         j_inc);
 
         __syncthreads();
     }
@@ -2037,6 +2038,12 @@ __device__ void run_rsyevj(const I dimx,
     return;
 }
 
+// -----------------------------------------
+// compute the Frobenius norms of the blocks into
+// Gmat(0:(nblocks-1),0:(nblocks-1),batch_count)
+//
+// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// -----------------------------------------
 template <typename T, typename I, typename S, typename Istride, typename AA>
 __global__ static void cal_Gmat_kernel(I const n,
                                        I const nb,
@@ -2054,7 +2061,12 @@ __global__ static void cal_Gmat_kernel(I const n,
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
     auto const nblocks = ceil(n, nb);
+
+    // ------------------------------------------------------
+    // nb_last is the size of the last partially filled block
+    // ------------------------------------------------------
     auto const nb_last = n - (nblocks - 1) * nb;
+    assert((1 <= nb_last) && (nb_last <= nb));
 
     auto const idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
@@ -2062,6 +2074,9 @@ __global__ static void cal_Gmat_kernel(I const n,
         return (Gmat_[ib + jb * nblocks + bid * (nblocks * nblocks)]);
     };
 
+    // -------------------------------------------
+    // bsize(iblock)  computes the size of (iblock)
+    // -------------------------------------------
     auto bsize = [=](auto iblock) { return ((iblock == (nblocks - 1)) ? nb_last : nb); };
 
     I const bid_start = hipBlockIdx_z;
@@ -2108,9 +2123,12 @@ __global__ static void cal_Gmat_kernel(I const n,
 
                 auto const ii = ib * nb;
                 auto const jj = jb * nb;
-                I const ldgmat = nblocks;
-                cal_norm_body<T, I, S>(ni, nj, &(Gmat(ib, jb, bid)), ldgmat, &(Ap(ii, jj)), i_start,
-                                       i_inc, j_start, j_inc, need_diagonal);
+
+                // -----------------------------------------------
+                // compute norm of (iblock,jblock) submatrix block
+                // -----------------------------------------------
+                cal_norm_body(ni, nj, &(Ap(ii, jj)), lda, &(Gmat(ib, jb, bid)), i_start, i_inc,
+                              j_start, j_inc, need_diagonal);
             }
         }
     }
@@ -2163,12 +2181,9 @@ __global__ static void sum_Gmat(I const n,
         auto const nn = nblocks;
         auto const ld1 = nblocks;
 
-        extern __shared__ S dwork[];
         bool const include_diagonal = true;
-        cal_norm_body(mm, nn, &(Gmat(0, 0, bid)), ld1, dwork, i_start, i_inc, j_start, j_inc,
-                      include_diagonal);
-        S const g_norm = dwork[0];
-        Gnorm(bid) = g_norm;
+        cal_norm_body(mm, nn, &(Gmat(0, 0, bid)), ld1, &(Gnorm(bid)), i_start, i_inc, j_start,
+                      j_inc, include_diagonal);
     }
 }
 
@@ -2733,7 +2748,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         auto const nblocks = ceil(n, nb);
         assert(is_even(nblocks));
 
-        I const even_nb = nb + (nb % 2);
         I const even_nblocks = nblocks + (nblocks % 2);
         I const nblocks_half = even_nblocks / 2;
 
@@ -3129,7 +3143,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, T*, Istride>), dim3(nbx, nby, nbz),
                                             dim3(nx, ny, 1), 0, stream, c_uplo, mm, nn,
                                             alpha_offdiag, beta_diag, Vj, shiftVj, ldvj, strideVj,
-                                            nblocks_half * batch_count_remain);
+                                            (nblocks_half - 1) * batch_count_remain);
+
+                    ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, T*, Istride>), dim3(nbx, nby, nbz),
+                                            dim3(nx, ny, 1), 0, stream, c_uplo, mm, nn,
+                                            alpha_offdiag, beta_diag, Vj_last, shiftVj, ldvj,
+                                            strideVj, batch_count_remain);
                 }
 
                 {
@@ -3317,6 +3336,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     // check whether eigenvalues need to be sorted
     // -------------------------------------------
 
+    // reuse storage
     I* const map = (need_V) ? (I*)Acpy : nullptr;
     Istride const stridemap = sizeof(I) * n;
     if(need_sort)
@@ -3332,8 +3352,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     // -----------------------------------------------
     if(need_V)
     {
-        I* const row_map = (need_sort) ? map : nullptr;
-        I* const col_map = nullptr;
+        I* const row_map = nullptr;
+        I* const col_map = (need_sort) ? map : nullptr;
         auto const mm = n;
         auto const nn = n;
         ROCSOLVER_LAUNCH_KERNEL((gather2D_kernel<T, I, Istride, T*, U>), dim3(nbx, nby, nbz),
