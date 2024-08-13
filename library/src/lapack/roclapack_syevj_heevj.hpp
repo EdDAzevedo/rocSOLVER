@@ -43,6 +43,8 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
+static bool constexpr use_rsyevj = true;
+
 /************** Kernels and device functions for small size*******************/
 /*****************************************************************************/
 
@@ -1360,6 +1362,23 @@ void rocsolver_syevj_heevj_getMemorySize(const rocblas_evect evect,
 
     // size of temporary workspace to indicate problem completion
     *size_completed = sizeof(rocblas_int) * (batch_count + 1);
+
+    if(use_rsyevj)
+    {
+        size_t lsize_Acpy = 0;
+        size_t lsize_J = 0;
+        size_t lsize_dwork = 0;
+        rocsolver_rsyevj_rheevj_getMemorySize<BATCHED, T, rocblas_int, S>(
+            evect, uplo, n, batch_count, &lsize_Acpy, &lsize_J, &lsize_dwork);
+
+        *size_J = std::max(*size_J, lsize_J);
+        *size_Acpy = std::max(*size_Acpy, lsize_Acpy);
+
+        // ---------------------------------------
+        // use storage for dwork(:) as part of Acp
+        // ---------------------------------------
+        *size_Acpy += lsize_dwork;
+    }
 }
 
 /** Argument checking **/
@@ -1428,6 +1447,27 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                                               rocblas_int* bottom,
                                               rocblas_int* completed)
 {
+    if(use_rsyevj)
+    {
+        // -----------------------
+        // allocate dwork from Acpy
+        // -----------------------
+
+        size_t size_Acpy = 0;
+        size_t size_J = 0;
+        size_t size_dwork = 0;
+        rocsolver_rsyevj_rheevj_getMemorySize<BATCHED, T, rocblas_int, S>(
+            evect, uplo, n, batch_count, &size_Acpy, &size_J, &size_dwork);
+
+        std::byte* pfree = (std::byte*)Acpy;
+        pfree += size_Acpy;
+        T* dwork = (T*)pfree;
+
+        return (rocsolver_rsyevj_rheevj_template<BATCHED, STRIDED, T, rocblas_int, S, U, rocblas_stride>(
+            handle, esort, evect, uplo, n, A, shiftA, lda, strideA, abstol, residual, max_sweeps,
+            n_sweeps, W, strideW, info, batch_count, Acpy, J, norms, completed, dwork, size_dwork));
+    }
+
     ROCSOLVER_ENTER("syevj_heevj", "esort:", esort, "evect:", evect, "uplo:", uplo, "n:", n,
                     "shiftA:", shiftA, "lda:", lda, "abstol:", abstol, "max_sweeps:", max_sweeps,
                     "bc:", batch_count);
