@@ -2614,6 +2614,27 @@ void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
 
         total_bytes += size_A_diag_ptr_array + size_A_last_diag_ptr_array;
 
+        size_t const size_residual_Aj
+            = sizeof(S) * (2 * nb) * (2 * nb) * batch_count * (nblocks_half - 1);
+        size_t const size_residual_Aj_last = sizeof(S) * (2 * nb) * (2 * nb) * batch_count;
+        total_bytes += size_residual_Aj;
+        total_bytes += size_residual_Aj_last;
+
+        size_t const size_info_Aj = sizeof(I) * batch_count * (nblocks_half - 1);
+        size_t const size_info_Aj_last = sizeof(I) * batch_count;
+        total_bytes += size_info_Aj;
+        total_bytes += size_info_Aj_last;
+
+        size_t const size_W_Aj = sizeof(S) * (2 * nb) * batch_count * (nblocks_half - 1);
+        size_t const size_W_Aj_last = sizeof(S) * (2 * nb) * batch_count;
+        total_bytes += size_W_Aj;
+        total_bytes += size_W_Aj_last;
+
+        size_t const size_n_sweeps_Aj = sizeof(I) * (nblocks_half - 1) * batch_count;
+        size_t const size_n_sweeps_Aj_last = sizeof(I) * batch_count;
+        total_bytes += size_n_sweeps_Aj;
+        total_bytes += size_n_sweeps_Aj_last;
+
         size_t const size_Gmat = sizeof(S) * (nblocks * nblocks) * batch_count;
         total_bytes += size_Gmat;
 
@@ -2897,6 +2918,27 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
         total_bytes += size_A_diag_ptr_array + size_A_last_diag_ptr_array;
 
+        size_t const size_residual_Aj
+            = sizeof(S) * (2 * nb) * (2 * nb) * batch_count * (nblocks_half - 1);
+        size_t const size_residual_Aj_last = sizeof(S) * (2 * nb) * (2 * nb) * batch_count;
+        total_bytes += size_residual_Aj;
+        total_bytes += size_residual_Aj_last;
+
+        size_t const size_info_Aj = sizeof(I) * batch_count * (nblocks_half - 1);
+        size_t const size_info_Aj_last = sizeof(I) * batch_count;
+        total_bytes += size_info_Aj;
+        total_bytes += size_info_Aj_last;
+
+        size_t const size_W_Aj = sizeof(S) * (2 * nb) * batch_count * (nblocks_half - 1);
+        size_t const size_W_Aj_last = sizeof(S) * (2 * nb) * batch_count;
+        total_bytes += size_W_Aj;
+        total_bytes += size_W_Aj_last;
+
+        size_t const size_n_sweeps_Aj = sizeof(I) * (nblocks_half - 1) * batch_count;
+        size_t const size_n_sweeps_Aj_last = sizeof(I) * batch_count;
+        total_bytes += size_n_sweeps_Aj;
+        total_bytes += size_n_sweeps_Aj_last;
+
         size_t const size_Gmat = sizeof(S) * (nblocks * nblocks) * batch_count;
         total_bytes += size_Gmat;
 
@@ -2990,6 +3032,30 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
         T** const A_last_diag_ptr_array = (T**)pfree;
         pfree += size_A_last_diag_ptr_array;
+
+        S* const residual_Aj = (S*)pfree;
+        pfree += size_residual_Aj;
+
+        S* const residual_Aj_last = (S*)pfree;
+        pfree += size_residual_Aj_last;
+
+        I* const info_Aj = (I*)pfree;
+        pfree += size_info_Aj;
+
+        I* const info_Aj_last = (I*)pfree;
+        pfree += size_info_Aj_last;
+
+        S* const W_Aj = (S*)pfree;
+        pfree += size_W_Aj;
+
+        S* const W_Aj_last = (S*)pfree;
+        pfree += size_W_Aj_last;
+
+        I* const n_sweeps_Aj = (I*)pfree;
+        pfree += size_n_sweeps_Aj;
+
+        I* const n_sweeps_Aj_last = (I*)pfree;
+        pfree += size_n_sweeps_Aj_last;
 
         S* const Gmat = (S*)pfree;
         pfree += size_Gmat;
@@ -3244,21 +3310,19 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                             ldatmp, strideAtmp, batch_count_remain);
                 }
 
-                {// ------------------------------------------------------
-                 // perform Jacobi iteration on independent sets of blocks
-                 // ------------------------------------------------------
+                // ------------------------------------------------------
+                // prepare to perform Jacobi iteration on independent sets of blocks
+                // ------------------------------------------------------
 
-                 {// --------------------------
-                  // copy diagonal blocks to Aj
-                  // --------------------------
+                {
 
-                  I const m1 = (2 * nb);
+                    {// --------------------------
+                     // copy diagonal blocks to Aj
+                     // --------------------------
+
+                     I const m1 = (2 * nb);
                 I const n1 = (2 * nb);
                 char const cl_uplo = 'A';
-
-                HIP_CHECK(hipDeviceSynchronize());
-                printf("before lacpy A_diag_ptr_array\n");
-                fflush(stdout);
 
                 Istride const strideA_diag = 0;
                 I const lbatch_count = (nblocks_half - 1) * batch_count_remain;
@@ -3268,29 +3332,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                         m1, n1, A_diag_ptr_array, shift_zero, lda, strideA_diag,
                                         Aj_ptr_array, shiftAj, ldaj, strideAj, lbatch_count);
 
-                HIP_CHECK(hipDeviceSynchronize());
-                printf("before lacpy A_last_diag_ptr_array\n");
-                fflush(stdout);
-
                 I const m2 = (nb + nb_last);
                 I const n2 = (nb + nb_last);
                 ROCSOLVER_LAUNCH_KERNEL(
                     (lacpy_kernel<T, I, T**, T**, Istride>), dim3(nbx, nby, nbz), dim3(nx, ny, 1),
                     0, stream, cl_uplo, m2, n2, A_last_diag_ptr_array, shiftA, lda, strideA,
                     Aj_last_ptr_array, shiftAj, ldaj, strideAj, batch_count_remain);
-
-                HIP_CHECK(hipDeviceSynchronize());
-                printf("after lacpy A_last_diag_ptr_array\n");
-                fflush(stdout);
             }
 
             {
                 // -------------------------------------------------------
-                // perform Jacobi iteration on small diagonal blocks in Aj
+                // prepare to perform Jacobi iteration on small diagonal blocks in Aj
                 // -------------------------------------------------------
 
                 // ----------------------------
                 // set Vj to be diagonal matrix
+                // to store the matrix of eigen vectors
                 // ----------------------------
 
                 {
@@ -3314,6 +3371,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                 {
                     // -----------------------------------------
+                    // setup options to
                     // preserve the nearly diagonal matrix in Aj
                     // -----------------------------------------
                     bool const do_overwrite_A = false;
@@ -3327,6 +3385,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     I const rsyevj_max_sweeps = 15;
                     auto const rsyevj_atol = atol / nblocks;
 
+                    // -----------------------------------------
+                    // need to store the matrix of eigen vectors
+                    // -----------------------------------------
                     rocblas_evect const rsyevj_evect = rocblas_evect_original;
 
                     // TODO: need Vj( (2*nb), (2*nb), (nblock/2-1), batch_count)
@@ -3334,21 +3395,24 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     //
                     I const n1 = (2 * nb);
                     Istride const lstride_Vj = (2 * nb) * (2 * nb);
+                    Istride const strideW_Aj = (2 * nb);
                     ROCSOLVER_LAUNCH_KERNEL(
                         (rsyevj_small_kernel<T, I, S, T**, Istride>), dim3(1, 1, nbz),
                         dim3(nx, ny, 1), lmemsize, stream, rsyevj_esort, rsyevj_evect, uplo, n1,
-                        Aj_ptr_array, (Istride)shiftAj, ldaj, strideA, rsyevj_atol, eps, residual,
-                        rsyevj_max_sweeps, n_sweeps, W, strideW, info, Vj, lstride_Vj,
+                        Aj_ptr_array, shiftAj, ldaj, strideAj, rsyevj_atol, eps, residual_Aj,
+                        rsyevj_max_sweeps, n_sweeps_Aj, W_Aj, strideW_Aj, info_Aj, Vj, lstride_Vj,
                         (nblocks_half - 1) * batch_count_remain, d_schedule_small, do_overwrite_A);
 
                     I const n2 = nb + nb_last;
                     Istride const lstride_Vj_last = (2 * nb) * (2 * nb);
+                    Istride const strideW_Aj_last = (2 * nb);
                     ROCSOLVER_LAUNCH_KERNEL(
                         (rsyevj_small_kernel<T, I, S, T**, Istride>), dim3(1, 1, nbz),
                         dim3(nx, ny, 1), lmemsize, stream, rsyevj_esort, rsyevj_evect, uplo, n2,
-                        Aj_last_ptr_array, shiftAj, ldaj, strideA, rsyevj_atol, eps, residual,
-                        rsyevj_max_sweeps, n_sweeps, W, strideW, info, Vj_last, lstride_Vj_last,
-                        batch_count_remain, d_schedule_small, do_overwrite_A);
+                        Aj_last_ptr_array, shiftAj, ldaj, strideAj, rsyevj_atol, eps,
+                        residual_Aj_last, rsyevj_max_sweeps, n_sweeps_Aj_last, W_Aj_last,
+                        strideW_Aj_last, info_Aj_last, Vj_last, lstride_Vj_last, batch_count_remain,
+                        d_schedule_small, do_overwrite_A);
                 }
             }
         }
