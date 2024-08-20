@@ -51,6 +51,317 @@ static constexpr int idebug = 2;
         }                                                 \
     }
 
+#define ALLOC_INIT()                                            \
+    /* ------------------------ \
+         determine block size "nb" and \
+         number of blocks "nblocks" \
+         ------------------------*/                               \
+    bool const rsyevj_need_V = true;                            \
+    auto const nb = get_nb<T>(n, rsyevj_need_V);                \
+    auto const nblocks = ceil(n, nb);                           \
+    assert(is_even(nblocks));                                   \
+                                                                \
+    I const even_nblocks = nblocks + (nblocks % 2);             \
+    I const nblocks_half = even_nblocks / 2;                    \
+                                                                \
+    I const nb_last = n - (nblocks - 1) * nb;                   \
+    assert(nb_last >= 1);                                       \
+                                                                \
+    auto const num_rounds = (even_nblocks - 1);                 \
+                                                                \
+    auto const lbatch_count = (nblocks_half - 1) * batch_count; \
+                                                                \
+    size_t const size_merged_blocks_bytes = sizeof(T) * (nb * 2) * (nb * 2);
+
+#define ALLOC_AJVJ()                                                                     \
+    I const ldvj = (2 * nb);                                                             \
+    Istride const strideVj = static_cast<Istride>(nblocks_half - 1) * (ldvj * (2 * nb)); \
+    Istride const shiftVj = 0;                                                           \
+                                                                                         \
+    I const ldaj = (2 * nb);                                                             \
+    Istride const strideAj = static_cast<Istride>(nblocks_half - 1) * (ldaj * (2 * nb)); \
+    Istride const shiftAj = 0;                                                           \
+                                                                                         \
+    size_t const size_Aj_bytes = size_merged_blocks_bytes * lbatch_count;                \
+    size_t const size_Vj_bytes = size_merged_blocks_bytes * lbatch_count;                \
+    size_t const size_Aj_last_bytes = size_merged_blocks_bytes * batch_count;            \
+    size_t const size_Vj_last_bytes = size_merged_blocks_bytes * batch_count;            \
+                                                                                         \
+    T* const Aj = (T*)pfree;                                                             \
+    pfree += size_Aj_bytes;                                                              \
+                                                                                         \
+    T* const Vj = (T*)pfree;                                                             \
+    pfree += size_Vj_bytes;                                                              \
+                                                                                         \
+    T* const Aj_last = (T*)pfree;                                                        \
+    pfree += size_Aj_last_bytes;                                                         \
+                                                                                         \
+    T* const Vj_last = (T*)pfree;                                                        \
+    pfree += size_Vj_last_bytes;                                                         \
+                                                                                         \
+    total_bytes += size_Aj_bytes;                                                        \
+    total_bytes += size_Vj_bytes;                                                        \
+    total_bytes += size_Aj_last_bytes;                                                   \
+    total_bytes += size_Vj_last_bytes;                                                   \
+                                                                                         \
+    size_t const size_Vj_ptr_array = sizeof(T*) * lbatch_count;                          \
+    size_t const size_Aj_ptr_array = sizeof(T*) * lbatch_count;                          \
+                                                                                         \
+    T** const Vj_ptr_array = (T**)pfree;                                                 \
+    pfree += size_Vj_ptr_array;                                                          \
+                                                                                         \
+    T** const Aj_ptr_array = (T**)pfree;                                                 \
+    pfree += size_Aj_ptr_array;                                                          \
+                                                                                         \
+    total_bytes += size_Vj_ptr_array;                                                    \
+    total_bytes += size_Aj_ptr_array;                                                    \
+                                                                                         \
+    size_t const size_Vj_last_ptr_array = sizeof(T*) * 1 * batch_count;                  \
+    size_t const size_Aj_last_ptr_array = sizeof(T*) * 1 * batch_count;                  \
+                                                                                         \
+    T** const Vj_last_ptr_array = (T**)pfree;                                            \
+    pfree += size_Vj_last_ptr_array;                                                     \
+                                                                                         \
+    T** const Aj_last_ptr_array = (T**)pfree;                                            \
+    pfree += size_Aj_last_ptr_array;                                                     \
+                                                                                         \
+    total_bytes += size_Vj_last_ptr_array;                                               \
+    total_bytes += size_Aj_last_ptr_array;
+
+#define ALLOC_Atmp()                                                          \
+    size_t const size_Atmp_row_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t const size_Atmp_col_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t const size_Atmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t const size_Atmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t const size_Atmp_ptr_array = sizeof(T*) * batch_count;              \
+                                                                              \
+    T** Atmp_row_ptr_array = (T**)pfree;                                      \
+    pfree += size_Atmp_row_ptr_array;                                         \
+                                                                              \
+    T** Atmp_col_ptr_array = (T**)pfree;                                      \
+    pfree += size_Atmp_col_ptr_array;                                         \
+                                                                              \
+    T** Atmp_last_row_ptr_array = (T**)pfree;                                 \
+    pfree += size_Atmp_last_row_ptr_array;                                    \
+                                                                              \
+    T** Atmp_last_col_ptr_array = (T**)pfree;                                 \
+    pfree += size_Atmp_last_col_ptr_array;                                    \
+                                                                              \
+    T** Atmp_ptr_array = (T**)pfree;                                          \
+    pfree += size_Atmp_ptr_array;                                             \
+                                                                              \
+    total_bytes += size_Atmp_row_ptr_array;                                   \
+    total_bytes += size_Atmp_col_ptr_array;                                   \
+    total_bytes += size_Atmp_last_row_ptr_array;                              \
+    total_bytes += size_Atmp_last_col_ptr_array;                              \
+    total_bytes += size_Atmp_ptr_array;                                       \
+                                                                              \
+    size_t const size_Atmp_diag_ptr_array = sizeof(T*) * lbatch_count;        \
+    size_t const size_Atmp_last_diag_ptr_array = sizeof(T*) * batch_count;    \
+                                                                              \
+    T** Atmp_diag_ptr_array = (T**)pfree;                                     \
+    pfree += size_Atmp_diag_ptr_array;                                        \
+                                                                              \
+    T** Atmp_last_diag_ptr_array = (T**)pfree;                                \
+    pfree += size_Atmp_last_diag_ptr_array;                                   \
+                                                                              \
+    total_bytes += size_Atmp_diag_ptr_array;                                  \
+    total_bytes += size_Atmp_last_diag_ptr_array;
+
+#define ALLOC_Vtmp()                                                          \
+    size_t const size_Vtmp_row_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t const size_Vtmp_col_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t const size_Vtmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t const size_Vtmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t const size_Vtmp_ptr_array = sizeof(T*) * batch_count;              \
+                                                                              \
+    T** Vtmp_row_ptr_array = (T**)pfree;                                      \
+    pfree += size_Vtmp_row_ptr_array;                                         \
+                                                                              \
+    T** Vtmp_col_ptr_array = (T**)pfree;                                      \
+    pfree += size_Vtmp_col_ptr_array;                                         \
+                                                                              \
+    T** Vtmp_last_row_ptr_array = (T**)pfree;                                 \
+    pfree += size_Vtmp_last_row_ptr_array;                                    \
+                                                                              \
+    T** Vtmp_last_col_ptr_array = (T**)pfree;                                 \
+    pfree += size_Vtmp_last_col_ptr_array;                                    \
+                                                                              \
+    T** Vtmp_ptr_array = (T**)pfree;                                          \
+    pfree += size_Vtmp_ptr_array;                                             \
+                                                                              \
+    total_bytes += size_Vtmp_row_ptr_array;                                   \
+    total_bytes += size_Vtmp_col_ptr_array;                                   \
+    total_bytes += size_Vtmp_last_row_ptr_array;                              \
+    total_bytes += size_Vtmp_last_col_ptr_array;                              \
+    total_bytes += size_Vtmp_ptr_array;                                       \
+                                                                              \
+    size_t const size_Vtmp_diag_ptr_array = sizeof(T*) * lbatch_count;        \
+    size_t const size_Vtmp_last_diag_ptr_array = sizeof(T*) * batch_count;    \
+                                                                              \
+    T** Vtmp_diag_ptr_array = (T**)pfree;                                     \
+    pfree += size_Vtmp_diag_ptr_array;                                        \
+                                                                              \
+    T** Vtmp_last_diag_ptr_array = (T**)pfree;                                \
+    pfree += size_Vtmp_last_diag_ptr_array;                                   \
+                                                                              \
+    total_bytes += size_Vtmp_diag_ptr_array;                                  \
+    total_bytes += size_Vtmp_last_diag_ptr_array;
+
+#define ALLOC_A()                                                          \
+    size_t const size_A_row_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t const size_A_col_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t const size_A_last_row_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t const size_A_last_col_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t const size_A_ptr_array = sizeof(T*) * batch_count;              \
+                                                                           \
+    T** A_row_ptr_array = (T**)pfree;                                      \
+    pfree += size_A_row_ptr_array;                                         \
+                                                                           \
+    T** A_col_ptr_array = (T**)pfree;                                      \
+    pfree += size_A_col_ptr_array;                                         \
+                                                                           \
+    T** A_last_row_ptr_array = (T**)pfree;                                 \
+    pfree += size_A_last_row_ptr_array;                                    \
+                                                                           \
+    T** A_last_col_ptr_array = (T**)pfree;                                 \
+    pfree += size_A_last_col_ptr_array;                                    \
+                                                                           \
+    T** A_ptr_array = (T**)pfree;                                          \
+    pfree += size_A_ptr_array;                                             \
+                                                                           \
+    total_bytes += size_A_row_ptr_array;                                   \
+    total_bytes += size_A_col_ptr_array;                                   \
+    total_bytes += size_A_last_row_ptr_array;                              \
+    total_bytes += size_A_last_col_ptr_array;                              \
+    total_bytes += size_A_ptr_array;                                       \
+                                                                           \
+    size_t const size_A_diag_ptr_array = sizeof(T*) * lbatch_count;        \
+    size_t const size_A_last_diag_ptr_array = sizeof(T*) * batch_count;    \
+                                                                           \
+    T** A_diag_ptr_array = (T**)pfree;                                     \
+    pfree += size_A_diag_ptr_array;                                        \
+                                                                           \
+    T** A_last_diag_ptr_array = (T**)pfree;                                \
+    pfree += size_A_last_diag_ptr_array;                                   \
+                                                                           \
+    total_bytes += size_A_diag_ptr_array;                                  \
+    total_bytes += size_A_last_diag_ptr_array;
+
+#define ALLOC_RESIDUAL_AJ()                                       \
+    size_t const size_residual_Aj = sizeof(S) * lbatch_count;     \
+    size_t const size_residual_Aj_last = sizeof(S) * batch_count; \
+                                                                  \
+    S* const residual_Aj = (S*)pfree;                             \
+    pfree += size_residual_Aj;                                    \
+                                                                  \
+    S* const residual_Aj_last = (S*)pfree;                        \
+    pfree += size_residual_Aj_last;                               \
+                                                                  \
+    total_bytes += size_residual_Aj;                              \
+    total_bytes += size_residual_Aj_last;
+
+#define ALLOC_INFO_AJ()                                                       \
+                                                                              \
+    size_t const size_info_Aj = sizeof(I) * batch_count * (nblocks_half - 1); \
+    size_t const size_info_Aj_last = sizeof(I) * batch_count;                 \
+                                                                              \
+    I* const info_Aj = (I*)pfree;                                             \
+    pfree += size_info_Aj;                                                    \
+                                                                              \
+    I* const info_Aj_last = (I*)pfree;                                        \
+    pfree += size_info_Aj_last;                                               \
+                                                                              \
+    total_bytes += size_info_Aj;                                              \
+    total_bytes += size_info_Aj_last;
+
+#define ALLOC_W_AJ()                                                                  \
+                                                                                      \
+    size_t const size_W_Aj = sizeof(S) * (2 * nb) * batch_count * (nblocks_half - 1); \
+    size_t const size_W_Aj_last = sizeof(S) * (2 * nb) * batch_count;                 \
+                                                                                      \
+    S* const W_Aj = (S*)pfree;                                                        \
+    pfree += size_W_Aj;                                                               \
+                                                                                      \
+    S* const W_Aj_last = (S*)pfree;                                                   \
+    pfree += size_W_Aj_last;                                                          \
+                                                                                      \
+    total_bytes += size_W_Aj;                                                         \
+    total_bytes += size_W_Aj_last;
+
+#define ALLOC_N_SWEEPS_AJ()                                                       \
+                                                                                  \
+    size_t const size_n_sweeps_Aj = sizeof(I) * (nblocks_half - 1) * batch_count; \
+    size_t const size_n_sweeps_Aj_last = sizeof(I) * batch_count;                 \
+                                                                                  \
+    I* const n_sweeps_Aj = (I*)pfree;                                             \
+    pfree += size_n_sweeps_Aj;                                                    \
+                                                                                  \
+    I* const n_sweeps_Aj_last = (I*)pfree;                                        \
+    pfree += size_n_sweeps_Aj_last;                                               \
+    total_bytes += size_n_sweeps_Aj;                                              \
+    total_bytes += size_n_sweeps_Aj_last;
+
+#define ALLOC_WORK_ROCBLAS()                                                  \
+                                                                              \
+    size_t const size_work_rocblas = sizeof(T*) * (nblocks_half)*batch_count; \
+                                                                              \
+    T** const work_rocblas = (T**)pfree;                                      \
+    pfree += size_work_rocblas;                                               \
+                                                                              \
+    total_bytes += size_work_rocblas;
+
+#define ALLOC_MATE_ARRAY()                                                        \
+                                                                                  \
+    size_t const size_mate_array = sizeof(I) * (nblocks * nblocks) * batch_count; \
+                                                                                  \
+    I* const mate_array = (I*)pfree;                                              \
+    pfree += size_mate_array;                                                     \
+                                                                                  \
+    total_bytes += size_mate_array;
+
+#define ALLOC_GMAT()                                                        \
+                                                                            \
+    size_t const size_Gmat = sizeof(S) * (nblocks * nblocks) * batch_count; \
+                                                                            \
+    S* const Gmat = (S*)pfree;                                              \
+    pfree += size_Gmat;                                                     \
+                                                                            \
+    total_bytes += size_Gmat;
+
+#define ALLOC_SCHEDULE()                                                \
+    I const nplayers_small = (2 * nb);                                  \
+    I const nplayers_large = even_nblocks;                              \
+    I const len_schedule_small = nplayers_small * (nplayers_small - 1); \
+    I const len_schedule_large = nplayers_large * (nplayers_large - 1); \
+                                                                        \
+    size_t const size_schedule_small = sizeof(I) * len_schedule_small;  \
+    size_t const size_schedule_large = sizeof(I) * len_schedule_large;  \
+                                                                        \
+    I* const d_schedule_small = (I*)pfree;                              \
+    pfree += size_schedule_small;                                       \
+                                                                        \
+    I* const d_schedule_large = (I*)pfree;                              \
+    pfree += size_schedule_large;                                       \
+                                                                        \
+    total_bytes += size_schedule_small;                                 \
+    total_bytes += size_schedule_large;
+
+#define ALLOC_ALL()       \
+    ALLOC_INIT();         \
+    ALLOC_AJVJ();         \
+    ALLOC_A();            \
+    ALLOC_Atmp();         \
+    ALLOC_Vtmp();         \
+    ALLOC_RESIDUAL_AJ();  \
+    ALLOC_INFO_AJ();      \
+    ALLOC_W_AJ();         \
+    ALLOC_N_SWEEPS_AJ();  \
+    ALLOC_WORK_ROCBLAS(); \
+    ALLOC_MATE_ARRAY();   \
+    ALLOC_GMAT();         \
+    ALLOC_SCHEDULE();
+
 /************** CPU functions                              *******************/
 /*****************************************************************************/
 
@@ -2835,7 +3146,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
 /***************************************************************************/
 
 /** Helper to calculate workspace sizes **/
-template <bool BATCHED, typename T, typename I, typename S>
+template <bool BATCHED, typename T, typename I, typename S, typename Istride = rocblas_stride>
 void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
                                            const rocblas_fill uplo,
                                            const I n,
@@ -2892,123 +3203,8 @@ void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
     }
     else
     {
-        bool const rsyevj_need_V = true;
-        I const nb = get_nb<T>(n, rsyevj_need_V);
-
-        I const nblocks = ceil(n, nb);
-        I const nblocks_even = nblocks + (nblocks % 2);
-        I const nblocks_half = nblocks_even / 2;
-        assert(is_even(nblocks));
-
-        I const nplayers_small = (2 * nb);
-        I const nplayers_large = nblocks_even;
-        I const len_schedule_small = nplayers_small * (nplayers_small - 1);
-        I const len_schedule_large = nplayers_large * (nplayers_large - 1);
-        // -----------------------------------------------------
-        // other arrays allocated out of a single dwork(:) array
-        // -----------------------------------------------------
-
-        size_t const lbatch_count = (nblocks_half - 1) * batch_count;
-        size_t const size_merged_blocks_bytes = sizeof(T) * (nb * 2) * (nb * 2);
-
-        size_t const size_Vj_bytes = size_merged_blocks_bytes * lbatch_count;
-        size_t const size_Vj_last_bytes = size_merged_blocks_bytes * batch_count;
-        size_t const size_Aj_last_bytes = size_merged_blocks_bytes * batch_count;
-        size_t const size_Aj_bytes = size_merged_blocks_bytes * lbatch_count;
-
-        total_bytes += size_Vj_bytes;
-        total_bytes += size_Vj_last_bytes;
-        total_bytes += size_Aj_last_bytes;
-        total_bytes += size_Aj_bytes;
-
-        size_t const size_Vj_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Aj_ptr_array = sizeof(T*) * lbatch_count;
-
-        total_bytes += size_Vj_ptr_array + size_Aj_ptr_array;
-
-        size_t const size_Vj_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Aj_last_ptr_array = sizeof(T*) * 1 * batch_count;
-
-        total_bytes += size_Vj_last_ptr_array + size_Aj_last_ptr_array;
-
-        size_t const size_A_row_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_A_col_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_A_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_A_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_A_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_A_row_ptr_array + size_A_col_ptr_array + size_A_last_row_ptr_array
-            + size_A_last_col_ptr_array + size_A_ptr_array;
-
-        size_t const size_Atmp_row_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Atmp_col_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Atmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Atmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Atmp_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_Atmp_row_ptr_array + size_Atmp_col_ptr_array;
-        total_bytes += size_Atmp_last_row_ptr_array + size_Atmp_last_col_ptr_array;
-        total_bytes += size_Atmp_ptr_array;
-
-        size_t const size_Vtmp_row_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Vtmp_col_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Vtmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Vtmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Vtmp_ptr_array = sizeof(T) * batch_count;
-
-        total_bytes += size_Vtmp_row_ptr_array + size_Vtmp_col_ptr_array;
-        total_bytes += size_Vtmp_last_row_ptr_array + size_Vtmp_last_col_ptr_array;
-        total_bytes += size_Vtmp_ptr_array;
-
-        size_t const size_A_diag_ptr_array = sizeof(T*) * (nblocks_half - 1) * batch_count;
-        size_t const size_A_last_diag_ptr_array = sizeof(T*) * 1 * batch_count;
-
-        total_bytes += size_A_diag_ptr_array + size_A_last_diag_ptr_array;
-
-        size_t const size_Atmp_diag_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Atmp_last_diag_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_Atmp_diag_ptr_array + size_Atmp_last_diag_ptr_array;
-
-        size_t const size_Vtmp_diag_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Vtmp_last_diag_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_Vtmp_diag_ptr_array + size_Vtmp_last_diag_ptr_array;
-
-        size_t const size_residual_Aj = sizeof(S) * lbatch_count;
-        size_t const size_residual_Aj_last = sizeof(S) * batch_count;
-        total_bytes += size_residual_Aj;
-        total_bytes += size_residual_Aj_last;
-
-        size_t const size_info_Aj = sizeof(I) * batch_count * (nblocks_half - 1);
-        size_t const size_info_Aj_last = sizeof(I) * batch_count;
-        total_bytes += size_info_Aj;
-        total_bytes += size_info_Aj_last;
-
-        size_t const size_W_Aj = sizeof(S) * (2 * nb) * batch_count * (nblocks_half - 1);
-        size_t const size_W_Aj_last = sizeof(S) * (2 * nb) * batch_count;
-        total_bytes += size_W_Aj;
-        total_bytes += size_W_Aj_last;
-
-        size_t const size_n_sweeps_Aj = sizeof(I) * (nblocks_half - 1) * batch_count;
-        size_t const size_n_sweeps_Aj_last = sizeof(I) * batch_count;
-        total_bytes += size_n_sweeps_Aj;
-        total_bytes += size_n_sweeps_Aj_last;
-
-        size_t const size_work_rocblas = sizeof(T*) * (nblocks_half)*batch_count;
-        total_bytes += size_work_rocblas;
-
-        size_t const size_mate_array = sizeof(I) * (nblocks * nblocks) * batch_count;
-        total_bytes += size_mate_array;
-
-        size_t const size_Gmat = sizeof(S) * (nblocks * nblocks) * batch_count;
-        total_bytes += size_Gmat;
-
-        size_t const size_schedule_small = sizeof(I) * len_schedule_small;
-        size_t const size_schedule_large = sizeof(I) * len_schedule_large;
-
-        total_bytes += size_schedule_small + size_schedule_large;
-
+        std::byte* pfree = nullptr;
+        ALLOC_ALL();
         *size_dwork_byte = total_bytes;
     }
 }
@@ -3145,6 +3341,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     }
 
     std::byte* pfree = (std::byte*)dwork;
+    size_t total_bytes = 0;
 
     // absolute tolerance for evaluating when the algorithm has converged
     S const eps = get_epsilon<S>();
@@ -3198,282 +3395,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     }
     else
     {
-        // ------------------------
-        // determine block size "nb" and
-        // number of blocks "nblocks"
-        // ------------------------
-        bool const rsyevj_need_V = true;
-        auto const nb = get_nb<T>(n, rsyevj_need_V);
-        auto const nblocks = ceil(n, nb);
-        assert(is_even(nblocks));
-
-        I const even_nblocks = nblocks + (nblocks % 2);
-        I const nblocks_half = even_nblocks / 2;
-
-        I const nb_last = n - (nblocks - 1) * nb;
-        assert(nb_last >= 1);
-
-        I const nplayers_small = (2 * nb);
-        I const nplayers_large = even_nblocks;
-        I const len_schedule_small = nplayers_small * (nplayers_small - 1);
-        I const len_schedule_large = nplayers_large * (nplayers_large - 1);
-        std::vector<I> h_schedule_small(len_schedule_small);
-        std::vector<I> h_schedule_large(len_schedule_large);
-
-        auto const num_rounds = (even_nblocks - 1);
-
-        // --------------------------------------
-        // preallocate storage for pointer arrays
-        // --------------------------------------
-
-        size_t total_bytes = 0;
-
-        auto const lbatch_count = (nblocks_half - 1) * batch_count;
-
-        size_t const size_merged_blocks_bytes = sizeof(T) * (nb * 2) * (nb * 2);
-
-        size_t const size_Aj_bytes = size_merged_blocks_bytes * lbatch_count;
-        size_t const size_Vj_bytes = size_merged_blocks_bytes * lbatch_count;
-        size_t const size_Aj_last_bytes = size_merged_blocks_bytes * batch_count;
-        size_t const size_Vj_last_bytes = size_merged_blocks_bytes * batch_count;
-
-        total_bytes += size_Aj_bytes;
-        total_bytes += size_Vj_bytes;
-        total_bytes += size_Aj_last_bytes;
-        total_bytes += size_Vj_last_bytes;
-
-        size_t const size_Vj_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Aj_ptr_array = sizeof(T*) * lbatch_count;
-
-        total_bytes += size_Vj_ptr_array + size_Aj_ptr_array;
-
-        size_t const size_Vj_last_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Aj_last_ptr_array = sizeof(T*) * 1 * batch_count;
-
-        total_bytes += size_Vj_last_ptr_array + size_Aj_last_ptr_array;
-
-        size_t const size_A_row_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_A_col_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_A_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_A_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_A_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_A_row_ptr_array + size_A_col_ptr_array + size_A_last_row_ptr_array
-            + size_A_last_col_ptr_array + size_A_ptr_array;
-
-        size_t const size_Atmp_row_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Atmp_col_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Atmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Atmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Atmp_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_Atmp_row_ptr_array + size_Atmp_col_ptr_array;
-        total_bytes += size_Atmp_last_row_ptr_array + size_Atmp_last_col_ptr_array;
-        total_bytes += size_Atmp_ptr_array;
-
-        size_t const size_Vtmp_row_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Vtmp_col_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Vtmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Vtmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count;
-        size_t const size_Vtmp_ptr_array = sizeof(T) * batch_count;
-
-        total_bytes += size_Vtmp_row_ptr_array + size_Vtmp_col_ptr_array;
-        total_bytes += size_Vtmp_last_row_ptr_array + size_Vtmp_last_col_ptr_array;
-        total_bytes += size_Vtmp_ptr_array;
-
-        size_t const size_A_diag_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_A_last_diag_ptr_array = sizeof(T*) * 1 * batch_count;
-
-        total_bytes += size_A_diag_ptr_array + size_A_last_diag_ptr_array;
-
-        size_t const size_Atmp_diag_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Atmp_last_diag_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_Atmp_diag_ptr_array + size_Atmp_last_diag_ptr_array;
-
-        size_t const size_Vtmp_diag_ptr_array = sizeof(T*) * lbatch_count;
-        size_t const size_Vtmp_last_diag_ptr_array = sizeof(T*) * batch_count;
-
-        total_bytes += size_Vtmp_diag_ptr_array + size_Vtmp_last_diag_ptr_array;
-
-        size_t const size_residual_Aj = sizeof(S) * lbatch_count;
-        size_t const size_residual_Aj_last = sizeof(S) * batch_count;
-        total_bytes += size_residual_Aj;
-        total_bytes += size_residual_Aj_last;
-
-        size_t const size_info_Aj = sizeof(I) * batch_count * (nblocks_half - 1);
-        size_t const size_info_Aj_last = sizeof(I) * batch_count;
-        total_bytes += size_info_Aj;
-        total_bytes += size_info_Aj_last;
-
-        size_t const size_W_Aj = sizeof(S) * (2 * nb) * batch_count * (nblocks_half - 1);
-        size_t const size_W_Aj_last = sizeof(S) * (2 * nb) * batch_count;
-        total_bytes += size_W_Aj;
-        total_bytes += size_W_Aj_last;
-
-        size_t const size_n_sweeps_Aj = sizeof(I) * (nblocks_half - 1) * batch_count;
-        size_t const size_n_sweeps_Aj_last = sizeof(I) * batch_count;
-        total_bytes += size_n_sweeps_Aj;
-        total_bytes += size_n_sweeps_Aj_last;
-
-        size_t const size_work_rocblas = sizeof(T*) * (nblocks_half)*batch_count;
-        total_bytes += size_work_rocblas;
-
-        size_t const size_mate_array = sizeof(I) * (nblocks * nblocks) * batch_count;
-        total_bytes += size_mate_array;
-
-        size_t const size_Gmat = sizeof(S) * (nblocks * nblocks) * batch_count;
-        total_bytes += size_Gmat;
-
-        size_t const size_schedule_small = sizeof(I) * len_schedule_small;
-        size_t const size_schedule_large = sizeof(I) * len_schedule_large;
-
-        std::byte* pfree = (std::byte*)dwork;
-
-        // I* const completed = (I*)pfree;
-        // pfree += size_completed;
-
-        T* const Aj = (T*)pfree;
-        pfree += size_Aj_bytes;
-
-        T* const Vj = (T*)pfree;
-        pfree += size_Vj_bytes;
-
-        T* const Aj_last = (T*)pfree;
-        pfree += size_Aj_last_bytes;
-
-        T* const Vj_last = (T*)pfree;
-        pfree += size_Vj_last_bytes;
-
-        I const ldvj = (2 * nb);
-        Istride const strideVj = static_cast<Istride>(nblocks_half - 1) * (ldvj * (2 * nb));
-        Istride const shiftVj = 0;
-
-        I const ldaj = (2 * nb);
-        Istride const strideAj = static_cast<Istride>(nblocks_half - 1) * (ldaj * (2 * nb));
-        Istride const shiftAj = 0;
-
-        T** const Vj_ptr_array = (T**)pfree;
-        pfree += size_Vj_ptr_array;
-
-        T** const Aj_ptr_array = (T**)pfree;
-        pfree += size_Aj_ptr_array;
-
-        T** const Vj_last_ptr_array = (T**)pfree;
-        pfree += size_Vj_last_ptr_array;
-
-        T** const Aj_last_ptr_array = (T**)pfree;
-        pfree += size_Aj_last_ptr_array;
-
-        T** const A_row_ptr_array = (T**)pfree;
-        pfree += size_A_row_ptr_array;
-
-        T** const A_col_ptr_array = (T**)pfree;
-        pfree += size_A_col_ptr_array;
-
-        T** const A_last_row_ptr_array = (T**)pfree;
-        pfree += size_A_last_row_ptr_array;
-
-        T** const A_last_col_ptr_array = (T**)pfree;
-        pfree += size_A_last_col_ptr_array;
-
-        T** const A_ptr_array = (T**)pfree;
-        pfree += size_A_ptr_array;
-
-        T** Atmp_row_ptr_array = (T**)pfree;
-        pfree += size_Atmp_row_ptr_array;
-
-        T** Atmp_col_ptr_array = (T**)pfree;
-        pfree += size_Atmp_col_ptr_array;
-
-        T** Atmp_last_row_ptr_array = (T**)pfree;
-        pfree += size_Atmp_last_row_ptr_array;
-
-        T** Atmp_last_col_ptr_array = (T**)pfree;
-        pfree += size_Atmp_last_col_ptr_array;
-
-        T** Atmp_ptr_array = (T**)pfree;
-        pfree += size_Atmp_ptr_array;
-
-        T** Vtmp_row_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_row_ptr_array;
-
-        T** Vtmp_col_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_col_ptr_array;
-
-        T** Vtmp_last_row_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_last_row_ptr_array;
-
-        T** Vtmp_last_col_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_last_col_ptr_array;
-
-        T** Vtmp_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_ptr_array;
-
-        T** const A_diag_ptr_array = (T**)pfree;
-        pfree += size_A_diag_ptr_array;
-
-        T** const A_last_diag_ptr_array = (T**)pfree;
-        pfree += size_A_last_diag_ptr_array;
-
-        T** Atmp_diag_ptr_array = (T**)pfree;
-        pfree += size_Atmp_diag_ptr_array;
-
-        T** Atmp_last_diag_ptr_array = (T**)pfree;
-        pfree += size_Atmp_last_diag_ptr_array;
-
-        T** Vtmp_diag_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_diag_ptr_array;
-
-        T** Vtmp_last_diag_ptr_array = (T**)pfree;
-        pfree += size_Vtmp_last_diag_ptr_array;
-
-        S* const residual_Aj = (S*)pfree;
-        pfree += size_residual_Aj;
-
-        S* const residual_Aj_last = (S*)pfree;
-        pfree += size_residual_Aj_last;
-
-        I* const info_Aj = (I*)pfree;
-        pfree += size_info_Aj;
-
-        I* const info_Aj_last = (I*)pfree;
-        pfree += size_info_Aj_last;
-
-        S* const W_Aj = (S*)pfree;
-        pfree += size_W_Aj;
-
-        S* const W_Aj_last = (S*)pfree;
-        pfree += size_W_Aj_last;
-
-        I* const n_sweeps_Aj = (I*)pfree;
-        pfree += size_n_sweeps_Aj;
-
-        I* const n_sweeps_Aj_last = (I*)pfree;
-        pfree += size_n_sweeps_Aj_last;
-
-        I* const mate_array = (I*)pfree;
-        pfree += size_mate_array;
-
-        S* const Gmat = (S*)pfree;
-        pfree += size_Gmat;
-
         S* const Amat_norm = norms;
 
-        I* const d_schedule_small = (I*)pfree;
-        pfree += size_schedule_small;
+        ALLOC_ALL();
 
-        I* const d_schedule_large = (I*)pfree;
-        pfree += size_schedule_large;
-
-        T** const work_rocblas = (T**)pfree;
-        pfree += size_work_rocblas;
-
-        assert(pfree <= (((std::byte*)dwork) + size_dwork_byte));
+        assert(total_bytes <= size_dwork_byte);
 
         bool constexpr use_adjust_schedule = true;
 
         {
+            std::vector<I> h_schedule_small(len_schedule_small);
+            std::vector<I> h_schedule_large(len_schedule_large);
+
             setup_schedule(nplayers_small, h_schedule_small, d_schedule_small, stream);
 
             setup_schedule(nplayers_large, h_schedule_large, d_schedule_large, stream,
