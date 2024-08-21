@@ -40,7 +40,7 @@
 #include "rocsolver/rocsolver.h"
 
 ROCSOLVER_BEGIN_NAMESPACE
-static constexpr int idebug = 2;
+static constexpr int idebug = 1;
 #define TRACE(ival)                                       \
     {                                                     \
         auto istat = hipDeviceSynchronize();              \
@@ -52,10 +52,10 @@ static constexpr int idebug = 2;
     }
 
 #define ALLOC_INIT()                                            \
-    /* ------------------------ \
-         determine block size "nb" and \
-         number of blocks "nblocks" \
-         ------------------------*/                               \
+    /* ------------------------                                 \
+         determine block size "nb" and                          \
+         number of blocks "nblocks"                             \
+         ------------------------*/                             \
     bool const rsyevj_need_V = true;                            \
     auto const nb = get_nb<T>(n, rsyevj_need_V);                \
     auto const nblocks = ceil(n, nb);                           \
@@ -65,7 +65,7 @@ static constexpr int idebug = 2;
     I const nblocks_half = even_nblocks / 2;                    \
                                                                 \
     I const nb_last = n - (nblocks - 1) * nb;                   \
-    assert(nb_last >= 1);                                       \
+    assert( (1 <= nb_last) && (nb_last <= nb));                 \
                                                                 \
     auto const num_rounds = (even_nblocks - 1);                 \
                                                                 \
@@ -73,67 +73,75 @@ static constexpr int idebug = 2;
                                                                 \
     size_t const size_merged_blocks_bytes = sizeof(T) * (nb * 2) * (nb * 2);
 
-#define ALLOC_AJVJ()                                                                     \
+#define ALLOC_VJ()                                                                       \
     I const ldvj = (2 * nb);                                                             \
     Istride const strideVj = static_cast<Istride>(nblocks_half - 1) * (ldvj * (2 * nb)); \
+    Istride const lstride_Vj = ldvj * (2*nb);                                            \
     Istride const shiftVj = 0;                                                           \
                                                                                          \
-    I const ldaj = (2 * nb);                                                             \
-    Istride const strideAj = static_cast<Istride>(nblocks_half - 1) * (ldaj * (2 * nb)); \
-    Istride const shiftAj = 0;                                                           \
-                                                                                         \
-    size_t const size_Aj_bytes = size_merged_blocks_bytes * lbatch_count;                \
     size_t const size_Vj_bytes = size_merged_blocks_bytes * lbatch_count;                \
-    size_t const size_Aj_last_bytes = size_merged_blocks_bytes * batch_count;            \
     size_t const size_Vj_last_bytes = size_merged_blocks_bytes * batch_count;            \
-                                                                                         \
-    T* const Aj = (T*)pfree;                                                             \
-    pfree += size_Aj_bytes;                                                              \
                                                                                          \
     T* const Vj = (T*)pfree;                                                             \
     pfree += size_Vj_bytes;                                                              \
                                                                                          \
-    T* const Aj_last = (T*)pfree;                                                        \
-    pfree += size_Aj_last_bytes;                                                         \
-                                                                                         \
     T* const Vj_last = (T*)pfree;                                                        \
     pfree += size_Vj_last_bytes;                                                         \
                                                                                          \
-    total_bytes += size_Aj_bytes;                                                        \
     total_bytes += size_Vj_bytes;                                                        \
-    total_bytes += size_Aj_last_bytes;                                                   \
     total_bytes += size_Vj_last_bytes;                                                   \
                                                                                          \
     size_t const size_Vj_ptr_array = sizeof(T*) * lbatch_count;                          \
-    size_t const size_Aj_ptr_array = sizeof(T*) * lbatch_count;                          \
+    size_t const size_Vj_last_ptr_array = sizeof(T*) * 1 * batch_count;                  \
                                                                                          \
     T** const Vj_ptr_array = (T**)pfree;                                                 \
     pfree += size_Vj_ptr_array;                                                          \
                                                                                          \
-    T** const Aj_ptr_array = (T**)pfree;                                                 \
-    pfree += size_Aj_ptr_array;                                                          \
-                                                                                         \
-    total_bytes += size_Vj_ptr_array;                                                    \
-    total_bytes += size_Aj_ptr_array;                                                    \
-                                                                                         \
-    size_t const size_Vj_last_ptr_array = sizeof(T*) * 1 * batch_count;                  \
-    size_t const size_Aj_last_ptr_array = sizeof(T*) * 1 * batch_count;                  \
-                                                                                         \
     T** const Vj_last_ptr_array = (T**)pfree;                                            \
     pfree += size_Vj_last_ptr_array;                                                     \
+                                                                                         \
+                                                                                         \
+    total_bytes += size_Vj_ptr_array;                                                    \
+    total_bytes += size_Vj_last_ptr_array;                                                
+
+
+#define ALLOC_AJ()                                                                       \
+                                                                                         \
+    I const ldaj = (2 * nb);                                                             \
+    Istride const strideAj = static_cast<Istride>(nblocks_half - 1) * (ldaj * (2 * nb)); \
+    Istride const lstride_Aj = ldaj * (2*nb);                                            \
+    Istride const shiftAj = 0;                                                           \
+                                                                                         \
+    size_t const size_Aj_bytes = size_merged_blocks_bytes * lbatch_count;                \
+    size_t const size_Aj_last_bytes = size_merged_blocks_bytes * batch_count;            \
+                                                                                         \
+    T* const Aj = (T*)pfree;                                                             \
+    pfree += size_Aj_bytes;                                                              \
+                                                                                         \
+    T* const Aj_last = (T*)pfree;                                                        \
+    pfree += size_Aj_last_bytes;                                                         \
+                                                                                         \
+    total_bytes += size_Aj_bytes;                                                        \
+    total_bytes += size_Aj_last_bytes;                                                   \
+                                                                                         \
+    size_t const size_Aj_ptr_array = sizeof(T*) * lbatch_count;                          \
+    size_t const size_Aj_last_ptr_array = sizeof(T*) * 1 * batch_count;                  \
+                                                                                         \
+    T** const Aj_ptr_array = (T**)pfree;                                                 \
+    pfree += size_Aj_ptr_array;                                                          \
                                                                                          \
     T** const Aj_last_ptr_array = (T**)pfree;                                            \
     pfree += size_Aj_last_ptr_array;                                                     \
                                                                                          \
-    total_bytes += size_Vj_last_ptr_array;                                               \
+    total_bytes += size_Aj_ptr_array;                                                    \
     total_bytes += size_Aj_last_ptr_array;
 
 #define ALLOC_Atmp()                                                          \
-    size_t const size_Atmp_row_ptr_array = sizeof(T*) * lbatch_count;         \
-    size_t const size_Atmp_col_ptr_array = sizeof(T*) * lbatch_count;         \
-    size_t const size_Atmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count; \
-    size_t const size_Atmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count; \
-    size_t const size_Atmp_ptr_array = sizeof(T*) * batch_count;              \
+    size_t   size_Atmp_row_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t   size_Atmp_col_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t   size_Atmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t   size_Atmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t   size_Atmp_ptr_array = sizeof(T*) * batch_count;              \
                                                                               \
     T** Atmp_row_ptr_array = (T**)pfree;                                      \
     pfree += size_Atmp_row_ptr_array;                                         \
@@ -156,8 +164,8 @@ static constexpr int idebug = 2;
     total_bytes += size_Atmp_last_col_ptr_array;                              \
     total_bytes += size_Atmp_ptr_array;                                       \
                                                                               \
-    size_t const size_Atmp_diag_ptr_array = sizeof(T*) * lbatch_count;        \
-    size_t const size_Atmp_last_diag_ptr_array = sizeof(T*) * batch_count;    \
+    size_t   size_Atmp_diag_ptr_array = sizeof(T*) * lbatch_count;        \
+    size_t   size_Atmp_last_diag_ptr_array = sizeof(T*) * batch_count;    \
                                                                               \
     T** Atmp_diag_ptr_array = (T**)pfree;                                     \
     pfree += size_Atmp_diag_ptr_array;                                        \
@@ -169,11 +177,11 @@ static constexpr int idebug = 2;
     total_bytes += size_Atmp_last_diag_ptr_array;
 
 #define ALLOC_Vtmp()                                                          \
-    size_t const size_Vtmp_row_ptr_array = sizeof(T*) * lbatch_count;         \
-    size_t const size_Vtmp_col_ptr_array = sizeof(T*) * lbatch_count;         \
-    size_t const size_Vtmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count; \
-    size_t const size_Vtmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count; \
-    size_t const size_Vtmp_ptr_array = sizeof(T*) * batch_count;              \
+    size_t   size_Vtmp_row_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t   size_Vtmp_col_ptr_array = sizeof(T*) * lbatch_count;         \
+    size_t   size_Vtmp_last_row_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t   size_Vtmp_last_col_ptr_array = sizeof(T*) * 1 * batch_count; \
+    size_t   size_Vtmp_ptr_array = sizeof(T*) * batch_count;              \
                                                                               \
     T** Vtmp_row_ptr_array = (T**)pfree;                                      \
     pfree += size_Vtmp_row_ptr_array;                                         \
@@ -196,8 +204,8 @@ static constexpr int idebug = 2;
     total_bytes += size_Vtmp_last_col_ptr_array;                              \
     total_bytes += size_Vtmp_ptr_array;                                       \
                                                                               \
-    size_t const size_Vtmp_diag_ptr_array = sizeof(T*) * lbatch_count;        \
-    size_t const size_Vtmp_last_diag_ptr_array = sizeof(T*) * batch_count;    \
+    size_t   size_Vtmp_diag_ptr_array = sizeof(T*) * lbatch_count;        \
+    size_t   size_Vtmp_last_diag_ptr_array = sizeof(T*) * batch_count;    \
                                                                               \
     T** Vtmp_diag_ptr_array = (T**)pfree;                                     \
     pfree += size_Vtmp_diag_ptr_array;                                        \
@@ -261,45 +269,46 @@ static constexpr int idebug = 2;
     total_bytes += size_residual_Aj;                              \
     total_bytes += size_residual_Aj_last;
 
-#define ALLOC_INFO_AJ()                                                       \
-                                                                              \
-    size_t const size_info_Aj = sizeof(I) * batch_count * (nblocks_half - 1); \
-    size_t const size_info_Aj_last = sizeof(I) * batch_count;                 \
-                                                                              \
-    I* const info_Aj = (I*)pfree;                                             \
-    pfree += size_info_Aj;                                                    \
-                                                                              \
-    I* const info_Aj_last = (I*)pfree;                                        \
-    pfree += size_info_Aj_last;                                               \
-                                                                              \
-    total_bytes += size_info_Aj;                                              \
+#define ALLOC_INFO_AJ()                                       \
+                                                              \
+    size_t const size_info_Aj = sizeof(I) * lbatch_count;     \
+    size_t const size_info_Aj_last = sizeof(I) * batch_count; \
+                                                              \
+    I* const info_Aj = (I*)pfree;                             \
+    pfree += size_info_Aj;                                    \
+                                                              \
+    I* const info_Aj_last = (I*)pfree;                        \
+    pfree += size_info_Aj_last;                               \
+                                                              \
+    total_bytes += size_info_Aj;                              \
     total_bytes += size_info_Aj_last;
 
-#define ALLOC_W_AJ()                                                                  \
-                                                                                      \
-    size_t const size_W_Aj = sizeof(S) * (2 * nb) * batch_count * (nblocks_half - 1); \
-    size_t const size_W_Aj_last = sizeof(S) * (2 * nb) * batch_count;                 \
-                                                                                      \
-    S* const W_Aj = (S*)pfree;                                                        \
-    pfree += size_W_Aj;                                                               \
-                                                                                      \
-    S* const W_Aj_last = (S*)pfree;                                                   \
-    pfree += size_W_Aj_last;                                                          \
-                                                                                      \
-    total_bytes += size_W_Aj;                                                         \
+#define ALLOC_W_AJ()                                                  \
+                                                                      \
+    size_t const size_W_Aj = sizeof(S) * (2 * nb) * lbatch_count;     \
+    size_t const size_W_Aj_last = sizeof(S) * (2 * nb) * batch_count; \
+                                                                      \
+    S* const W_Aj = (S*)pfree;                                        \
+    pfree += size_W_Aj;                                               \
+                                                                      \
+    S* const W_Aj_last = (S*)pfree;                                   \
+    pfree += size_W_Aj_last;                                          \
+                                                                      \
+    total_bytes += size_W_Aj;                                         \
     total_bytes += size_W_Aj_last;
 
-#define ALLOC_N_SWEEPS_AJ()                                                       \
-                                                                                  \
-    size_t const size_n_sweeps_Aj = sizeof(I) * (nblocks_half - 1) * batch_count; \
-    size_t const size_n_sweeps_Aj_last = sizeof(I) * batch_count;                 \
-                                                                                  \
-    I* const n_sweeps_Aj = (I*)pfree;                                             \
-    pfree += size_n_sweeps_Aj;                                                    \
-                                                                                  \
-    I* const n_sweeps_Aj_last = (I*)pfree;                                        \
-    pfree += size_n_sweeps_Aj_last;                                               \
-    total_bytes += size_n_sweeps_Aj;                                              \
+#define ALLOC_N_SWEEPS_AJ()                                       \
+                                                                  \
+    size_t const size_n_sweeps_Aj = sizeof(I) * lbatch_count;     \
+    size_t const size_n_sweeps_Aj_last = sizeof(I) * batch_count; \
+                                                                  \
+    I* const n_sweeps_Aj = (I*)pfree;                             \
+    pfree += size_n_sweeps_Aj;                                    \
+                                                                  \
+    I* const n_sweeps_Aj_last = (I*)pfree;                        \
+    pfree += size_n_sweeps_Aj_last;                               \
+                                                                  \
+    total_bytes += size_n_sweeps_Aj;                              \
     total_bytes += size_n_sweeps_Aj_last;
 
 #define ALLOC_WORK_ROCBLAS()                                                  \
@@ -311,13 +320,13 @@ static constexpr int idebug = 2;
                                                                               \
     total_bytes += size_work_rocblas;
 
-#define ALLOC_MATE_ARRAY()                                                        \
-                                                                                  \
-    size_t const size_mate_array = sizeof(I) * (nblocks * nblocks) * batch_count; \
-                                                                                  \
-    I* const mate_array = (I*)pfree;                                              \
-    pfree += size_mate_array;                                                     \
-                                                                                  \
+#define ALLOC_MATE_ARRAY()                                            \
+                                                                      \
+    size_t const size_mate_array = sizeof(I) * nblocks * batch_count; \
+                                                                      \
+    I* const mate_array = (I*)pfree;                                  \
+    pfree += size_mate_array;                                         \
+                                                                      \
     total_bytes += size_mate_array;
 
 #define ALLOC_GMAT()                                                        \
@@ -349,7 +358,6 @@ static constexpr int idebug = 2;
 
 #define ALLOC_ALL()       \
     ALLOC_INIT();         \
-    ALLOC_AJVJ();         \
     ALLOC_A();            \
     ALLOC_Atmp();         \
     ALLOC_Vtmp();         \
@@ -360,6 +368,8 @@ static constexpr int idebug = 2;
     ALLOC_WORK_ROCBLAS(); \
     ALLOC_MATE_ARRAY();   \
     ALLOC_GMAT();         \
+    ALLOC_AJ();           \
+    ALLOC_VJ();           \
     ALLOC_SCHEDULE();
 
 /************** CPU functions                              *******************/
@@ -769,17 +779,20 @@ static __device__ I idx2D(I const i, I const j, I const ld)
 
 template <typename T, typename I>
 static __device__ void check_symmetry_body(I const n,
-                                           T* A_,
+                                           T const *  const A_,
                                            I const lda,
                                            I const i_start,
                                            I const i_inc,
                                            I const j_start,
                                            I const j_inc,
-                                           int* is_symmetric)
+                                           int* n_unsymmetric)
 {
-    auto A = [=](auto i, auto j) -> T& {
-        assert((0 <= i) && (i < n) && (i < lda) && (0 <= j) && (j < n));
 
+    auto idx2D = [](auto i, auto j, auto ld) {
+	    return( i + j * int64_t(ld) );
+    };
+
+    auto A = [=](auto i, auto j) -> T {
         return (A_[idx2D(i, j, lda)]);
     };
 
@@ -788,11 +801,6 @@ static __device__ void check_symmetry_body(I const n,
     // not on type "bool"
     // ----------------------------------------
 
-    bool const is_root = (i_start == 0) && (j_start == 0);
-    if(is_root)
-    {
-        *is_symmetric = true;
-    };
     __syncthreads();
 
     for(auto j = j_start; j < n; j += j_inc)
@@ -807,13 +815,87 @@ static __device__ void check_symmetry_body(I const n,
                 // -----------------------
                 // matrix is not symmetric
                 // -----------------------
-                atomicAnd(is_symmetric, false);
+                atomicAdd( n_unsymmetric, 1 );
                 break;
             }
         }
     }
     __syncthreads();
 }
+
+
+// -----------------------------------------
+// check whether a matrix is symmetric
+//
+// assume n_unsymmetric[] is initialized to 0
+//
+// launch as dim3(1,1,nbz), dim3(nx,ny,1)
+// -----------------------------------------
+template<typename T, typename I, typename UA, typename Istride>
+__global__ static void check_symmetry_kernel(
+		I const n,
+		UA A_,
+		Istride const shiftA,
+		I const lda,
+		Istride const strideA,
+
+		int n_unsymmetric[],
+		I const batch_count )
+{
+
+  I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+  I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipBlockDim_y;
+
+  I const i_inc = hipBlockDim_x * hipGridDim_x;
+  I const j_inc = hipBlockDim_y * hipGridDim_y;
+
+  I const bid_inc = hipGridDim_z;
+  I const bid_start = hipBlockIdx_z;
+
+  for(I bid=bid_start; bid < batch_count; bid += bid_inc) {
+	  T const * const Ap = load_ptr_batch( A_, bid, shiftA, strideA );
+
+	  check_symmetry_body( n,  Ap, lda, 
+			  i_start, i_inc, j_start, j_inc,  
+			  &(n_unsymmetric[bid])    );
+
+    }
+
+}
+
+template<typename T, typename I, typename UA, typename Istride>
+static void check_symmetry(
+		I const n,
+		UA A_,
+		Istride const shiftA,
+		I const lda,
+		Istride const strideA,
+		int n_unsymmetric[],
+		I const batch_count, 
+	        hipStream_t stream	)
+{
+
+	auto ceil = [](auto n, auto nb) {
+		return(  (n-1)/nb + 1 );
+	};
+
+	auto const istat = hipMemsetAsync( &(n_unsymmetric[0]), 0, sizeof(I) * batch_count, stream );
+	assert( istat == HIP_SUCCESS );
+
+
+
+	auto const MAX_BLOCKS = 64 * 1000;
+	auto const nx = 32;
+	auto const ny = 32;
+	auto const nbx = std::min( MAX_BLOCKS, ceil(n, nx));
+	auto const nby = std::min( MAX_BLOCKS, ceil(n, ny));
+	auto const nbz = std::min( MAX_BLOCKS, batch_count);
+
+	check_symmetry_kernel<T,I,UA,Istride><<< 
+		dim3(nbx,nby,nbz), dim3(nx,ny,1), 0, stream>>>(
+			n, A_, shiftA, lda, strideA, n_unsymmetric, batch_count );
+}
+
 
 // ------------------------------------------------------------------------------------------
 // symmetrize_matrix make the square matrix a symmetric or hermitian matrix
@@ -1414,7 +1496,7 @@ __global__ static void lacpy_kernel(char const uplo,
  * -----------------------------------------------------------------
  */
 template <typename T, typename I>
-static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const mate_)
+static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const mate_ )
 {
     // Parallel greedy algorithm to find the maximum weight edge matching
     // of a complete graph
@@ -1449,36 +1531,22 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
         return ((i == j) ? (0) : G_[ij]);
     };
 
-    extern __shared__ std::byte ilsmem[];
-    std::byte* pfree = (std::byte*)ilsmem;
-    size_t total_bytes = 0;
 
     // ------------------------
     // for each vertex i,  iwmax(i) holds
     // the available vertex with max weight
     // note the use of uint16_t
     // ------------------------
-    uint16_t* const iwmax = (uint16_t*)pfree;
-    pfree += sizeof(uint16_t) * n;
-    total_bytes += sizeof(uint16_t) * n;
 
-    bool* const is_matched = (bool*)pfree;
-    pfree += sizeof(bool) * n;
-    total_bytes += sizeof(bool) * n;
+    auto constexpr MAX_LDS = 64 * 1000;
+    auto constexpr MAX_N = (MAX_LDS - sizeof(int))/( sizeof(bool) + sizeof(int16_t));
 
-    int* const nmate_ = (int*)pfree;
-    pfree += sizeof(int);
-    total_bytes += sizeof(int);
+    __shared__ int nmate;
+    __shared__ int16_t iwmax[MAX_N];
+    __shared__ bool is_matched[MAX_N];
 
-    int& nmate = nmate_[0];
+    assert( n <= MAX_N );
 
-#ifdef NDEBUG
-#else
-    {
-        size_t const max_lds = 64 * 1024;
-        assert(total_bytes <= max_lds);
-    }
-#endif
 
     auto const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x
         + hipThreadIdx_z * (hipBlockDim_x * hipBlockDim_y);
@@ -1504,12 +1572,13 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
     for(I ij = i_start; ij < n; ij += i_inc)
     {
         is_matched[ij] = false;
-        iwmax[ij] = n;
+        iwmax[ij] = -1;
     }
 
     __syncthreads();
 
-    for(I ipass = 0; ipass < (n * n); ipass++)
+    I ipass = 0;
+    for(ipass = 0; ipass < (n * n); ipass++)
     {
         bool const is_done = (nmate >= (n / 2));
         if(is_done)
@@ -1579,15 +1648,22 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
                 auto const ip = atomicAdd(&nmate, 1);
                 mate(0, ip) = min(i, j);
                 mate(1, ip) = max(i, j);
-                is_matched[i] = is_matched[j] = true;
+                is_matched[i] = true;
+		is_matched[j] = true;
             }
         }
 
         __syncthreads();
 
+    } // end for (ipass)
+
+        __syncthreads();
         // ------------------------
         // place last entry  at last position
         // ------------------------
+
+        assert(nmate == (n / 2));
+
         for(auto i = i_start; i < (nmate - 1); i += i_inc)
         {
             auto const ivertex = mate(0, i);
@@ -1602,28 +1678,28 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
         }
         __syncthreads();
 
-        // the last entry
-        assert(nmate == (n / 2));
-        assert(mate(1, nmate) == (n - 1));
 
-    } // end for (ipass)
+      
+        // check the last entry
+        assert(mate(1, nmate-1) == (n - 1));
 }
 
 template <typename T, typename I>
-static void __global__
-    pgreedy_mwm_kernel(I const n, T const* const G_array, I* const mate_array, I const batch_count)
+static void __global__ pgreedy_mwm_kernel(I const n, 
+		T const* const G_array, I* const mate_array, I const batch_count)
 {
     auto bid_start = hipBlockIdx_x + hipBlockIdx_y * (hipGridDim_x)
         + hipBlockIdx_z * (hipGridDim_x * hipGridDim_y);
 
     auto bid_inc = (hipGridDim_x * hipGridDim_y) * hipGridDim_z;
 
+
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         T const* const G_ = &(G_array[bid * (n * int64_t(n))]);
         I* const mate = &(mate_array[bid * n]);
 
-        pgreedy_mwm_block(n, G_, mate);
+        pgreedy_mwm_block(n, G_, mate );
     }
 }
 
@@ -1647,12 +1723,9 @@ static void pgreedy_mwm(I const n,
 
     auto const nblocks = std::min(MAX_BLOCKS, batch_count);
 
-    size_t max_lds_bytes = 64 * 1024;
-    size_t size_lsmem_bytes = sizeof(int) + (sizeof(uint16_t) + sizeof(bool)) * n;
-    assert(size_lsmem_bytes <= max_lds_bytes);
 
-    pgreedy_mwm_kernel<T, I><<<dim3(1, 1, nblocks), dim3(nthreads, 1, 1), size_lsmem_bytes, stream>>>(
-        n, G_array, mate_array, batch_count);
+    pgreedy_mwm_kernel<T,I><<< dim3(1,1,nblocks), dim3(nthreads,1,1),0,stream>>>
+            (n, G_array, mate_array, batch_count);
 }
 
 // --------------------------------------
@@ -2066,7 +2139,7 @@ static void check_ptr_array(std::string msg, I const n, T* d_ptr_array[])
  *
  * launch as dim3(1,1,batch_count), dim3(nx,1,1)
 **/
-template <typename T, typename I, typename Istride, typename AA, typename BB, typename CC>
+template <typename T, typename I, typename Istride, typename AA>
 __global__ static void setup_ptr_arrays_kernel(
 
     I const n,
@@ -2077,24 +2150,20 @@ __global__ static void setup_ptr_arrays_kernel(
     I const lda,
     Istride const strideA,
 
-    BB Atmp,
+    T* const Atmp,
     Istride const shiftAtmp,
     I const ldatmp,
     Istride const strideAtmp,
 
-    CC Vtmp,
+    T* const Vtmp,
     Istride const shiftVtmp,
     I const ldvtmp,
     Istride const strideVtmp,
 
     T* const Aj,
-    Istride const strideAj,
     T* const Vj,
-    Istride const strideVj,
     T* const Aj_last,
     T* const Vj_last,
-
-    I* const completed,
 
     T* Vj_ptr_array[],
     T* Aj_ptr_array[],
@@ -2128,6 +2197,7 @@ __global__ static void setup_ptr_arrays_kernel(
     T* Vtmp_diag_ptr_array[],
     T* Vtmp_last_diag_ptr_array[],
 
+    I* const completed,
     I const batch_count)
 {
     I const bid_start = hipBlockIdx_z;
@@ -2166,18 +2236,23 @@ __global__ static void setup_ptr_arrays_kernel(
         auto const jlast_col = (nblocks_half - 1) * (2 * nb);
 
         A_last_row_ptr_array[ibatch] = A_p + shiftA + idx2D(ilast_row, 0, lda);
-        Atmp_last_row_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(ilast_row, 0, ldatmp);
-        Vtmp_last_row_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(ilast_row, 0, ldvtmp);
-
         A_last_col_ptr_array[ibatch] = A_p + shiftA + idx2D(0, jlast_col, lda);
-        Atmp_last_col_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(0, jlast_col, ldatmp);
-        Vtmp_last_col_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(0, jlast_col, ldvtmp);
-
         A_last_diag_ptr_array[ibatch] = A_p + shiftA + idx2D(ilast_row, jlast_col, lda);
+
+        Atmp_last_row_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(ilast_row, 0, ldatmp);
+        Atmp_last_col_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(0, jlast_col, ldatmp);
+        Atmp_last_diag_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(ilast_row, jlast_col, ldatmp);
+
+        Vtmp_last_row_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(ilast_row, 0, ldvtmp);
+        Vtmp_last_col_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(0, jlast_col, ldvtmp);
+        Vtmp_last_diag_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(ilast_row, jlast_col, ldvtmp);
 
         {
             for(auto i = i_start; i < (nblocks_half - 1); i += i_inc)
             {
+                Istride const strideAj = static_cast<Istride>(nblocks_half-1) * (2*nb)*(2*nb);
+                Istride const strideVj = static_cast<Istride>(nblocks_half-1) * (2*nb)*(2*nb);
+
                 auto const ip = i + ibatch * (nblocks_half - 1);
                 Vj_ptr_array[ip] = Vj + ibatch * strideVj + i * (2 * nb) * (2 * nb);
                 Aj_ptr_array[ip] = Aj + ibatch * strideAj + i * (2 * nb) * (2 * nb);
@@ -2405,8 +2480,10 @@ __device__ void run_rsyevj(const I dimx,
         // extra check that A_ is symmetric
         // --------------------------------
         auto ld1 = (A_ == dA_) ? lda : n;
-        int is_symmetric = true;
-        check_symmetry_body(n, A_, ld1, i_start, i_inc, j_start, j_inc, &is_symmetric);
+        int n_unsymmetric = 0;
+        check_symmetry_body(n, A_, ld1, i_start, i_inc, j_start, j_inc, &n_unsymmetric);
+
+	bool const is_symmetric = (n_unsymmetric == 0);
         assert(is_symmetric);
     }
 #endif
@@ -3205,8 +3282,9 @@ void rocsolver_rsyevj_rheevj_getMemorySize(const rocblas_evect evect,
     {
         std::byte* pfree = nullptr;
         ALLOC_ALL();
-        *size_dwork_byte = total_bytes;
     }
+
+    *size_dwork_byte = total_bytes;
 }
 
 #if(0)
@@ -3277,7 +3355,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                                 T* dwork,
                                                 size_t size_dwork_byte)
 {
-    ROCSOLVER_ENTER("rsyevj_heevj_template", "esort:", esort, "evect:", evect, "uplo:", uplo,
+    ROCSOLVER_ENTER("rsyevj_rheevj_template", "esort:", esort, "evect:", evect, "uplo:", uplo,
                     "n:", n, "shiftA:", shiftA, "lda:", lda, "abstol:", abstol,
                     "max_sweeps:", max_sweeps, "bc:", batch_count);
 
@@ -3293,14 +3371,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     Istride const shift_zero = 0;
 
     auto Atmp = Acpy;
-    Istride const shiftAtmp = shift_zero;
-    auto const ldatmp = n;
-    Istride const strideAtmp = ldatmp * n;
+    Istride shiftAtmp = shift_zero;
+    auto ldatmp = n;
+    Istride strideAtmp = ldatmp * n;
 
     auto Vtmp = J;
-    Istride const shiftVtmp = shift_zero;
-    auto const ldvtmp = n;
-    Istride const strideVtmp = ldvtmp * n;
+    Istride shiftVtmp = shift_zero;
+    auto ldvtmp = n;
+    Istride strideVtmp = ldvtmp * n;
 
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
@@ -3374,12 +3452,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         I const len_schedule_small = nplayers * (nplayers - 1);
         std::vector<I> h_schedule_small(len_schedule_small);
 
-        std::byte* pfree = (std::byte*)dwork;
-        I* const d_schedule_small = (I*)pfree;
         size_t const size_schedule_small = sizeof(I) * len_schedule_small;
+
+        I* const d_schedule_small = (I*)pfree;
         pfree += size_schedule_small;
 
-        assert(pfree <= ((std::byte*)dwork) + size_dwork_byte);
+	total_bytes += size_schedule_small;
+
+        assert( total_bytes <= size_dwork_byte);
 
         setup_schedule(nplayers, h_schedule_small, d_schedule_small, stream);
 
@@ -3460,8 +3540,33 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             for(I iround = 0; iround < num_rounds; iround++)
             {
                 {
-                    // compute norms of off diagonal blocks
-                    // setup completed[] array
+
+#ifdef NDEBUG
+#else
+   TRACE(1);
+	if (idebug >= 1) {
+		I* const n_unsymmetric = info_Aj;
+
+		check_symmetry<T,I,U,Istride>( n, A,shiftA,lda,strideA,
+				n_unsymmetric, batch_count, stream );
+
+		std::vector<I> h_n_unsymmetric(batch_count);
+		auto const istat = hipMemcpy( &(h_n_unsymmetric[0]), n_unsymmetric, 
+				sizeof(I) * batch_count, hipMemcpyDeviceToHost );
+
+		for(auto bid=0; bid < batch_count; bid++) {
+			bool const is_symmetric = (h_n_unsymmetric[bid] == 0);
+			if (!is_symmetric) {
+				printf("(%d,%d), matrix A[%d] is non-symmetric\n", 
+						h_sweeps, iround, bid );
+			}
+		}
+
+	}
+
+   TRACE(1);
+#endif
+
 
                     // -----------------------------------------------------
                     // compute norms of blocks into array
@@ -3516,6 +3621,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                 auto const batch_count_remain = batch_count - n_completed;
                 assert((1 <= batch_count_remain) && (batch_count_remain <= batch_count));
+    TRACE(2);
+	{
+		if (idebug >= 1) {
+		printf("h_sweeps=%d, iround=%d, n=%d, nb=%d, nblocks=%d, batch_count_remain=%d\n",
+                        h_sweeps,    iround,    n,    nb,    nblocks,    batch_count_remain);
+		fflush(stdout);
+		}
+	}
 
                 {
                     // ------------------------------------------
@@ -3528,10 +3641,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     // ---------------------------------
                     HIP_CHECK(hipMemsetAsync((void*)&(completed[0]), 0, sizeof(I), stream));
 
+                    TRACE(2);
                     auto const nx = NX_THREADS;
                     ROCSOLVER_LAUNCH_KERNEL(
-                        (setup_ptr_arrays_kernel<T, I, Istride, U, T*, T*>), dim3(1, 1, nbz),
-                        dim3(nx, 1, 1), 0, stream,
+                        (setup_ptr_arrays_kernel<T, I, Istride, U>), dim3(1, 1, 1),
+                        dim3(1, 1, 1), 0, stream,
 
                         n, nb,
 
@@ -3541,7 +3655,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         Vtmp, shiftVtmp, ldvtmp, strideVtmp,
 
-                        Aj, strideAj, Vj, strideVj, Aj_last, Vj_last, completed,
+                        Aj, Vj, Aj_last, Vj_last,
 
                         Vj_ptr_array, Aj_ptr_array, Vj_last_ptr_array, Aj_last_ptr_array,
 
@@ -3556,63 +3670,81 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         A_diag_ptr_array, A_last_diag_ptr_array, Atmp_diag_ptr_array,
                         Atmp_last_diag_ptr_array, Vtmp_diag_ptr_array, Vtmp_last_diag_ptr_array,
-                        batch_count);
+
+                        completed, batch_count);
 
 #ifdef NDEBUG
 #else
+                    TRACE(2);
 
                     auto const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
+                    check_ptr_array("Aj_last_ptr_array", batch_count_remain, Aj_last_ptr_array);
                     check_ptr_array("Vj_last_ptr_array", batch_count_remain, Vj_last_ptr_array);
+
+                    check_ptr_array("A_last_row_ptr_array", batch_count_remain, A_last_row_ptr_array);
+                    check_ptr_array("A_last_col_ptr_array", batch_count_remain, A_last_col_ptr_array);
+                    check_ptr_array("A_last_diag_ptr_array", batch_count_remain, A_last_diag_ptr_array);
+
+	    check_ptr_array("Atmp_last_row_ptr_array", batch_count_remain, Atmp_last_row_ptr_array);
+	    check_ptr_array("Atmp_last_col_ptr_array", batch_count_remain, Atmp_last_col_ptr_array);
+	    check_ptr_array("Atmp_last_diag_ptr_array", batch_count_remain, Atmp_last_diag_ptr_array);
+
+	    if (need_V) {
+	    check_ptr_array("Vtmp_last_row_ptr_array", batch_count_remain, Vtmp_last_row_ptr_array);
+	    check_ptr_array("Vtmp_last_col_ptr_array", batch_count_remain, Vtmp_last_col_ptr_array);
+	    check_ptr_array("Vtmp_last_diag_ptr_array", batch_count_remain, Vtmp_last_diag_ptr_array);
+	    }
+
+
+                    check_ptr_array("Aj_ptr_array", lbatch_count, Aj_ptr_array);
                     check_ptr_array("Vj_ptr_array", lbatch_count, Vj_ptr_array);
 
                     check_ptr_array("A_row_ptr_array", lbatch_count, A_row_ptr_array);
                     check_ptr_array("A_col_ptr_array", lbatch_count, A_col_ptr_array);
-                    check_ptr_array("A_last_row_ptr_array", batch_count_remain, A_last_row_ptr_array);
-                    check_ptr_array("A_last_col_ptr_array", batch_count_remain, A_last_col_ptr_array);
-
                     check_ptr_array("A_diag_ptr_array", lbatch_count, A_diag_ptr_array);
-                    check_ptr_array("A_last_diag_ptr_array", batch_count_remain,
-                                    A_last_diag_ptr_array);
 
                     check_ptr_array("A_ptr_array", batch_count, A_ptr_array);
-                    check_ptr_array("Aj_last_ptr_array", batch_count_remain, Aj_last_ptr_array);
 
                     check_ptr_array("Atmp_row_ptr_array", lbatch_count, Atmp_row_ptr_array);
                     check_ptr_array("Atmp_col_ptr_array", lbatch_count, Atmp_col_ptr_array);
-
-                    check_ptr_array("Atmp_last_row_ptr_array", batch_count_remain,
-                                    Atmp_last_row_ptr_array);
-                    check_ptr_array("Atmp_last_col_ptr_array", batch_count_remain,
-                                    Atmp_last_col_ptr_array);
+                    check_ptr_array("Atmp_diag_ptr_array", lbatch_count, Atmp_diag_ptr_array);
 
                     check_ptr_array("Atmp_ptr_array", batch_count, Atmp_ptr_array);
 
-                    if(need_V)
-                    {
-                        check_ptr_array("Vtmp_ptr_array", batch_count, Vtmp_ptr_array);
-                        check_ptr_array("Vtmp_row_ptr_array", lbatch_count, Vtmp_row_ptr_array);
-                        check_ptr_array("Vtmp_col_ptr_array", lbatch_count, Vtmp_col_ptr_array);
+                if (need_V) {
+                    check_ptr_array("Vtmp_row_ptr_array", lbatch_count, Vtmp_row_ptr_array);
+                    check_ptr_array("Vtmp_col_ptr_array", lbatch_count, Vtmp_col_ptr_array);
+                    check_ptr_array("Vtmp_diag_ptr_array", lbatch_count, Vtmp_diag_ptr_array);
 
-                        check_ptr_array("Vtmp_last_row_ptr_array", batch_count_remain,
-                                        Vtmp_last_row_ptr_array);
-                        check_ptr_array("Vtmp_last_col_ptr_array", batch_count_remain,
-                                        Vtmp_last_col_ptr_array);
-                    }
+                    check_ptr_array("Vtmp_ptr_array", batch_count, Vtmp_ptr_array);
+		}
+
 
 #endif
                 }
 
+                    TRACE(2);
                 {
                     // ------------------------
-                    // reorder and copy to Atmp, Vtmp
+                    // reorder and copy blocks to Atmp, 
+		    // and to Vtmp if needed
                     // ------------------------
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = false;
+                    bool const use_schedule = true;
 
                     if(!use_schedule)
                     {
+
+		    I const ldgmat = nblocks;
+		    Istride const strideGmat = (nblocks * nblocks);
+                    ROCSOLVER_LAUNCH_KERNEL((symmetrize_matrix_kernel<S, I, S*, Istride>),
+                                    dim3(1, 1, nbz), dim3(nx, 1, 1), 0, stream, 
+				    c_uplo, n, 
+				    Gmat, shift_zero, ldgmat, strideGmat, 
+				    batch_count_remain);
+
                         pgreedy_mwm(nblocks, Gmat, mate_array, batch_count_remain, stream);
                     }
 
@@ -3645,8 +3777,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             ROCSOLVER_LAUNCH_KERNEL(
                                 (reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
                                 dim3(nx, ny, 1), 0, stream, c_direction, n, nb, null_row_map,
-                                col_map, stride_map, Vtmp, shiftVtmp, ldvtmp, strideVtmp, Atmp,
-                                shiftAtmp, ldatmp, strideAtmp, batch_count_remain);
+                                col_map, stride_map, 
+				Vtmp_ptr_array, shiftVtmp, ldvtmp, strideVtmp, 
+				Atmp_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+				batch_count_remain);
 
                             swap(Atmp, Vtmp);
                             swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
@@ -3657,12 +3791,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             swap(Atmp_diag_ptr_array, Vtmp_diag_ptr_array);
                             swap(Atmp_last_diag_ptr_array, Vtmp_last_diag_ptr_array);
+
+			    swap(strideAtmp, strideVtmp);
+			    swap(ldatmp,ldvtmp);
+			    swap(shiftAtmp, shiftVtmp);
                         }
 
                         ROCSOLVER_LAUNCH_KERNEL(
                             (reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz), dim3(nx, ny, 1),
-                            0, stream, c_direction, n, nb, row_map, col_map, stride_map, A, shiftA,
-                            lda, strideA, Atmp, shiftAtmp, ldatmp, strideAtmp, batch_count_remain);
+                            0, stream, c_direction, n, nb, row_map, col_map, stride_map, 
+			    A_ptr_array, shiftA, lda, strideA, 
+			    Atmp_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+			    batch_count_remain);
                     }
 
                     TRACE(2);
@@ -3684,20 +3824,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             I const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
                             ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
-                                                    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0,
-                                                    stream, cl_uplo, m1, n1, Atmp_diag_ptr_array,
-                                                    shiftAtmp, lda, strideA_diag, Aj_ptr_array,
-                                                    shiftAj, ldaj, strideAj, lbatch_count);
+				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream, 
+				    cl_uplo, m1, n1, 
+				    Atmp_diag_ptr_array, shiftAtmp, lda, strideA_diag, 
+				    Aj_ptr_array, shiftAj, ldaj, lstride_Aj, 
+				    lbatch_count);
 
                             TRACE(2);
 
                             I const m2 = (nb + nb_last);
                             I const n2 = (nb + nb_last);
                             ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
-                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                    cl_uplo, m2, n2, Atmp_last_diag_ptr_array,
-                                                    shiftA, lda, strideA, Aj_last_ptr_array,
-                                                    shiftAj, ldaj, strideAj, batch_count_remain);
+				    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+				    cl_uplo, m2, n2, 
+				    Atmp_last_diag_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+				    Aj_last_ptr_array, shiftAj, ldaj, lstride_Aj, 
+				    batch_count_remain);
                         }
 
                         TRACE(2);
@@ -3722,16 +3864,19 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 auto const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
+				Istride const lstride_Vj = (2*nb)*(2*nb);
                                 ROCSOLVER_LAUNCH_KERNEL(
-                                    (laset_kernel<T, I, T**, Istride>), dim3(nbx, nby, nbz2),
-                                    dim3(nx, ny, 1), 0, stream, c_uplo, mm, nn, alpha_offdiag,
-                                    beta_diag, Vj_ptr_array, shiftVj, ldvj, strideVj, lbatch_count);
+                                    (laset_kernel<T, I, T**, Istride>), 
+				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream, 
+				    c_uplo, mm, nn, alpha_offdiag, beta_diag, 
+				    Vj_ptr_array, shiftVj, ldvj, lstride_Vj, 
+				    lbatch_count);
 
                                 ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, T**, Istride>),
-                                                        dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0,
-                                                        stream, c_uplo, mm, nn, alpha_offdiag,
-                                                        beta_diag, Vj_last_ptr_array, shiftVj, ldvj,
-                                                        strideVj, batch_count_remain);
+				    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
+				    c_uplo, mm, nn, alpha_offdiag, beta_diag, 
+				    Vj_last_ptr_array, shiftVj, ldvj, lstride_Vj, 
+				    batch_count_remain);
                             }
 
                             TRACE(2);
@@ -3766,11 +3911,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 auto const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
                                 ROCSOLVER_LAUNCH_KERNEL(
-                                    (rsyevj_small_kernel<T, I, S, T**, Istride>), dim3(1, 1, nbz2),
-                                    dim3(nx, ny, 1), lmemsize, stream, rsyevj_esort, rsyevj_evect,
-                                    uplo, n1, Aj_ptr_array, shiftAj, ldaj, strideAj, rsyevj_atol,
-                                    eps, residual_Aj, rsyevj_max_sweeps, n_sweeps_Aj, W_Aj,
-                                    strideW_Aj, info_Aj, Vj, lstride_Vj, lbatch_count,
+                                    (rsyevj_small_kernel<T, I, S, T**, Istride>), 
+				    dim3(1, 1, nbz2), dim3(nx, ny, 1), lmemsize, stream, 
+				    rsyevj_esort, rsyevj_evect, uplo, n1, 
+				    Aj_ptr_array, shiftAj, ldaj, lstride_Aj, 
+				    rsyevj_atol, eps, residual_Aj, rsyevj_max_sweeps, 
+				    n_sweeps_Aj, W_Aj, strideW_Aj, info_Aj, 
+				    Vj, lstride_Vj, lbatch_count,
                                     d_schedule_small, do_overwrite_A_with_V);
 
                                 TRACE(2);
@@ -3779,13 +3926,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 Istride const lstride_Vj_last = (2 * nb) * (2 * nb);
                                 Istride const strideW_Aj_last = (2 * nb);
                                 ROCSOLVER_LAUNCH_KERNEL(
-                                    (rsyevj_small_kernel<T, I, S, T**, Istride>), dim3(1, 1, nbz),
-                                    dim3(nx, ny, 1), lmemsize, stream, rsyevj_esort, rsyevj_evect,
-                                    uplo, n2, Aj_last_ptr_array, shiftAj, ldaj, strideAj,
+                                    (rsyevj_small_kernel<T, I, S, T**, Istride>), 
+				    dim3(1, 1, nbz), dim3(nx, ny, 1), lmemsize, stream, 
+				    rsyevj_esort, rsyevj_evect, uplo, n2, 
+				    Aj_last_ptr_array, shiftAj, ldaj, lstride_Aj,
                                     rsyevj_atol, eps, residual_Aj_last, rsyevj_max_sweeps,
                                     n_sweeps_Aj_last, W_Aj_last, strideW_Aj_last, info_Aj_last,
-                                    Vj_last, lstride_Vj_last, batch_count_remain, d_schedule_small,
-                                    do_overwrite_A_with_V);
+                                    Vj_last, lstride_Vj_last, batch_count_remain, 
+				    d_schedule_small, do_overwrite_A_with_V);
 
                                 TRACE(2);
                             }
@@ -3812,9 +3960,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         TRACE(2);
 
                         ROCBLAS_CHECK(rocblasCall_gemm(
-                            handle, transA, transB, m1, n1, k1, &alpha, Vj, shiftVj, ldvj, strideVj,
-                            Atmp_row_ptr_array, shiftAtmp, ldatmp, strideAtmp, &beta,
-                            A_row_ptr_array, shiftA, lda, strideA, lbatch_count, work_rocblas));
+                            handle, transA, transB, m1, n1, k1, 
+			    &alpha, 
+			    Vj, shiftVj, ldvj, lstride_Vj,
+                            Atmp_row_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+			    &beta,
+                            A_row_ptr_array, shift_zero, lda, strideA, 
+			    lbatch_count, work_rocblas));
 
                         TRACE(2);
 
@@ -3826,10 +3978,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         auto const k2 = nb + nb_last;
 
                         ROCBLAS_CHECK(rocblasCall_gemm(
-                            handle, transA, transB, m2, n2, k2, &alpha, Vj, shiftVj, ldvj, strideVj,
-                            Atmp_last_row_ptr_array, shiftAtmp, ldatmp, strideAtmp, &beta,
-                            A_last_row_ptr_array, shiftA, lda, strideA, batch_count_remain,
-                            work_rocblas));
+                            handle, transA, transB, m2, n2, k2, 
+			    &alpha, 
+			    Vj, shiftVj, ldvj, lstride_Vj,
+                            Atmp_last_row_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+			    &beta,
+                            A_last_row_ptr_array, shift_zero, lda, strideA, 
+			    batch_count_remain, work_rocblas));
 
                         TRACE(2);
                     }
@@ -3853,24 +4008,30 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         auto const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
                         TRACE(2);
-                        ROCBLAS_CHECK(rocblasCall_gemm(handle, transA, transB, m1, n1, k1, &alpha,
-                                                       Vj_ptr_array, shift_zero, ldvj, strideVj,
-                                                       A_col_ptr_array, shiftA, lda, strideA, &beta,
-                                                       Atmp_col_ptr_array, shiftAtmp, ldatmp,
-                                                       strideAtmp, lbatch_count, work_rocblas));
+                        ROCBLAS_CHECK(rocblasCall_gemm(
+					handle, transA, transB, m1, n1, k1, 
+					&alpha,
+				        Vj_ptr_array, shift_zero, ldvj, lstride_Vj,
+				        A_col_ptr_array, shift_zero, lda, strideA, 
+					&beta,
+				        Atmp_col_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+					lbatch_count, work_rocblas));
 
                         // -----------------------------------------------------------
                         // launch batch list to perform Vj to update last block column
                         // -----------------------------------------------------------
 
                         I const m2 = n;
-                        I const n2 = nb_last;
-                        I const k2 = nb_last;
+                        I const n2 = nb + nb_last;
+                        I const k2 = nb + nb_last;
 
                         TRACE(2);
                         ROCBLAS_CHECK(rocblasCall_gemm(
-                            handle, transA, transB, m2, n2, k2, &alpha, Vj_last_ptr_array, shiftVj,
-                            ldvj, strideVj, A_last_col_ptr_array, shiftA, lda, strideA, &beta,
+                            handle, transA, transB, m2, n2, k2, 
+			    &alpha, 
+			    Vj_last_ptr_array, shiftVj, ldvj, lstride_Vj, 
+			    A_last_col_ptr_array, shift_zero, lda, strideA, 
+			    &beta,
                             Atmp_last_col_ptr_array, shiftAtmp, ldatmp, strideAtmp,
                             batch_count_remain, work_rocblas));
                     }
@@ -3888,20 +4049,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         I const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
                         ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
-                                                dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
-                                                cl_uplo, m1, n1, Aj_ptr_array, shiftAj, ldaj,
-                                                strideAj, Atmp_diag_ptr_array, shiftAtmp, lda,
-                                                strideA_diag, lbatch_count);
+					dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+					cl_uplo, m1, n1, 
+					Aj_ptr_array, shiftAj, ldaj, lstride_Aj, 
+					Atmp_diag_ptr_array, shiftAtmp, lda, strideA_diag, 
+					lbatch_count);
 
                         TRACE(2);
 
                         I const m2 = (nb + nb_last);
                         I const n2 = (nb + nb_last);
                         ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
-                                                dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                cl_uplo, m2, n2, Aj_last_ptr_array, shiftAj, ldaj,
-                                                strideAj, Atmp_last_diag_ptr_array, shiftA, lda,
-                                                strideA, batch_count_remain);
+					dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+					cl_uplo, m2, n2, 
+					Aj_last_ptr_array, shiftAj, ldaj, lstride_Aj, 
+					Atmp_last_diag_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+					batch_count_remain);
                     }
 
                     TRACE(2);
@@ -3912,44 +4075,62 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // -----------------------------
                         char const c_direction = 'B';
 
-                        ROCSOLVER_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
-                                                dim3(nx, ny, 1), 0, stream, c_direction, n, nb,
-                                                (use_adjust_schedule) ? nullptr : row_map,
-                                                (use_adjust_schedule) ? nullptr : col_map, stride_map,
-
-                                                Atmp, shiftAtmp, ldatmp, strideAtmp, A, shiftA, lda,
-                                                strideA, batch_count);
+                        ROCSOLVER_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>), 
+				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
+				c_direction, n, nb,
+				(use_adjust_schedule) ? nullptr : row_map,
+				(use_adjust_schedule) ? nullptr : col_map, 
+				stride_map,
+				Atmp_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+				A_ptr_array, shiftA, lda, strideA, 
+				batch_count_remain);
                     }
 
                     TRACE(2);
 
                     if(need_V)
                     {
-                        // launch batch list to perform Vj to update block columns for eigen vectors
-                        // launch batch list to perform Vj to update last block columns for eigen vectors
+			// -------------------------------------------------------
+                        // launch batch list to perform Vj to update block columns 
+			// for eigen vectors
+			//
+			// Atmp <- Vtmp * Vj
+			// -------------------------------------------------------
 
                         T alpha = 1;
                         T beta = 0;
 
-                        I m1 = n;
-                        I n1 = (2 * nb);
-                        I k1 = (2 * nb);
+                        I const m1 = n;
+                        I const n1 = (2 * nb);
+                        I const k1 = (2 * nb);
+
+			auto const lbatch = (nblocks_half - 1)*batch_count_remain;
 
                         ROCBLAS_CHECK(rocblasCall_gemm(
                             handle, rocblas_operation_none, rocblas_operation_none, m1, n1, k1,
-                            &alpha, Vj_ptr_array, shift_zero, ldvj, strideVj, Vtmp_col_ptr_array,
-                            shift_zero, ldvtmp, strideVtmp, &beta, Atmp_col_ptr_array, shift_zero,
-                            ldatmp, strideAtmp, (nblocks_half - 1) * batch_count, work_rocblas));
+                            &alpha, 
+			    Vtmp_col_ptr_array, shiftVtmp, ldvtmp, strideVtmp, 
+			    Vj_ptr_array, shiftVj, ldvj, lstride_Vj, 
+			    &beta, 
+			    Atmp_col_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+			    lbatch_count, work_rocblas));
 
-                        I m2 = n;
-                        I n2 = nb + nb_last;
-                        I k2 = nb + nb_last;
+			// ------------------------------------------------------------
+                        // launch batch list to perform Vj to update last block columns 
+			// for eigen vectors
+			// ------------------------------------------------------------
+                        I const m2 = n;
+                        I const n2 = nb + nb_last;
+                        I const k2 = nb + nb_last;
 
                         ROCBLAS_CHECK(rocblasCall_gemm(
-                            handle, rocblas_operation_none, rocblas_operation_none, m2, n2, k2, &alpha,
-                            Vj_last_ptr_array, shift_zero, ldvj, strideVj, Vtmp_last_col_ptr_array,
-                            shift_zero, ldvtmp, strideVtmp, &beta, Atmp_last_col_ptr_array,
-                            shift_zero, ldatmp, strideAtmp, batch_count, work_rocblas));
+                            handle, rocblas_operation_none, rocblas_operation_none, m2, n2, k2, 
+			    &alpha,
+			    Vtmp_last_col_ptr_array, shiftVtmp, ldvtmp, strideVtmp, 
+                            Vj_last_ptr_array, shiftVj, ldvj, lstride_Vj, 
+			    &beta, 
+			    Atmp_last_col_ptr_array, shiftAtmp, ldatmp, strideAtmp, 
+			    batch_count_remain, work_rocblas));
 
                         swap(Atmp, Vtmp);
                         swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
@@ -3960,6 +4141,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         swap(Atmp_diag_ptr_array, Vtmp_diag_ptr_array);
                         swap(Atmp_last_diag_ptr_array, Vtmp_last_diag_ptr_array);
+
+			swap(strideAtmp, strideVtmp);
+			swap(ldatmp,ldvtmp);
+			swap(shiftAtmp, shiftVtmp);
                     }
                 }
             } // end for iround
