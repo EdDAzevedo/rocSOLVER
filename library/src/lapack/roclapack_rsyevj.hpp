@@ -3,9 +3,6 @@
  * Gotlub & Van Loan (1996). Matrix Computations (3rd ed.).
  *     John Hopkins University Press.
  *     Section 8.4.
- * and
- * Hari & Kovac (2019). On the Convergence of Complex Jacobi Methods.
- *     Linear and Multilinear Algebra 69(3), p. 489-514.
  * Copyright (C) 2021-2024 Advanced Micro Devices, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,7 +40,7 @@ ROCSOLVER_BEGIN_NAMESPACE
 static constexpr int idebug = 1;
 #define TRACE(ival)                                       \
     {                                                     \
-        auto istat = hipDeviceSynchronize();              \
+        auto const istat = hipDeviceSynchronize();        \
         if(idebug >= ival)                                \
         {                                                 \
             printf("trace: %s:%d\n", __FILE__, __LINE__); \
@@ -372,6 +369,27 @@ static constexpr int idebug = 1;
 
 /************** CPU functions                              *******************/
 /*****************************************************************************/
+static size_t  get_lds()
+{
+    size_t const default_lds_size = 64 * 1024;
+
+    int lds_size = 0;
+    int deviceId = 0;
+    auto istat_device = hipGetDevice(&deviceId);
+    if(istat_device != hipSuccess)
+    {
+        return (default_lds_size);
+    };
+    auto const attr = hipDeviceAttributeMaxSharedMemoryPerBlock;
+    auto const istat_attr = hipDeviceGetAttribute(&lds_size, attr, deviceId);
+    if(istat_attr != hipSuccess)
+    {
+        return (default_lds_size);
+    };
+
+    return (lds_size);
+}
+
 
 // -----------------------------------------------------
 // CPU code to generate tournament schedule to identity
@@ -504,10 +522,11 @@ static void adjust_schedule(I const nplayers, std::vector<I>& schedule)
     I const num_rounds = (nplayers - 1);
     assert(schedule.size() >= (num_rounds * nplayers));
 
-    for(I iround = 0; iround < num_rounds; iround++)
-    {
         std::vector<I> new2old(nplayers);
         std::vector<I> old2new(nplayers);
+
+    for(I iround = 0; iround < num_rounds; iround++)
+    {
 
         // ---------------------------
         // form new2old(:) permutation
@@ -1043,14 +1062,16 @@ static __device__ void lacpy_body(char const uplo,
     bool const use_lower = (uplo == 'L') || (uplo == 'l');
     bool const use_full = (!use_upper) && (!use_lower);
 
+    auto idx2D = [](auto i, auto j, auto ld) {
+	    return( i + j * static_cast<int64_t>(ld) );
+    };
+
     auto A = [=](auto i, auto j) -> const T& {
-        assert((0 <= i) && (i < m) && (i < lda) && (0 <= j) && (j < n));
 
         return (A_[idx2D(i, j, lda)]);
     };
 
     auto B = [=](auto i, auto j) -> T& {
-        assert((0 <= i) && (i < m) && (i < ldb) && (0 <= j) && (j < n));
 
         return (B_[idx2D(i, j, ldb)]);
     };
@@ -1448,7 +1469,7 @@ __global__ static void copy_diagonal_kernel(I const n,
 // ---------------------------------
 // copy m by n submatrix from A to C
 // launch as
-// dim3(nbx,nby,min(max_blocks,batch_count)), dim3(nx,ny,1)
+// dim3(nbx,nby,nbz), dim3(nx,ny,1)
 // ---------------------------------
 template <typename T, typename I, typename AA, typename CC, typename Istride>
 __global__ static void lacpy_kernel(char const uplo,
@@ -1533,14 +1554,14 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
     // note the use of uint16_t
     // ------------------------
 
-    auto constexpr MAX_LDS = 64 * 1000;
-    auto constexpr MAX_N = (MAX_LDS - sizeof(int)) / (sizeof(bool) + sizeof(int16_t));
 
+    extern __shared__ double lmem[];
     __shared__ int nmate;
-    __shared__ int16_t iwmax[MAX_N];
-    __shared__ bool is_matched[MAX_N];
 
-    assert(n <= MAX_N);
+    std::byte *pfree = (std::byte *) lmem;
+    uint16_t *iwmax = (uint16_t *) pfree; pfree += sizeof(uint16_t) * n;
+    bool *is_matched = (bool *) pfree; pfree += sizeof(bool) * n;
+
 
     auto const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x
         + hipThreadIdx_z * (hipBlockDim_x * hipBlockDim_y);
@@ -1566,7 +1587,7 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
     for(I ij = i_start; ij < n; ij += i_inc)
     {
         is_matched[ij] = false;
-        iwmax[ij] = -1;
+        iwmax[ij] = 0;
     }
 
     __syncthreads();
@@ -1714,7 +1735,11 @@ static void pgreedy_mwm(I const n,
 
     auto const nblocks = std::min(MAX_BLOCKS, batch_count);
 
-    pgreedy_mwm_kernel<T, I><<<dim3(1, 1, nblocks), dim3(nthreads, 1, 1), 0, stream>>>(
+    size_t const lmem_size = n * (sizeof(uint16_t) + sizeof(bool));
+    size_t const max_lds =  get_lds();
+    assert( lmem_size + sizeof(int) <= max_lds );
+
+    pgreedy_mwm_kernel<T, I><<<dim3(1, 1, nblocks), dim3(nthreads, 1, 1), lmem_size, stream>>>(
         n, G_array, mate_array, batch_count);
 }
 
@@ -2242,17 +2267,17 @@ __global__ static void setup_ptr_arrays_kernel(
         auto const ilast_row = (nblocks_half - 1) * (2 * nb);
         auto const jlast_col = (nblocks_half - 1) * (2 * nb);
 
-        A_last_row_ptr_array[ibatch] = A_p + shiftA + idx2D(ilast_row, 0, lda);
-        A_last_col_ptr_array[ibatch] = A_p + shiftA + idx2D(0, jlast_col, lda);
-        A_last_diag_ptr_array[ibatch] = A_p + shiftA + idx2D(ilast_row, jlast_col, lda);
+        A_last_row_ptr_array[ibatch]  = A_p + idx2D(ilast_row, 0, lda);
+        A_last_col_ptr_array[ibatch]  = A_p + idx2D(0, jlast_col, lda);
+        A_last_diag_ptr_array[ibatch] = A_p + idx2D(ilast_row, jlast_col, lda);
 
-        Atmp_last_row_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(ilast_row, 0, ldatmp);
-        Atmp_last_col_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(0, jlast_col, ldatmp);
-        Atmp_last_diag_ptr_array[ibatch] = Atmp_p + shiftAtmp + idx2D(ilast_row, jlast_col, ldatmp);
+        Atmp_last_row_ptr_array[ibatch]  = Atmp_p + idx2D(ilast_row, 0, ldatmp);
+        Atmp_last_col_ptr_array[ibatch]  = Atmp_p + idx2D(0, jlast_col, ldatmp);
+        Atmp_last_diag_ptr_array[ibatch] = Atmp_p + idx2D(ilast_row, jlast_col, ldatmp);
 
-        Vtmp_last_row_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(ilast_row, 0, ldvtmp);
-        Vtmp_last_col_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(0, jlast_col, ldvtmp);
-        Vtmp_last_diag_ptr_array[ibatch] = Vtmp_p + shiftVtmp + idx2D(ilast_row, jlast_col, ldvtmp);
+        Vtmp_last_row_ptr_array[ibatch]  = Vtmp_p + idx2D(ilast_row, 0, ldvtmp);
+        Vtmp_last_col_ptr_array[ibatch]  = Vtmp_p + idx2D(0, jlast_col, ldvtmp);
+        Vtmp_last_diag_ptr_array[ibatch] = Vtmp_p + idx2D(ilast_row, jlast_col, ldvtmp);
 
         {
             for(auto i = i_start; i < (nblocks_half - 1); i += i_inc)
@@ -2285,10 +2310,9 @@ __global__ static void setup_ptr_arrays_kernel(
                 // ----------------
 
                 I const irow = i * (2 * nb);
-                I const jcol = 0;
-                A_row_ptr_array[ip] = A_p + shiftA + idx2D(irow, jcol, lda);
-                Atmp_row_ptr_array[ip] = Atmp_p + shiftAtmp + idx2D(irow, jcol, ldatmp);
-                Vtmp_row_ptr_array[ip] = Vtmp_p + shiftVtmp + idx2D(irow, jcol, ldvtmp);
+                A_row_ptr_array[ip]    = A_p    + idx2D(irow, 0, lda);
+                Atmp_row_ptr_array[ip] = Atmp_p + idx2D(irow, 0, ldatmp);
+                Vtmp_row_ptr_array[ip] = Vtmp_p + idx2D(irow, 0, ldvtmp);
 
                 assert(A_row_ptr_array[ip] != nullptr);
                 assert(Atmp_row_ptr_array[ip] != nullptr);
@@ -2300,12 +2324,11 @@ __global__ static void setup_ptr_arrays_kernel(
                 // set col pointers
                 // ----------------
 
-                I const irow = 0;
                 I const jcol = i * (2 * nb);
 
-                A_col_ptr_array[ip] = A_p + shiftA + idx2D(irow, jcol, lda);
-                Atmp_col_ptr_array[ip] = Atmp_p + shiftAtmp + idx2D(irow, jcol, ldatmp);
-                Vtmp_col_ptr_array[ip] = Vtmp_p + shiftVtmp + idx2D(irow, jcol, ldvtmp);
+                A_col_ptr_array[ip]    = A_p    + idx2D(0, jcol, lda);
+                Atmp_col_ptr_array[ip] = Atmp_p + idx2D(0, jcol, ldatmp);
+                Vtmp_col_ptr_array[ip] = Vtmp_p + idx2D(0, jcol, ldvtmp);
 
                 assert(A_col_ptr_array[ip] != nullptr);
                 assert(Atmp_col_ptr_array[ip] != nullptr);
@@ -2320,9 +2343,9 @@ __global__ static void setup_ptr_arrays_kernel(
                 I const irow_diag = i * (2 * nb);
                 I const jcol_diag = irow_diag;
 
-                A_diag_ptr_array[ip] = A_p + shiftA + idx2D(irow_diag, jcol_diag, lda);
-                Atmp_diag_ptr_array[ip] = Atmp_p + shiftAtmp + idx2D(irow_diag, jcol_diag, ldatmp);
-                Vtmp_diag_ptr_array[ip] = Vtmp_p + shiftVtmp + idx2D(irow_diag, jcol_diag, ldvtmp);
+                A_diag_ptr_array[ip]    = A_p    + idx2D(irow_diag, jcol_diag, lda);
+                Atmp_diag_ptr_array[ip] = Atmp_p + idx2D(irow_diag, jcol_diag, ldatmp);
+                Vtmp_diag_ptr_array[ip] = Vtmp_p + idx2D(irow_diag, jcol_diag, ldvtmp);
 
                 assert(A_diag_ptr_array[ip] != nullptr);
                 assert(Atmp_diag_ptr_array[ip] != nullptr);
@@ -3151,7 +3174,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(RSYEVJ_BDIM)
 
     size_t const total_size = size_cosine + size_sine + size_A + size_V;
 
-    size_t const max_lds = 64 * 1024;
+    size_t const max_lds = 64 * 1000;
     bool const can_use_lds = (total_size <= max_lds);
     // ---------------------------------------------
     // check cosine and sine arrays still fit in LDS
@@ -3477,8 +3500,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         setup_schedule(nplayers, h_schedule_small, d_schedule_small, stream);
 
         {
-            size_t const lmemsize = 64 * 1024;
-            Istride const strideAcpy = n * n;
+            size_t const lmemsize = get_lds();
+            Istride const strideAcpy = Istride(n) * n;
             ROCSOLVER_LAUNCH_KERNEL((rsyevj_small_kernel<T, I, S, U, Istride>),
                                     dim3(1, 1, batch_count), dim3(ddx, ddy, 1), lmemsize, stream,
                                     esort, evect, uplo, n, A, shiftA, lda, strideA, atol, eps,
@@ -3514,7 +3537,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         // ---------------------
         // launch configurations
         // ---------------------
-        auto const max_lds = 64 * 1024;
+        auto const max_lds = get_lds();
         auto const max_blocks = 64 * 1000;
         auto const nx = NX_THREADS;
         auto const ny = RSYEVJ_BDIM / nx;
@@ -3554,7 +3577,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         {
             for(I iround = 0; iround < num_rounds; iround++)
             {
-                /*
+/**
  * Main algorithm in each iteration:
  *
  * Note Atmp is a temporary copy of A
@@ -3598,12 +3621,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
  *
  * (9) swap(Atmp,Vtmp)
  *
- */
+**/
 
                 {
 #ifdef NDEBUG
 #else
-                    TRACE(1);
+                    TRACE(2);
                     if(idebug >= 1)
                     {
                         I* const n_unsymmetric = info_Aj;
@@ -3626,7 +3649,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         }
                     }
 
-                    TRACE(1);
+                    TRACE(2);
 #endif
 
                     // -----------------------------------------------------
@@ -3646,6 +3669,20 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     ROCSOLVER_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1),
                                             shmem_size, stream, n, nb, Gmat, residual, completed,
                                             batch_count);
+
+#ifdef NDEGBUG
+#else
+	    if (idebug >= 1) {
+		    std::vector<S> h_residual(batch_count);
+		    HIP_CHECK( hipMemcpy( &(h_residual[0]), residual, sizeof(S)*batch_count, 
+				    hipMemcpyDeviceToHost ) );
+
+		    for(I bid=0; bid < batch_count; bid++) {
+			    printf("h_residual[%d] = %le\n", bid, h_residual[bid]);
+		    }
+	    }
+#endif
+
 
                     {
                         // --------------------------------------------
@@ -3802,7 +3839,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     // ------------------------
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = false;
+                    bool const use_schedule = true;
 
                     if(!use_schedule)
                     {
@@ -3950,7 +3987,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 // -----------------------------------------
                                 bool const do_overwrite_A_with_V = false;
                                 rocblas_esort const rsyevj_esort = rocblas_esort_none;
-                                size_t const lmemsize = 64 * 1024;
+                                size_t const lmemsize = get_lds();
 
                                 // ---------------------------
                                 // no need for too many sweeps
