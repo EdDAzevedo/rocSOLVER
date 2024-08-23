@@ -369,7 +369,7 @@ static constexpr int idebug = 1;
 
 /************** CPU functions                              *******************/
 /*****************************************************************************/
-static size_t  get_lds()
+static size_t get_lds()
 {
     size_t const default_lds_size = 64 * 1024;
 
@@ -389,7 +389,6 @@ static size_t  get_lds()
 
     return (lds_size);
 }
-
 
 // -----------------------------------------------------
 // CPU code to generate tournament schedule to identity
@@ -522,12 +521,11 @@ static void adjust_schedule(I const nplayers, std::vector<I>& schedule)
     I const num_rounds = (nplayers - 1);
     assert(schedule.size() >= (num_rounds * nplayers));
 
-        std::vector<I> new2old(nplayers);
-        std::vector<I> old2new(nplayers);
+    std::vector<I> new2old(nplayers);
+    std::vector<I> old2new(nplayers);
 
     for(I iround = 0; iround < num_rounds; iround++)
     {
-
         // ---------------------------
         // form new2old(:) permutation
         // ---------------------------
@@ -1062,19 +1060,11 @@ static __device__ void lacpy_body(char const uplo,
     bool const use_lower = (uplo == 'L') || (uplo == 'l');
     bool const use_full = (!use_upper) && (!use_lower);
 
-    auto idx2D = [](auto i, auto j, auto ld) {
-	    return( i + j * static_cast<int64_t>(ld) );
-    };
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
-    auto A = [=](auto i, auto j) -> const T& {
+    auto A = [=](auto i, auto j) -> const T& { return (A_[idx2D(i, j, lda)]); };
 
-        return (A_[idx2D(i, j, lda)]);
-    };
-
-    auto B = [=](auto i, auto j) -> T& {
-
-        return (B_[idx2D(i, j, ldb)]);
-    };
+    auto B = [=](auto i, auto j) -> T& { return (B_[idx2D(i, j, ldb)]); };
 
     for(auto j = j_start; j < n; j += j_inc)
     {
@@ -1554,14 +1544,14 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
     // note the use of uint16_t
     // ------------------------
 
-
     extern __shared__ double lmem[];
     __shared__ int nmate;
 
-    std::byte *pfree = (std::byte *) lmem;
-    uint16_t *iwmax = (uint16_t *) pfree; pfree += sizeof(uint16_t) * n;
-    bool *is_matched = (bool *) pfree; pfree += sizeof(bool) * n;
-
+    std::byte* pfree = (std::byte*)lmem;
+    uint16_t* iwmax = (uint16_t*)pfree;
+    pfree += sizeof(uint16_t) * n;
+    bool* is_matched = (bool*)pfree;
+    pfree += sizeof(bool) * n;
 
     auto const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x
         + hipThreadIdx_z * (hipBlockDim_x * hipBlockDim_y);
@@ -1736,8 +1726,8 @@ static void pgreedy_mwm(I const n,
     auto const nblocks = std::min(MAX_BLOCKS, batch_count);
 
     size_t const lmem_size = n * (sizeof(uint16_t) + sizeof(bool));
-    size_t const max_lds =  get_lds();
-    assert( lmem_size + sizeof(int) <= max_lds );
+    size_t const max_lds = get_lds();
+    assert(lmem_size + sizeof(int) <= max_lds);
 
     pgreedy_mwm_kernel<T, I><<<dim3(1, 1, nblocks), dim3(nthreads, 1, 1), lmem_size, stream>>>(
         n, G_array, mate_array, batch_count);
@@ -2267,16 +2257,16 @@ __global__ static void setup_ptr_arrays_kernel(
         auto const ilast_row = (nblocks_half - 1) * (2 * nb);
         auto const jlast_col = (nblocks_half - 1) * (2 * nb);
 
-        A_last_row_ptr_array[ibatch]  = A_p + idx2D(ilast_row, 0, lda);
-        A_last_col_ptr_array[ibatch]  = A_p + idx2D(0, jlast_col, lda);
+        A_last_row_ptr_array[ibatch] = A_p + idx2D(ilast_row, 0, lda);
+        A_last_col_ptr_array[ibatch] = A_p + idx2D(0, jlast_col, lda);
         A_last_diag_ptr_array[ibatch] = A_p + idx2D(ilast_row, jlast_col, lda);
 
-        Atmp_last_row_ptr_array[ibatch]  = Atmp_p + idx2D(ilast_row, 0, ldatmp);
-        Atmp_last_col_ptr_array[ibatch]  = Atmp_p + idx2D(0, jlast_col, ldatmp);
+        Atmp_last_row_ptr_array[ibatch] = Atmp_p + idx2D(ilast_row, 0, ldatmp);
+        Atmp_last_col_ptr_array[ibatch] = Atmp_p + idx2D(0, jlast_col, ldatmp);
         Atmp_last_diag_ptr_array[ibatch] = Atmp_p + idx2D(ilast_row, jlast_col, ldatmp);
 
-        Vtmp_last_row_ptr_array[ibatch]  = Vtmp_p + idx2D(ilast_row, 0, ldvtmp);
-        Vtmp_last_col_ptr_array[ibatch]  = Vtmp_p + idx2D(0, jlast_col, ldvtmp);
+        Vtmp_last_row_ptr_array[ibatch] = Vtmp_p + idx2D(ilast_row, 0, ldvtmp);
+        Vtmp_last_col_ptr_array[ibatch] = Vtmp_p + idx2D(0, jlast_col, ldvtmp);
         Vtmp_last_diag_ptr_array[ibatch] = Vtmp_p + idx2D(ilast_row, jlast_col, ldvtmp);
 
         {
@@ -2310,7 +2300,7 @@ __global__ static void setup_ptr_arrays_kernel(
                 // ----------------
 
                 I const irow = i * (2 * nb);
-                A_row_ptr_array[ip]    = A_p    + idx2D(irow, 0, lda);
+                A_row_ptr_array[ip] = A_p + idx2D(irow, 0, lda);
                 Atmp_row_ptr_array[ip] = Atmp_p + idx2D(irow, 0, ldatmp);
                 Vtmp_row_ptr_array[ip] = Vtmp_p + idx2D(irow, 0, ldvtmp);
 
@@ -2326,7 +2316,7 @@ __global__ static void setup_ptr_arrays_kernel(
 
                 I const jcol = i * (2 * nb);
 
-                A_col_ptr_array[ip]    = A_p    + idx2D(0, jcol, lda);
+                A_col_ptr_array[ip] = A_p + idx2D(0, jcol, lda);
                 Atmp_col_ptr_array[ip] = Atmp_p + idx2D(0, jcol, ldatmp);
                 Vtmp_col_ptr_array[ip] = Vtmp_p + idx2D(0, jcol, ldvtmp);
 
@@ -2343,7 +2333,7 @@ __global__ static void setup_ptr_arrays_kernel(
                 I const irow_diag = i * (2 * nb);
                 I const jcol_diag = irow_diag;
 
-                A_diag_ptr_array[ip]    = A_p    + idx2D(irow_diag, jcol_diag, lda);
+                A_diag_ptr_array[ip] = A_p + idx2D(irow_diag, jcol_diag, lda);
                 Atmp_diag_ptr_array[ip] = Atmp_p + idx2D(irow_diag, jcol_diag, ldatmp);
                 Vtmp_diag_ptr_array[ip] = Vtmp_p + idx2D(irow_diag, jcol_diag, ldvtmp);
 
@@ -3028,12 +3018,6 @@ __global__ static void set_completed_kernel(I const n,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        bool const is_already_completed = completed[bid + 1];
-        if(is_already_completed)
-        {
-            continue;
-        };
-
         S const anorm = Anorm[bid];
         S const gnorm = residual[bid];
         bool const is_completed = (gnorm <= abstol * anorm);
@@ -3047,11 +3031,15 @@ __global__ static void set_completed_kernel(I const n,
 
         if(is_completed)
         {
-            n_sweeps[bid] = h_sweeps;
+            n_sweeps[bid] = std::min(n_sweeps[bid], h_sweeps);
 
             atomicAdd(&(completed[0]), 1);
         };
+        // debug
+        printf("bid=%d,anorm=%le,gnorm=%le,abstol=%le,is_completed=%d,completed[0]=%d\n", bid,
+               (double)anorm, (double)gnorm, (double)abstol, (int)is_completed, (int)completed[0]);
     }
+    __syncthreads();
 }
 
 #if(0)
@@ -3566,18 +3554,38 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
             auto const shmem_size = sizeof(S);
             ROCSOLVER_LAUNCH_KERNEL((sum_Gmat<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1), shmem_size,
-                                    stream, n, nb, Gmat, residual, completed, batch_count);
+                                    stream, n, nb, Gmat, Amat_norm, completed, batch_count);
         }
+#ifdef NDEBUG
+#else
+        if(idebug >= 1)
+        {
+            std::vector<S> h_Amat_norm(batch_count);
+            HIP_CHECK(hipMemcpy(&(h_Amat_norm[0]), Amat_norm, sizeof(S) * batch_count,
+                                hipMemcpyDeviceToHost));
+            for(I bid = 0; bid < batch_count; bid++)
+            {
+                printf("Amat_norm[%d] = %le\n", bid, (double)h_Amat_norm[bid]);
+            }
+        }
+#endif
 
         I n_completed = 0;
         I h_sweeps = 0;
         bool is_converged = false;
 
-        for(h_sweeps = 0; h_sweeps < max_sweeps; h_sweeps++)
+        {
+            int const ival = std::numeric_limits<int>::max();
+            size_t const nbytes = sizeof(I) * batch_count;
+            void* const dst = (void*)n_sweeps;
+            HIP_CHECK(hipMemsetAsync(dst, ival, nbytes, stream));
+        }
+
+        for(h_sweeps = 0; (h_sweeps < max_sweeps) && (!is_converged); h_sweeps++)
         {
             for(I iround = 0; iround < num_rounds; iround++)
             {
-/**
+                /**
  * Main algorithm in each iteration:
  *
  * Note Atmp is a temporary copy of A
@@ -3672,17 +3680,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 #ifdef NDEGBUG
 #else
-	    if (idebug >= 1) {
-		    std::vector<S> h_residual(batch_count);
-		    HIP_CHECK( hipMemcpy( &(h_residual[0]), residual, sizeof(S)*batch_count, 
-				    hipMemcpyDeviceToHost ) );
+                    if(idebug >= 1)
+                    {
+                        std::vector<S> h_residual(batch_count);
+                        HIP_CHECK(hipMemcpy(&(h_residual[0]), residual, sizeof(S) * batch_count,
+                                            hipMemcpyDeviceToHost));
 
-		    for(I bid=0; bid < batch_count; bid++) {
-			    printf("h_residual[%d] = %le\n", bid, h_residual[bid]);
-		    }
-	    }
+                        for(I bid = 0; bid < batch_count; bid++)
+                        {
+                            printf("h_residual[%d] = %le\n", bid, h_residual[bid]);
+                        }
+                    }
 #endif
-
 
                     {
                         // --------------------------------------------
@@ -3692,14 +3701,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         int const ivalue = 0;
                         size_t const nbytes = sizeof(I);
                         HIP_CHECK(hipMemsetAsync(&(completed[0]), ivalue, nbytes, stream));
-                    }
 
-                    auto const nnx = 64;
-                    auto const nnb = ceil(batch_count, nnx);
-                    ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>), dim3(nnb, 1, 1),
-                                            dim3(nnx, 1, 1), 0, stream, n, nb, Amat_norm, abstol,
-                                            h_sweeps, n_sweeps, residual, info, completed,
-                                            batch_count);
+                        auto const nnx = 64;
+                        auto const nnb = std::min(max_blocks, ceil(batch_count, nnx));
+                        ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>),
+                                                dim3(1, 1, 1), dim3(1, 1, 1), 0, stream, n, nb,
+                                                Amat_norm, atol, h_sweeps, n_sweeps, residual, info,
+                                                completed, batch_count);
+                    }
                 }
 
                 {
@@ -3710,7 +3719,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                              hipMemcpyDeviceToHost, stream));
                     HIP_CHECK(hipStreamSynchronize(stream));
 
-                    is_converged = (n_completed == batch_count);
+                    is_converged = (n_completed >= batch_count);
+
+                    //debug
+                    printf("n_completed=%d,batch_count=%d\n", (int)n_completed, (int)batch_count);
+
                     if(is_converged)
                     {
                         break;
@@ -4144,9 +4157,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         I const n2 = (nb + nb_last);
                         ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, T**, Istride>),
                                                 dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                cl_uplo, m2, n2, Aj_last, shift_zero, ldaj, lstride_Aj,
-                                                Atmp_last_diag_ptr_array, shiftAtmp, ldatmp,
-                                                strideAtmp, batch_count_remain);
+                                                cl_uplo, m2, n2, Aj_last, shift_zero, ldaj,
+                                                lstride_Aj, Atmp_last_diag_ptr_array, shiftAtmp,
+                                                ldatmp, strideAtmp, batch_count_remain);
                     }
 
                     TRACE(2);
@@ -4312,7 +4325,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             auto const nnb = ceil(batch_count, nnx);
             TRACE(2);
             ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>), dim3(nnb, 1, 1),
-                                    dim3(nnx, 1, 1), 0, stream, n, nb, Amat_norm, abstol, h_sweeps,
+                                    dim3(nnx, 1, 1), 0, stream, n, nb, Amat_norm, atol, h_sweeps,
                                     n_sweeps, residual, info, completed, batch_count);
         }
         TRACE(2);
