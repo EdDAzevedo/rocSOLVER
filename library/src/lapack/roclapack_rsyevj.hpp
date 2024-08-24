@@ -334,13 +334,19 @@ static constexpr int idebug = 1;
     total_bytes += size_Gmat;
 
 #define ALLOC_SCHEDULE()                                                \
+    I const nplayers_last = nb + nb_last;                               \
     I const nplayers_small = (2 * nb);                                  \
     I const nplayers_large = even_nblocks;                              \
+    I const len_schedule_last = nplayers_last * (nplayers_last - 1);    \
     I const len_schedule_small = nplayers_small * (nplayers_small - 1); \
     I const len_schedule_large = nplayers_large * (nplayers_large - 1); \
                                                                         \
+    size_t const size_schedule_last = sizeof(I) * len_schedule_last;    \
     size_t const size_schedule_small = sizeof(I) * len_schedule_small;  \
     size_t const size_schedule_large = sizeof(I) * len_schedule_large;  \
+                                                                        \
+    I* const d_schedule_last = (I*)pfree;                               \
+    pfree += size_schedule_last;                                        \
                                                                         \
     I* const d_schedule_small = (I*)pfree;                              \
     pfree += size_schedule_small;                                       \
@@ -348,6 +354,7 @@ static constexpr int idebug = 1;
     I* const d_schedule_large = (I*)pfree;                              \
     pfree += size_schedule_large;                                       \
                                                                         \
+    total_bytes += size_schedule_last;                                  \
     total_bytes += size_schedule_small;                                 \
     total_bytes += size_schedule_large;
 
@@ -366,6 +373,23 @@ static constexpr int idebug = 1;
     ALLOC_AJ();           \
     ALLOC_VJ();           \
     ALLOC_SCHEDULE();
+
+#define SWAP_Atmp_Vtmp()                                          \
+    {                                                             \
+        swap(Atmp, Vtmp);                                         \
+        swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);             \
+        swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);             \
+        swap(Atmp_last_row_ptr_array, Vtmp_last_row_ptr_array);   \
+        swap(Atmp_last_col_ptr_array, Vtmp_last_col_ptr_array);   \
+        swap(Atmp_ptr_array, Vtmp_ptr_array);                     \
+                                                                  \
+        swap(Atmp_diag_ptr_array, Vtmp_diag_ptr_array);           \
+        swap(Atmp_last_diag_ptr_array, Vtmp_last_diag_ptr_array); \
+                                                                  \
+        swap(strideAtmp, strideVtmp);                             \
+        swap(ldatmp, ldvtmp);                                     \
+        swap(shiftAtmp, shiftVtmp);                               \
+    }
 
 /************** CPU functions                              *******************/
 /*****************************************************************************/
@@ -3031,7 +3055,7 @@ __global__ static void set_completed_kernel(I const n,
 
         if(is_completed)
         {
-            n_sweeps[bid] = std::min(n_sweeps[bid], h_sweeps);
+            n_sweeps[bid] = (n_sweeps[bid] == 0) ? h_sweeps : std::min(n_sweeps[bid], h_sweeps);
 
             atomicAdd(&(completed[0]), 1);
         };
@@ -3508,12 +3532,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         bool constexpr use_adjust_schedule_large = true;
 
         {
+            std::vector<I> h_schedule_last(len_schedule_last);
             std::vector<I> h_schedule_small(len_schedule_small);
             std::vector<I> h_schedule_large(len_schedule_large);
 
             bool const use_adjust_schedule_small = false;
             setup_schedule(nplayers_small, h_schedule_small, d_schedule_small, stream,
                            use_adjust_schedule_small);
+
+            bool const use_adjust_schedule_last = false;
+            setup_schedule(nplayers_last, h_schedule_last, d_schedule_last, stream,
+                           use_adjust_schedule_last);
 
             setup_schedule(nplayers_large, h_schedule_large, d_schedule_large, stream,
                            use_adjust_schedule_large);
@@ -3573,13 +3602,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         I n_completed = 0;
         I h_sweeps = 0;
         bool is_converged = false;
-
-        {
-            int const ival = std::numeric_limits<int>::max();
-            size_t const nbytes = sizeof(I) * batch_count;
-            void* const dst = (void*)n_sweeps;
-            HIP_CHECK(hipMemsetAsync(dst, ival, nbytes, stream));
-        }
 
         for(h_sweeps = 0; (h_sweeps < max_sweeps) && (!is_converged); h_sweeps++)
         {
@@ -3898,19 +3920,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 col_map, stride_map, Vtmp_ptr_array, shiftVtmp, ldvtmp, strideVtmp,
                                 Atmp_ptr_array, shiftAtmp, ldatmp, strideAtmp, batch_count_remain);
 
-                            swap(Atmp, Vtmp);
-                            swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
-                            swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);
-                            swap(Atmp_last_row_ptr_array, Vtmp_last_row_ptr_array);
-                            swap(Atmp_last_col_ptr_array, Vtmp_last_col_ptr_array);
-                            swap(Atmp_ptr_array, Vtmp_ptr_array);
-
-                            swap(Atmp_diag_ptr_array, Vtmp_diag_ptr_array);
-                            swap(Atmp_last_diag_ptr_array, Vtmp_last_diag_ptr_array);
-
-                            swap(strideAtmp, strideVtmp);
-                            swap(ldatmp, ldvtmp);
-                            swap(shiftAtmp, shiftVtmp);
+                            SWAP_Atmp_Vtmp();
                         }
 
                         ROCSOLVER_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>),
@@ -3967,10 +3977,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             // ----------------------------
 
                             TRACE(2);
+
+                            bool const set_Vj_identity = false;
+                            if(set_Vj_identity)
                             {
                                 char const c_uplo = 'A';
-                                I const mm = (2 * nb);
-                                I const nn = (2 * nb);
+                                I const m1 = (2 * nb);
+                                I const n1 = (2 * nb);
 
                                 T alpha_offdiag = 0;
                                 T beta_diag = 1;
@@ -3981,12 +3994,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 ROCSOLVER_LAUNCH_KERNEL(
                                     (laset_kernel<T, I, T*, Istride>), dim3(nbx, nby, nbz2),
-                                    dim3(nx, ny, 1), 0, stream, c_uplo, mm, nn, alpha_offdiag,
+                                    dim3(nx, ny, 1), 0, stream, c_uplo, m1, n1, alpha_offdiag,
                                     beta_diag, Vj, shift_zero, ldvj, lstride_Vj, lbatch_count);
 
+                                I const m2 = nb + nb_last;
+                                I const n2 = nb + nb_last;
                                 ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, T*, Istride>),
                                                         dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0,
-                                                        stream, c_uplo, mm, nn, alpha_offdiag,
+                                                        stream, c_uplo, m2, n2, alpha_offdiag,
                                                         beta_diag, Vj_last, shift_zero, ldvj,
                                                         lstride_Vj, batch_count_remain);
                             }
@@ -4006,7 +4021,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 // no need for too many sweeps
                                 // since the blocks will be over-written
                                 // ---------------------------
-                                I const rsyevj_max_sweeps = std::min(max_sweeps, 15);
+                                I const rsyevj_max_sweeps = std::min(max_sweeps, 100);
                                 auto const rsyevj_atol = atol / nblocks;
 
                                 // -----------------------------------------
@@ -4041,7 +4056,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                     uplo, n2, Aj_last_ptr_array, shiftAj, ldaj, lstride_Aj,
                                     rsyevj_atol, eps, residual_Aj_last, rsyevj_max_sweeps,
                                     n_sweeps_Aj_last, W_Aj_last, strideW_Aj_last, info_Aj_last,
-                                    Vj_last, lstride_Vj_last, batch_count_remain, d_schedule_small,
+                                    Vj_last, lstride_Vj_last, batch_count_remain, d_schedule_last,
                                     do_overwrite_A_with_V);
 
                                 TRACE(2);
@@ -4179,6 +4194,20 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 (use_adjust_schedule_large) ? nullptr : col_map, stride_map,
                                 Atmp_ptr_array, shiftAtmp, ldatmp, strideAtmp, A_ptr_array, shiftA,
                                 lda, strideA, batch_count_remain);
+
+                            if(need_V && (!use_adjust_schedule_large))
+                            {
+                                I* const null_row_map = nullptr;
+
+                                ROCSOLVER_LAUNCH_KERNEL(
+                                    (reorder_kernel<T, I, Istride>), dim3(nbx, nby, nbz),
+                                    dim3(nx, ny, 1), 0, stream, c_direction, n, nb, null_row_map,
+                                    (use_adjust_schedule_large) ? nullptr : col_map, stride_map,
+                                    Vtmp_ptr_array, shiftVtmp, ldatmp, strideVtmp, Atmp_ptr_array,
+                                    shiftAtmp, ldatmp, strideAtmp, batch_count_remain);
+
+                                SWAP_Atmp_Vtmp();
+                            }
                         }
                         else
                         {
@@ -4234,19 +4263,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             shift_zero, ldvj, lstride_Vj, &beta, Atmp_last_col_ptr_array, shiftAtmp,
                             ldatmp, strideAtmp, batch_count_remain, work_rocblas));
 
-                        swap(Atmp, Vtmp);
-                        swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);
-                        swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);
-                        swap(Atmp_last_row_ptr_array, Vtmp_last_row_ptr_array);
-                        swap(Atmp_last_col_ptr_array, Vtmp_last_col_ptr_array);
-                        swap(Atmp_ptr_array, Vtmp_ptr_array);
-
-                        swap(Atmp_diag_ptr_array, Vtmp_diag_ptr_array);
-                        swap(Atmp_last_diag_ptr_array, Vtmp_last_diag_ptr_array);
-
-                        swap(strideAtmp, strideVtmp);
-                        swap(ldatmp, ldvtmp);
-                        swap(shiftAtmp, shiftVtmp);
+                        SWAP_Atmp_Vtmp();
                     }
                 }
             } // end for iround
@@ -4335,9 +4352,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         {
             // debug
             std::vector<S> h_Gmat(nblocks * nblocks * batch_count);
+            std::vector<I> h_n_sweeps(batch_count);
             std::vector<I> h_info(batch_count);
             std::vector<S> h_residual(batch_count);
             std::vector<I> h_completed(batch_count + 1);
+            std::vector<S> h_W(n * batch_count);
 
             HIP_CHECK(hipMemcpy(&(h_Gmat[0]), Gmat, sizeof(S) * nblocks * nblocks * batch_count,
                                 hipMemcpyDeviceToHost));
@@ -4354,18 +4373,27 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 }
             }
 
+            HIP_CHECK(hipMemcpy(&(h_n_sweeps[0]), n_sweeps, sizeof(I) * batch_count,
+                                hipMemcpyDeviceToHost));
             HIP_CHECK(hipMemcpy(&(h_info[0]), info, sizeof(I) * batch_count, hipMemcpyDeviceToHost));
             HIP_CHECK(hipMemcpy(&(h_residual[0]), residual, sizeof(S) * batch_count,
                                 hipMemcpyDeviceToHost));
             HIP_CHECK(hipMemcpy(&(h_completed[0]), completed, sizeof(I) * (batch_count + 1),
                                 hipMemcpyDeviceToHost));
 
+            HIP_CHECK(hipMemcpy(&(h_W[0]), W, sizeof(S) * n * batch_count, hipMemcpyDeviceToHost));
+
             printf("completed[0] = %d\n", (int)h_completed[0]);
             for(I bid = 0; bid < batch_count; bid++)
             {
-                printf("info[%d] = %d, residual[%d] = %le, completed[%d] = %d\n", bid,
-                       (int)h_info[bid], bid, (double)h_residual[bid], bid,
-                       (int)h_completed[bid + 1]);
+                printf("n_sweeps[%d] = %d, info[%d] = %d, residual[%d] = %le, completed(%d) = %d\n",
+                       (int)bid, (int)h_n_sweeps[bid], (int)bid, (int)h_info[bid], (int)bid,
+                       (double)h_residual[bid], (int)bid, (int)h_completed[bid + 1]);
+
+                for(auto i = 0; i < n; i++)
+                {
+                    printf("W[%d,%d] = %le\n", i, bid, (double)h_W[i + bid * n]);
+                }
             }
         }
 #endif
