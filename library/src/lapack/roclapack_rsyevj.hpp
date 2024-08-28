@@ -4502,7 +4502,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         auto const n1 = n;
                         auto const k1 = 2 * nb;
 
-                        rocblas_operation const transA = rocblas_operation_conjugate_transpose;
+                        rocblas_operation const transA = rocblas_is_complex<T>
+                            ? rocblas_operation_conjugate_transpose
+                            : rocblas_operation_transpose;
                         rocblas_operation const transB = rocblas_operation_none;
 
                         auto const lbatch_count = (nblocks_half - 1) * batch_count_remain;
