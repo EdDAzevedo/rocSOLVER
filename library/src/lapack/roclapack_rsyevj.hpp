@@ -804,10 +804,10 @@ static bool check_schedule(I const nplayers, std::vector<I>& result)
 /************** Kernels and device functions for small size*******************/
 /*****************************************************************************/
 
-static constexpr auto NX_THREADS = 32;
-
 // Max number of threads per thread-block used in rsyevj_small kernel
-static constexpr auto RSYEVJ_BDIM = 1024;
+static constexpr auto NX_THREADS = 32;
+static constexpr auto NY_THREADS = 32;
+static constexpr auto RSYEVJ_BDIM = NX_THREADS * NY_THREADS;
 
 // --------------------------------------------------
 // need to fit n by n copy of A,  cosines, sines, and
@@ -955,12 +955,12 @@ static void check_symmetry(I const n,
     auto const istat = hipMemsetAsync(&(n_unsymmetric[0]), 0, sizeof(I) * batch_count, stream);
     assert(istat == HIP_SUCCESS);
 
-    auto const MAX_BLOCKS = 64 * 1000;
-    auto const nx = 32;
-    auto const ny = 32;
-    auto const nbx = std::min(MAX_BLOCKS, ceil(n, nx));
-    auto const nby = std::min(MAX_BLOCKS, ceil(n, ny));
-    auto const nbz = std::min(MAX_BLOCKS, batch_count);
+    auto const max_thread_blocks = 64 * 1000;
+    auto const nx = NX_THREADS;
+    auto const ny = NY_THREADS;
+    auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
+    auto const nby = std::min(max_thread_blocks, ceil(n, ny));
+    auto const nbz = std::min(max_thread_blocks, batch_count);
 
     check_symmetry_kernel<T, I, UA, Istride><<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(
         n, A_, shiftA, lda, strideA, n_unsymmetric, batch_count);
@@ -3630,12 +3630,39 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         S* const Amat_norm = norms;
 
         ALLOC_ALL();
-
         assert(total_bytes <= size_dwork_byte);
 
+        // ---------------------
+        // launch configurations
+        // ---------------------
+        auto const max_lds = get_lds();
+        auto const max_thread_blocks = 64 * 1000;
+        auto const nx = NX_THREADS;
+        auto const ny = RSYEVJ_BDIM / nx;
+
+        auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
+        auto const nby = std::min(max_thread_blocks, ceil(n, ny));
+        auto const nbz = std::min(max_thread_blocks, batch_count);
+
+        auto update_norm = [=](bool const include_diagonal, S* residual) {
+            // clang-format off
+                ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), 
+				dim3(1, 1, nbz), dim3(nx, ny, 1), 0, stream,
+				n, nb, 
+				A, shiftA, lda, strideA, 
+				Gmat, 
+				include_diagonal, completed, batch_count);
+            // clang-format on
+
+            size_t const shmem_size = sizeof(S);
+            ROCSOLVER_LAUNCH_KERNEL((sum_Gmat_kernel<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1),
+                                    shmem_size, stream, n, nb, Gmat, residual, completed,
+                                    batch_count);
+        };
 #ifdef NDEBUG
 #else
-        auto print_residual = [=](auto batch_count) {
+
+        auto print_residual = [=]() {
             std::vector<S> h_residual(batch_count);
             auto const istat1 = (hipMemcpyAsync(&(h_residual[0]), residual, sizeof(S) * batch_count,
                                                 hipMemcpyDeviceToHost, stream));
@@ -3666,6 +3693,30 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         auto const gij = h_Gmat[ij];
                         printf("Gmat(%d,%d,%d) = %le\n", ib, jb, bid, gij);
                     }
+                }
+            }
+        };
+
+        auto print_mate = [=]() {
+            size_t const len_mate_array = size_mate_array / sizeof(I);
+
+            std::vector<I> h_mate_array(len_mate_array);
+            auto const istat1 = hipMemcpyAsync(&(h_mate_array[0]), mate_array, size_mate_array,
+                                               hipMemcpyDeviceToHost, stream);
+            assert(istat1 == hipSuccess);
+            auto const istat2 = hipStreamSynchronize(stream);
+            assert(istat2 == hipSuccess);
+
+            auto h_mate = [=](auto i, auto j, auto bid) {
+                return (h_mate_array[i + j * 2 + bid * nblocks]);
+            };
+
+            for(I bid = 0; bid < batch_count; bid++)
+            {
+                for(I imate = 0; imate < (nblocks_half); imate++)
+                {
+                    printf("mate(%d,%d) = (%d,%d)\n", (int)imate, (int)bid,
+                           (int)h_mate(0, imate, bid), (int)h_mate(1, imate, bid));
                 }
             }
         };
@@ -3750,17 +3801,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         char const c_uplo = (uplo == rocblas_fill_upper) ? 'U'
             : (uplo == rocblas_fill_lower)               ? 'L'
                                                          : 'A';
-        // ---------------------
-        // launch configurations
-        // ---------------------
-        auto const max_lds = get_lds();
-        auto const max_thread_blocks = 64 * 1000;
-        auto const nx = NX_THREADS;
-        auto const ny = RSYEVJ_BDIM / nx;
-
-        auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
-        auto const nby = std::min(max_thread_blocks, ceil(n, ny));
-        auto const nbz = std::min(max_thread_blocks, batch_count);
         {
             // ---------------------------
             // make matrix to be symmetric
@@ -3780,30 +3820,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         // ----------------------------------
         {
             bool const include_diagonal = true;
-            // clang-format off
-            ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), 
-			    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
-			    n, nb, 
-			    A, shiftA, lda, strideA,
-			    Gmat, 
-			    include_diagonal, completed, batch_count);
-            // clang-format on
-
-            auto const shmem_size = sizeof(S);
-            // clang-format off
-            ROCSOLVER_LAUNCH_KERNEL((sum_Gmat_kernel<S, I>), 
-			    dim3(1, 1, nbz), dim3(nx, ny, 1), shmem_size, stream, 
-			    n, nb, Gmat, Amat_norm, 
-			    completed, batch_count);
-            // clang-format on
+            update_norm(include_diagonal, Amat_norm);
         }
 #ifdef NDEBUG
 #else
         if(idebug >= 1)
         {
             std::vector<S> h_Amat_norm(batch_count);
-            HIP_CHECK(hipMemcpy(&(h_Amat_norm[0]), Amat_norm, sizeof(S) * batch_count,
-                                hipMemcpyDeviceToHost));
+
+            HIP_CHECK(hipMemcpyAsync(&(h_Amat_norm[0]), Amat_norm, sizeof(S) * batch_count,
+                                     hipMemcpyDeviceToHost, stream));
+            HIP_CHECK(hipStreamSynchronize(stream));
+
             for(I bid = 0; bid < batch_count; bid++)
             {
                 printf("Amat_norm[%d] = %le\n", bid, (double)h_Amat_norm[bid]);
@@ -3896,26 +3924,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 // Gmat(0:(nblocks-1), 0:(nblocks-1), 0:(batch_count-1))
                 // -----------------------------------------------------
 
-                bool const include_diagonal = false;
-                // clang-format off
-                ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), 
-				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-				n, nb, 
-				A, shiftA, lda, strideA, 
-				Gmat, 
-				include_diagonal, completed, batch_count);
-                // clang-format on
-
-                size_t const shmem_size = sizeof(S);
-                ROCSOLVER_LAUNCH_KERNEL((sum_Gmat_kernel<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1),
-                                        shmem_size, stream, n, nb, Gmat, residual, completed,
-                                        batch_count);
+                {
+                    bool const include_diagonal = false;
+                    update_norm(include_diagonal, residual);
+                }
 
 #ifdef NDEGBUG
 #else
                 if(idebug >= 1)
                 {
-                    print_residual(batch_count);
+                    TRACE(1);
+                    print_Gmat();
+                    print_residual();
                 }
 #endif
 
@@ -4092,7 +4112,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     // ------------------------
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = true;
+                    bool const use_schedule = false;
 
                     if(!use_schedule)
                     {
@@ -4107,7 +4127,20 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 					batch_count_remain);
                         // clang-format on
 
+                        if(idebug >= 1)
+                        {
+                            bool const include_diagonal = false;
+                            update_norm(include_diagonal, residual);
+                            printf("=== before pgreedy_mwm === \n");
+                            print_Gmat();
+                        }
+
                         pgreedy_mwm(nblocks, Gmat, mate_array, batch_count_remain, stream);
+
+                        if(idebug >= 1)
+                        {
+                            print_mate();
+                        }
                     }
 
                     I const* const col_map_mwm = mate_array;
@@ -4315,7 +4348,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 if(do_overwrite_A_with_V)
                                 {
-                                    SWAP_AJ_VJ();
+                                    bool constexpr use_swap_aj_vj = false;
+                                    if(use_swap_aj_vj)
+                                    {
+                                        SWAP_AJ_VJ();
+                                    }
+                                    else
+                                    {
+                                        HIP_CHECK(hipMemcpyAsync(Vj, Aj, size_Vj_bytes,
+                                                                 hipMemcpyDeviceToDevice, stream));
+                                        HIP_CHECK(hipMemcpyAsync(Vj_last, Aj_last, size_Vj_last_bytes,
+                                                                 hipMemcpyDeviceToDevice, stream));
+                                        HIP_CHECK(hipStreamSynchronize(stream));
+
+                                        assert(size_Vj_bytes == size_Aj_bytes);
+                                        assert(size_Vj_last_bytes == size_Aj_last_bytes);
+                                    }
                                 }
 #ifdef NDEBUG
 #else
@@ -4399,6 +4447,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                     HIP_CHECK(hipMemcpyAsync((void*)&(h_Vj[0]), Vj, size_Vj_bytes,
                                                              hipMemcpyDeviceToHost, stream));
 
+                                    HIP_CHECK(hipStreamSynchronize(stream));
+
                                     check_V(n1, h_Vj, ldvj, lstride_Vj, atol, lbatch_count, isok_Vj);
 
                                     if(!isok_Vj)
@@ -4418,6 +4468,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                                              size_Vj_last_bytes,
                                                              hipMemcpyDeviceToHost, stream));
 
+                                    HIP_CHECK(hipStreamSynchronize(stream));
+
                                     check_V(n2, h_Vj_last, ldvj_last, lstride_Vj_last, atol,
                                             batch_count_remain, isok_Vj_last);
 
@@ -4425,7 +4477,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                     {
                                         printf("==== h_Vj_last ===== \n");
                                         print_V(n2, h_Vj_last, ldvj_last, lstride_Vj_last,
-                                                lbatch_count);
+                                                batch_count_remain);
                                     }
 
                                     assert(isok_Vj_last);
@@ -4624,6 +4676,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     }
 
                     TRACE(2);
+
+                    {
+                        bool const include_diagonal = false;
+                        update_norm(include_diagonal, residual);
+
+                        if(idebug >= 1)
+                        {
+                            TRACE(1);
+                            print_residual();
+                        }
+                    }
 
                     if(need_V)
                     {
