@@ -419,6 +419,40 @@ static constexpr int idebug = 1;
         swap(shift_Atmp, shift_Vtmp);                             \
     }
 
+#define SWAP_A_Atmp()                                          \
+    {                                                          \
+        swap(A, Atmp);                                         \
+        swap(A_row_ptr_array, Atmp_row_ptr_array);             \
+        swap(A_col_ptr_array, Atmp_col_ptr_array);             \
+        swap(A_last_row_ptr_array, Atmp_last_row_ptr_array);   \
+        swap(A_last_col_ptr_array, Atmp_last_col_ptr_array);   \
+        swap(A_ptr_array, Atmp_ptr_array);                     \
+                                                               \
+        swap(A_diag_ptr_array, Atmp_diag_ptr_array);           \
+        swap(A_last_diag_ptr_array, Atmp_last_diag_ptr_array); \
+                                                               \
+        swap(strideA, strideAtmp);                             \
+        swap(lda, ldvtmp);                                     \
+        swap(shift_A, shift_Atmp);                             \
+    }
+
+#define SWAP_A_Vtmp()                                          \
+    {                                                          \
+        swap(A, Vtmp);                                         \
+        swap(A_row_ptr_array, Vtmp_row_ptr_array);             \
+        swap(A_col_ptr_array, Vtmp_col_ptr_array);             \
+        swap(A_last_row_ptr_array, Vtmp_last_row_ptr_array);   \
+        swap(A_last_col_ptr_array, Vtmp_last_col_ptr_array);   \
+        swap(A_ptr_array, Vtmp_ptr_array);                     \
+                                                               \
+        swap(A_diag_ptr_array, Vtmp_diag_ptr_array);           \
+        swap(A_last_diag_ptr_array, Vtmp_last_diag_ptr_array); \
+                                                               \
+        swap(strideA, lstride_Vtmp);                           \
+        swap(lda, ldvtmp);                                     \
+        swap(shift_A, shift_Vtmp);                             \
+    }
+
 #define SWAP_AJ_VJ()                            \
     swap(Vj, Aj);                               \
     swap(Vj_last, Aj_last);                     \
@@ -805,8 +839,8 @@ static bool check_schedule(I const nplayers, std::vector<I>& result)
 /*****************************************************************************/
 
 // Max number of threads per thread-block used in rsyevj_small kernel
-static constexpr auto NX_THREADS = 32;
-static constexpr auto NY_THREADS = 32;
+static constexpr auto NX_THREADS = 16;
+static constexpr auto NY_THREADS = 16;
 static constexpr auto RSYEVJ_BDIM = NX_THREADS * NY_THREADS;
 
 // --------------------------------------------------
@@ -863,27 +897,27 @@ static __device__ I idx2D(I const i, I const j, I const ld)
 // launch as dim3(nbx,nby, batch_count), dim3(nx,ny,1)
 // ------------------------------------------
 template <typename T, typename I, typename AA, typename BB, typename CC, typename Istride>
-static __global__ void simple_gemm_kernel(rocblas_operation transA,
-                                          rocblas_operation transB,
-                                          I mm,
-                                          I nn,
-                                          I kk,
-                                          T alpha,
-                                          AA A_,
-                                          Istride shift_A,
-                                          I lda,
-                                          Istride stride_A,
-                                          BB B_,
-                                          Istride shift_B,
-                                          I ldb,
-                                          Istride stride_B,
-                                          T beta,
-                                          CC C_,
-                                          Istride shift_C,
-                                          I ldc,
-                                          Istride stride_C,
-                                          I batch_count,
-                                          T** work)
+static __global__ void __launch_bounds__(RSYEVJ_BDIM) simple_gemm_kernel(rocblas_operation transA,
+                                                                         rocblas_operation transB,
+                                                                         I mm,
+                                                                         I nn,
+                                                                         I kk,
+                                                                         T alpha,
+                                                                         AA A_,
+                                                                         Istride shift_A,
+                                                                         I lda,
+                                                                         Istride stride_A,
+                                                                         BB B_,
+                                                                         Istride shift_B,
+                                                                         I ldb,
+                                                                         Istride stride_B,
+                                                                         T beta,
+                                                                         CC C_,
+                                                                         Istride shift_C,
+                                                                         I ldc,
+                                                                         Istride stride_C,
+                                                                         I batch_count,
+                                                                         T** work)
 {
     bool const isok_args = (A_ != nullptr) && (B_ != nullptr) && (C_ != nullptr);
     assert(isok_args);
@@ -1219,13 +1253,13 @@ static __device__ void symmetrize_matrix_body(char const uplo,
 // launch configuration as dim3(1,1,nbz), dim3(nx,ny,1)
 // ----------------------------------------------------
 template <typename T, typename I, typename AA, typename Istride>
-__global__ static void symmetrize_matrix_kernel(char const uplo,
-                                                I const n,
-                                                AA A,
-                                                Istride const shiftA,
-                                                I const lda,
-                                                Istride const strideA,
-                                                I const batch_count)
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) symmetrize_matrix_kernel(char const uplo,
+                                                                               I const n,
+                                                                               AA A,
+                                                                               Istride const shiftA,
+                                                                               I const lda,
+                                                                               Istride const strideA,
+                                                                               I const batch_count)
 {
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
@@ -1375,16 +1409,16 @@ static __device__ void laset_body(char const uplo,
 // launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
 // --------------------------------------------
 template <typename T, typename I, typename UA, typename Istride>
-__global__ static void laset_kernel(char const c_uplo,
-                                    I const m,
-                                    I const n,
-                                    T const alpha_offdiag,
-                                    T const beta_diag,
-                                    UA A,
-                                    Istride const shiftA,
-                                    I const lda,
-                                    Istride const strideA,
-                                    I const batch_count)
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) laset_kernel(char const c_uplo,
+                                                                   I const m,
+                                                                   I const n,
+                                                                   T const alpha_offdiag,
+                                                                   T const beta_diag,
+                                                                   UA A,
+                                                                   Istride const shiftA,
+                                                                   I const lda,
+                                                                   Istride const strideA,
+                                                                   I const batch_count)
 {
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
@@ -1411,12 +1445,12 @@ __global__ static void laset_kernel(char const c_uplo,
  *  launch as dim3(1,1,nbz), dim3(nx,1,1)
  */
 template <typename S, typename I, typename Istride>
-__global__ static void sort_kernel(I const n,
-                                   S* const W_,
-                                   Istride const strideW,
-                                   I* const map_,
-                                   Istride const stridemap,
-                                   I const batch_count)
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) sort_kernel(I const n,
+                                                                  S* const W_,
+                                                                  Istride const strideW,
+                                                                  I* const map_,
+                                                                  Istride const stridemap,
+                                                                  I const batch_count)
 {
     bool const has_map = (map_ != nullptr);
 
@@ -1439,19 +1473,19 @@ __global__ static void sort_kernel(I const n,
     launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
 */
 template <typename T, typename I, typename Istride, typename UA, typename UB>
-__global__ static void gather2D_kernel(I const m,
-                                       I const n,
-                                       I const* const row_map_,
-                                       I const* const col_map_,
-                                       UA A,
-                                       Istride const shiftA,
-                                       I const lda,
-                                       Istride strideA,
-                                       UB B,
-                                       Istride const shiftB,
-                                       I const ldb,
-                                       Istride strideB,
-                                       I const batch_count)
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) gather2D_kernel(I const m,
+                                                                      I const n,
+                                                                      I const* const row_map_,
+                                                                      I const* const col_map_,
+                                                                      UA A,
+                                                                      Istride const shiftA,
+                                                                      I const lda,
+                                                                      Istride strideA,
+                                                                      UB B,
+                                                                      Istride const shiftB,
+                                                                      I const ldb,
+                                                                      Istride strideB,
+                                                                      I const batch_count)
 {
     bool const has_row_map = (row_map_ != nullptr);
     bool const has_col_map = (col_map_ != nullptr);
@@ -1503,21 +1537,21 @@ __global__ static void gather2D_kernel(I const m,
 // col_map[ (nblocks-1) ] == (nblocks-1)
 // -------------------------------------------------------------
 template <typename T, typename I, typename Istride, typename UA, typename UC>
-__global__ static void reorder_kernel(char c_direction,
-                                      I const n,
-                                      I const nb,
-                                      I const* const row_map_,
-                                      I const* const col_map_,
-                                      Istride const stride_map,
-                                      UA AA,
-                                      Istride const shiftA,
-                                      I const ldA,
-                                      Istride strideA,
-                                      UC CC,
-                                      Istride const shiftC,
-                                      I const ldC,
-                                      Istride const strideC,
-                                      I const batch_count)
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) reorder_kernel(char c_direction,
+                                                                     I const n,
+                                                                     I const nb,
+                                                                     I const* const row_map_,
+                                                                     I const* const col_map_,
+                                                                     Istride const stride_map,
+                                                                     UA AA,
+                                                                     Istride const shiftA,
+                                                                     I const ldA,
+                                                                     Istride strideA,
+                                                                     UC CC,
+                                                                     Istride const shiftC,
+                                                                     I const ldC,
+                                                                     Istride const strideC,
+                                                                     I const batch_count)
 {
     bool const is_forward = (c_direction == 'F') || (c_direction == 'f');
     // ----------------------------------
@@ -1686,15 +1720,15 @@ __global__ static void set_diagonal_kernel(I const n,
 // launch as dim3(nbx,1,nbz), dim3(nx,1,1)
 // ---------------------
 template <typename T, typename I, typename AA, typename Istride, typename S>
-__global__ static void copy_diagonal_kernel(I const n,
-                                            AA A,
-                                            Istride const shiftA,
-                                            I const lda,
-                                            Istride const strideA,
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) copy_diagonal_kernel(I const n,
+                                                                           AA A,
+                                                                           Istride const shiftA,
+                                                                           I const lda,
+                                                                           Istride const strideA,
 
-                                            S* const W,
-                                            Istride const strideW,
-                                            I const batch_count)
+                                                                           S* const W,
+                                                                           Istride const strideW,
+                                                                           I const batch_count)
 {
     auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
@@ -1724,18 +1758,18 @@ __global__ static void copy_diagonal_kernel(I const n,
 // dim3(nbx,nby,nbz), dim3(nx,ny,1)
 // ---------------------------------
 template <typename T, typename I, typename AA, typename CC, typename Istride>
-__global__ static void lacpy_kernel(char const uplo,
-                                    I const m,
-                                    I const n,
-                                    AA A,
-                                    Istride const shiftA,
-                                    I const lda,
-                                    Istride strideA,
-                                    CC C,
-                                    Istride const shiftC,
-                                    I const ldc,
-                                    Istride strideC,
-                                    I const batch_count)
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) lacpy_kernel(char const uplo,
+                                                                   I const m,
+                                                                   I const n,
+                                                                   AA A,
+                                                                   Istride const shiftA,
+                                                                   I const lda,
+                                                                   Istride strideA,
+                                                                   CC C,
+                                                                   Istride const shiftC,
+                                                                   I const ldc,
+                                                                   Istride strideC,
+                                                                   I const batch_count)
 {
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
@@ -1756,6 +1790,60 @@ __global__ static void lacpy_kernel(char const uplo,
 
         lacpy_body(uplo, m, n, Ap, lda, Cp, ldc, i_start, i_inc, j_start, j_inc);
     }
+}
+
+// ---------------------------------
+// swap m by n submatrix between A and C
+// launch as
+// dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// ---------------------------------
+template <typename T, typename I, typename AA, typename CC, typename Istride>
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) laswap_kernel(I const m,
+                                                                    I const n,
+                                                                    AA A,
+                                                                    Istride const shiftA,
+                                                                    I const lda,
+                                                                    Istride strideA,
+                                                                    CC C,
+                                                                    Istride const shiftC,
+                                                                    I const ldc,
+                                                                    Istride strideC,
+                                                                    I const batch_count)
+{
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    I const i_inc = hipGridDim_x * hipBlockDim_x;
+    I const j_inc = hipGridDim_y * hipBlockDim_y;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipBlockDim_y;
+
+    auto swap = [](auto& x, auto& y) {
+        auto const t = x;
+        x = y;
+        y = t;
+    };
+
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+
+        assert(Ap != nullptr);
+        assert(Cp != nullptr);
+
+        for(auto j = j_start; j < n; j += j_inc)
+        {
+            for(auto i = i_start; i < m; i += i_inc)
+            {
+                swap(Ap[idx2D(i, j, lda)], Cp[idx2D(i, j, ldc)]);
+            }
+        }
+
+    } // end for bid
 }
 
 /* 
@@ -2014,7 +2102,7 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
 }
 
 template <typename T, typename I>
-static void __global__
+static void __global__ __launch_bounds__(RSYEVJ_BDIM)
     pgreedy_mwm_kernel(I const n, T const* const G_array, I* const mate_array, I const batch_count)
 {
     auto bid_start = hipBlockIdx_x + hipBlockIdx_y * (hipGridDim_x)
@@ -3152,18 +3240,19 @@ __device__ void run_rsyevj(const I dimx,
 // launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
 // -----------------------------------------
 template <typename T, typename I, typename S, typename Istride, typename AA>
-__global__ static void cal_Gmat_kernel(I const n,
-                                       I const nb,
-                                       AA A,
-                                       Istride const shiftA,
-                                       I const lda,
-                                       Istride const strideA,
+__global__ static void __launch_bounds__(RSYEVJ_BDIM)
+    cal_Gmat_kernel(I const n,
+                    I const nb,
+                    AA A,
+                    Istride const shiftA,
+                    I const lda,
+                    Istride const strideA,
 
-                                       S* const Gmat_,
-                                       bool const include_diagonal_values,
+                    S* const Gmat_,
+                    bool const include_diagonal_values,
 
-                                       I const* const completed,
-                                       I const batch_count)
+                    I const* const completed,
+                    I const batch_count)
 {
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
@@ -3243,12 +3332,12 @@ __global__ static void cal_Gmat_kernel(I const n,
 //      sizeof(S), stream>>>
 // -----------------------------------------------------
 template <typename S, typename I>
-__global__ static void sum_Gmat_kernel(I const n,
-                                       I const nb,
-                                       S* const Gmat_,
-                                       S* const Gnorm_,
-                                       I const* const completed,
-                                       I const batch_count)
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) sum_Gmat_kernel(I const n,
+                                                                      I const nb,
+                                                                      S* const Gmat_,
+                                                                      S* const Gnorm_,
+                                                                      I const* const completed,
+                                                                      I const batch_count)
 {
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
@@ -3288,17 +3377,17 @@ __global__ static void sum_Gmat_kernel(I const n,
 // assume launch as   dim3(nbx,1,1), dim3(nx,1,1)
 // ------------------------------------------------------
 template <typename S, typename I, typename Istride>
-__global__ static void set_completed_kernel(I const n,
-                                            I const nb,
-                                            S* const Anorm,
-                                            S const abstol,
+__global__ static void __launch_bounds__(RSYEVJ_BDIM) set_completed_kernel(I const n,
+                                                                           I const nb,
+                                                                           S* const Anorm,
+                                                                           S const abstol,
 
-                                            I const h_sweeps,
-                                            I n_sweeps[],
-                                            S residual[],
-                                            I info[],
-                                            I completed[],
-                                            I const batch_count)
+                                                                           I const h_sweeps,
+                                                                           I n_sweeps[],
+                                                                           S residual[],
+                                                                           I info[],
+                                                                           I completed[],
+                                                                           I const batch_count)
 {
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
@@ -3807,6 +3896,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         //  -------------
         //  larger matrix
         //  -------------
+        bool const use_swap_kernel = true;
 #ifdef NDEBUG
 #define ROCBLASCALL_GEMM rocblasCall_gemm
 #else
@@ -3815,7 +3905,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 #ifdef NDEBUG
 #else
-        if(idebug >= 1)
+        if(idebug >= 3)
         {
             // -------------------------------------------
             // debug by setting matrix to have know values
@@ -4452,7 +4542,23 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 				batch_count_remain);
                             // clang-format on
 
-                            SWAP_Atmp_Vtmp();
+                            if(use_swap_kernel)
+                            {
+                                auto const mm = n;
+                                auto const nn = n;
+                                // clang-format off
+                              ROCSOLVER_LAUNCH_KERNEL((laswap_kernel<T, I, T**,T**,Istride>),
+					      dim3(nbx,nby,nbz),dim3(nx,ny,1),0,stream,
+					      mm,nn, 
+					      Atmp_ptr_array, shift_Atmp,ldatmp,lstride_Atmp,
+					      Vtmp_ptr_array, shift_Vtmp,ldvtmp,lstride_Vtmp,
+					      batch_count_remain );
+                                // clang-format on
+                            }
+                            else
+                            {
+                                SWAP_Atmp_Vtmp();
+                            }
                         }
 
                         // ----------------------------------
@@ -5139,7 +5245,23 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format on
                         HIP_CHECK(hipStreamSynchronize(stream));
 
-                        SWAP_Atmp_Vtmp();
+                        if(use_swap_kernel)
+                        {
+                            auto const mm = n;
+                            auto const nn = n;
+                            // clang-format off
+                              ROCSOLVER_LAUNCH_KERNEL((laswap_kernel<T, I, T**,T**,Istride>),
+					      dim3(nbx,nby,nbz),dim3(nx,ny,1),0,stream,
+					      mm,nn, 
+					      Atmp_ptr_array, shift_Atmp,ldatmp,lstride_Atmp,
+					      Vtmp_ptr_array, shift_Vtmp,ldvtmp,lstride_Vtmp,
+					      batch_count_remain );
+                            // clang-format on
+                        }
+                        else
+                        {
+                            SWAP_Atmp_Vtmp();
+                        }
 
                         if(use_backward_reorder)
                         {
@@ -5160,7 +5282,24 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 				batch_count_remain);
                             // clang-format on
 
-                            SWAP_Atmp_Vtmp();
+                            if(use_swap_kernel)
+                            {
+                                auto const mm = n;
+                                auto const nn = n;
+
+                                // clang-format off
+                              ROCSOLVER_LAUNCH_KERNEL((laswap_kernel<T, I, T**,T**,Istride>),
+					      dim3(nbx,nby,nbz),dim3(nx,ny,1),0,stream,
+					      mm,nn, 
+					      Atmp_ptr_array, shift_Atmp,ldatmp,lstride_Atmp,
+					      Vtmp_ptr_array, shift_Vtmp,ldvtmp,lstride_Vtmp,
+					      batch_count_remain );
+                                // clang-format on
+                            }
+                            else
+                            {
+                                SWAP_Atmp_Vtmp();
+                            }
                         }
                     }
                 }
