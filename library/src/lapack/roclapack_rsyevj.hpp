@@ -913,6 +913,8 @@ static __global__ void simple_gemm_kernel(rocblas_operation transA,
 
     auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
+    bool const is_beta_zero = (beta == 0);
+
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         T const* const Ap = load_ptr_batch(A_, bid, shift_A, stride_A);
@@ -937,16 +939,7 @@ static __global__ void simple_gemm_kernel(rocblas_operation transA,
                     cij += aik * bkj;
                 }
 
-                if(beta == 0)
-                {
-                    C(i, j) = 0;
-                }
-                else
-                {
-                    C(i, j) *= beta;
-                }
-
-                C(i, j) += alpha * cij;
+                C(i, j) = ((is_beta_zero) ? 0 : beta * C(i, j)) + alpha * cij;
             }
         }
     } // end for bid
@@ -1647,6 +1640,43 @@ __global__ static void reorder_kernel(char c_direction,
                 }
             }
         }
+    }
+}
+
+// --------------------------------
+// set diagonal entries
+//
+// launch as dim3(nbx,1,nbz), dim3(nx,1,1)
+// --------------------------------
+template <typename T, typename I, typename AA, typename Istride, typename S>
+__global__ static void set_diagonal_kernel(I const n,
+                                           AA A,
+                                           Istride const shiftA,
+                                           I const lda,
+                                           Istride const strideA,
+
+                                           S* const W,
+                                           Istride const strideW,
+                                           I const batch_count)
+{
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+    I const bid_start = hipBlockIdx_z;
+
+    I const bid_inc = hipGridDim_z;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T* const A_p = load_ptr_batch(A, bid, shiftA, strideA);
+        auto const W_p = W + bid * strideW;
+
+        for(auto i = i_start; i < n; i += i_inc)
+        {
+            A_p[idx2D(i, i, lda)] = W_p[i];
+        };
     }
 }
 
@@ -3774,10 +3804,74 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     }
     else
     {
+        //  -------------
+        //  larger matrix
+        //  -------------
 #ifdef NDEBUG
 #define ROCBLASCALL_GEMM rocblasCall_gemm
 #else
 #define ROCBLASCALL_GEMM simple_gemm
+#endif
+
+#ifdef NDEBUG
+#else
+        if(idebug >= 1)
+        {
+            // -------------------------------------------
+            // debug by setting matrix to have know values
+            // -------------------------------------------
+            auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+            auto const nx = 32;
+            auto const ny = 32;
+            auto const nbx = ceil(n, nx);
+            auto const nby = ceil(n, ny);
+            auto const nbz = batch_count;
+
+            if(batch_count > 1)
+            {
+                bool const isok = (strideW >= n);
+                if(!isok)
+                {
+                    std::cout << " strideW = " << strideW << " n = " << n << std::endl;
+                }
+                assert(strideW >= n);
+            }
+
+            auto const len_h_W = strideW * (batch_count - 1) + n;
+            std::vector<S> h_W(len_h_W);
+            for(auto bid = 0; bid < batch_count; bid++)
+            {
+                for(auto i = 0; i < n; i++)
+                {
+                    h_W[i + bid * strideW] = i;
+                }
+            }
+            size_t const nbytes = sizeof(S) * len_h_W;
+            HIP_CHECK(hipMemcpyAsync(W, &(h_W[0]), nbytes, hipMemcpyHostToDevice, stream));
+            HIP_CHECK(hipStreamSynchronize(stream));
+
+            // clang-format off
+		                char const c_uplo = 'A';
+				T const alpha_offdiag = 0;
+				T const beta_diag = 1;
+                                ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, U, Istride>),
+						dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
+						c_uplo, n, n, 
+						alpha_offdiag, beta_diag, 
+						A,shiftA,lda,strideA,
+						batch_count);
+            // clang-format on
+
+            // clang-format off
+                                ROCSOLVER_LAUNCH_KERNEL(
+                                     (set_diagonal_kernel<T,I,U,Istride,S>),
+				     dim3(nbx,1,nbz),dim3(nx,1,1),0,stream,
+				     n, A, shiftA,lda, strideA,
+				     W,strideW,
+				     batch_count);
+            // clang-format on
+        }
 #endif
 
         S* const Amat_norm = norms;
@@ -4264,9 +4358,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     // reorder and copy blocks to Atmp,
                     // and to Vtmp if needed
                     // ------------------------
+
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = false;
+                    bool const use_schedule = true;
 
                     if(!use_schedule)
                     {
@@ -4292,14 +4387,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #endif
 
                         pgreedy_mwm(nblocks, Gmat, mate_array, batch_count_remain, stream);
-
-#ifdef NDEBUG
-#else
-                        if(idebug >= 1)
-                        {
-                            print_mate();
-                        }
-#endif
                     }
 
                     I const* const col_map_mwm = mate_array;
@@ -4307,16 +4394,34 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map = (use_schedule) ? col_map_schedule : col_map_mwm;
                     I const* const row_map = col_map;
+#ifdef NDEBUG
+#else
+                    if(idebug >= 1)
+                    {
+                        // -------------
+                        // print col_map
+                        // -------------
 
-                    auto const max_thread_blocks = 64 * 1000;
-                    auto const nx = NX_THREADS;
-                    auto const ny = RSYEVJ_BDIM / nx;
+                        auto const len_col_map = nblocks;
+                        std::vector<I> h_col_map(len_col_map);
+                        HIP_CHECK(hipMemcpyAsync(&(h_col_map[0]), col_map, sizeof(I) * n,
+                                                 hipMemcpyDeviceToHost, stream));
+                        HIP_CHECK(hipStreamSynchronize(stream));
+                        for(auto i = 0; i < h_col_map.size(); i++)
+                        {
+                            printf("col_map[%d] = %d\n", i, h_col_map[i]);
+                        }
+                        fflush(stdout);
+                    }
+#endif
 
                     auto const lbatch_count = (nblocks_half - 1) * batch_count_remain;
-                    auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
-                    auto const nby = std::min(max_thread_blocks, ceil(n, ny));
-                    auto const nbz = std::min(max_thread_blocks, batch_count_remain);
                     auto const nbz2 = std::min(max_thread_blocks, lbatch_count);
+
+                    // -------------------------------------------------------------
+                    // perform reordering so that set of independent pairs of blocks
+                    // are (0,1), (2,3), (4,5), ...etc
+                    // -------------------------------------------------------------
 
                     {
                         char const c_direction = 'F'; // forward direction
@@ -4327,6 +4432,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             // matrix V need only column reordering
                             // ------------------------------------
                             I const* const null_row_map = nullptr;
+
+                            //  ----------------------------
+                            //  perform Atmp <-  Vtmp * Perm
+                            //          swap(Atmp,Vtmp)
+                            //
+                            //  So Vtmp is still the matrix
+                            //  of eigen vectors
+                            //  ----------------------------
 
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL(
@@ -4341,6 +4454,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             SWAP_Atmp_Vtmp();
                         }
+
+                        // ----------------------------------
+                        // perform  Atmp <-  Perm' * A * Perm
+                        //
+                        // now Atmp is the rearranged matrix
+                        // ----------------------------------
 
                         // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((reorder_kernel<T, I, Istride>),
@@ -4361,7 +4480,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     {
                         {
                             // --------------------------
-                            // copy diagonal blocks to Aj
+                            // copy the pair (2*nb) by (2*nb)
+                            // diagonal blocks to Aj
                             // --------------------------
 
                             I const m1 = (2 * nb);
@@ -4381,6 +4501,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             TRACE(2);
 
+                            // -----------------------------------------------
+                            // copy the last pair of diagonal
+                            // blocks of size (nb + nb_last) by (nb + nb_last)
+                            // -----------------------------------------------
                             I const m2 = (nb + nb_last);
                             I const n2 = (nb + nb_last);
 
@@ -4392,6 +4516,113 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 					    Aj_last_ptr_array, shift_Aj, ldaj_last, lstride_Aj_last, 
 					    batch_count_remain);
                             // clang-format on
+#ifdef NDEBUG
+#else
+                            {
+                                auto const len_h_Aj_ptr_array
+                                    = batch_count_remain * (nblocks_half - 1);
+                                std::vector<T*> h_Aj_ptr_array(len_h_Aj_ptr_array);
+                                HIP_CHECK(hipMemcpyAsync(&(h_Aj_ptr_array[0]), Aj_ptr_array,
+                                                         sizeof(T*) * len_h_Aj_ptr_array,
+                                                         hipMemcpyDeviceToHost, stream));
+                                HIP_CHECK(hipStreamSynchronize(stream));
+
+                                auto const len_h_Aj_last_ptr_array = batch_count_remain * 1;
+                                std::vector<T*> h_Aj_last_ptr_array(len_h_Aj_last_ptr_array);
+                                HIP_CHECK(hipMemcpyAsync(&(h_Aj_last_ptr_array[0]), Aj_last_ptr_array,
+                                                         sizeof(T*) * len_h_Aj_last_ptr_array,
+                                                         hipMemcpyDeviceToHost, stream));
+                                HIP_CHECK(hipStreamSynchronize(stream));
+
+                                std::vector<T> h_Atmp_(ldatmp * n);
+                                size_t const Atmp_bytes = sizeof(T) * ldatmp * n;
+                                HIP_CHECK(hipMemcpyAsync(&(h_Atmp_[0]), Atmp, Atmp_bytes,
+                                                         hipMemcpyDeviceToHost, stream));
+                                HIP_CHECK(hipStreamSynchronize(stream));
+
+                                auto idx2D = [](auto i, auto j, auto ld) { return (i + j * ld); };
+                                auto h_Atmp
+                                    = [=](auto i, auto j) { return (h_Atmp_[idx2D(i, j, ldatmp)]); };
+
+                                for(auto jb = 0; jb < (nblocks_half - 1); jb++)
+                                {
+                                    auto const len_h_Aj = ldaj * (2 * nb);
+                                    std::vector<T> h_Aj_(ldaj * (2 * nb));
+                                    h_Aj_.resize(len_h_Aj);
+
+                                    size_t const nbytes = sizeof(T) * ldaj * (2 * nb);
+                                    auto const istat
+                                        = (hipMemcpyAsync(&(h_Aj_[0]), h_Aj_ptr_array[jb], nbytes,
+                                                          hipMemcpyDeviceToHost, stream));
+
+                                    auto const istat_sync = (hipStreamSynchronize(stream));
+
+                                    assert(istat == hipSuccess);
+                                    assert(istat_sync == hipSuccess);
+
+                                    auto h_Aj
+                                        = [=](auto i, auto j) { return (h_Aj_[idx2D(i, j, ldaj)]); };
+
+                                    double max_diff = 0;
+                                    for(auto j = 0; j < (2 * nb); j++)
+                                    {
+                                        for(auto i = 0; i < (2 * nb); i++)
+                                        {
+                                            auto const ia = (jb * (2 * nb)) + i;
+                                            auto const ja = (jb * (2 * nb)) + j;
+                                            auto const Atmp_ij = h_Atmp(ia, ja);
+                                            auto const Aj_ij = h_Aj(i, j);
+
+                                            double diff = std::abs(Atmp_ij - Aj_ij);
+                                            if(diff > max_diff)
+                                            {
+                                                std::cout << "jb " << jb << " i " << i << " j " << j
+                                                          << " Atmp_ij " << Atmp_ij << " Aj_ij "
+                                                          << Aj_ij << std::endl;
+                                            }
+                                        }
+                                    }
+                                    assert(max_diff == 0);
+                                }
+
+                                {
+                                    auto const jb = (nblocks_half - 1);
+
+                                    auto const len_h_Aj_last = ldaj_last * (nb + nb_last);
+                                    std::vector<T> h_Aj_last_(len_h_Aj_last);
+                                    size_t const nbytes = sizeof(T) * len_h_Aj_last;
+
+                                    HIP_CHECK(hipMemcpyAsync(&(h_Aj_last_[0]), h_Aj_last_ptr_array[0],
+                                                             nbytes, hipMemcpyDeviceToHost, stream));
+                                    HIP_CHECK(hipStreamSynchronize(stream));
+
+                                    auto h_Aj_last = [=](auto i, auto j) {
+                                        return (h_Aj_last_[idx2D(i, j, ldaj_last)]);
+                                    };
+
+                                    double max_diff = 0;
+                                    for(auto j = 0; j < (nb + nb_last); j++)
+                                    {
+                                        for(auto i = 0; i < (nb + nb_last); i++)
+                                        {
+                                            auto const ia = jb * (2 * nb) + i;
+                                            auto const ja = jb * (2 * nb) + j;
+                                            auto const Atmp_ij = h_Atmp(ia, ja);
+                                            auto const Aj_last_ij = h_Aj_last(i, j);
+
+                                            double const diff = std::abs(Atmp_ij - Aj_last_ij);
+                                            if(diff > max_diff)
+                                            {
+                                                std::cout << "jb " << jb << " i " << i << " j " << j
+                                                          << " Atmp_ij " << Atmp_ij << " Aj_last_ij "
+                                                          << Aj_last_ij << std::endl;
+                                            }
+                                        }
+                                    }
+                                    assert(max_diff == 0);
+                                }
+                            }
+#endif
                         }
 
                         TRACE(2);
