@@ -1538,18 +1538,18 @@ __global__ static void reorder_kernel(char c_direction,
     I const bid_inc = hipGridDim_z;
 
     I const ib_start = hipBlockIdx_x;
-    I const ib_inc = hipGridDim_x;
-
     I const jb_start = hipBlockIdx_y;
+
+    I const ib_inc = hipGridDim_x;
     I const jb_inc = hipGridDim_y;
 
     // -----------------------
     // indexing within a block
     // -----------------------
     I const i_start = hipThreadIdx_x;
-    I const i_inc = hipBlockDim_x;
-
     I const j_start = hipThreadIdx_y;
+
+    I const i_inc = hipBlockDim_x;
     I const j_inc = hipBlockDim_y;
 
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
@@ -1714,10 +1714,31 @@ __global__ static void lacpy_kernel(char const uplo,
         T const* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
         T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
-        assert(Ap != nullptr);
-        assert(Cp != nullptr);
+        bool const use_upper = (uplo == 'U') || (uplo == 'u');
+        bool const use_lower = (uplo == 'L') || (uplo == 'l');
+        bool const use_all = (!use_upper) && (!use_lower);
 
-        lacpy_body(uplo, m, n, Ap, lda, Cp, ldc, i_start, i_inc, j_start, j_inc);
+        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
+
+        auto A = [=](auto i, auto j) { return (Ap[idx2D(i, j, lda)]); };
+
+        auto C = [=](auto i, auto j) -> T& { return (Cp[idx2D(i, j, ldc)]); };
+
+        for(I j = j_start; j < n; j += j_inc)
+        {
+            for(I i = i_start; i < m; i += i_inc)
+            {
+                bool const is_upper = (i <= j);
+                bool const is_lower = (i >= j);
+
+                bool const do_assignment
+                    = (use_all) || (use_upper && is_upper) || (use_lower && is_lower);
+                if(do_assignment)
+                {
+                    C(i, j) = A(i, j);
+                };
+            }
+        }
     }
 }
 
@@ -3357,8 +3378,8 @@ __global__ static void set_completed_kernel(I const n,
 // launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
 // ------------------------------------------
 template <typename T, typename I, typename U, typename Istride>
-__global__ static void set_matrix_kernel(I const m,
-                                         I const n,
+__global__ static void set_matrix_kernel(I const n,
+                                         I const nb,
                                          U A,
                                          Istride const shiftA,
                                          I const lda,
@@ -3366,14 +3387,29 @@ __global__ static void set_matrix_kernel(I const m,
                                          I const itype,
                                          I const batch_count)
 {
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+    I const nblocks = ceil(n, nb);
+    I const nb_last = n - (nblocks - 1) * nb;
+
+    auto bsize = [=](auto ib) { return ((ib == (nblocks - 1)) ? nb_last : nb); };
+
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
+
     I bid_start = hipBlockIdx_z;
     I bid_inc = hipGridDim_z;
 
-    I i_inc = hipBlockDim_x * hipGridDim_x;
-    I j_inc = hipBlockDim_y * hipGridDim_y;
+    I ib_inc = hipGridDim_x;
+    I jb_inc = hipGridDim_y;
 
-    I i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
-    I j_start = hipThreadIdx_y + hipBlockIdx_y * hipBlockDim_y;
+    I ib_start = hipBlockIdx_x;
+    I jb_start = hipBlockIdx_y;
+
+    I i_inc = hipBlockDim_x;
+    I j_inc = hipBlockDim_y;
+
+    I i_start = hipThreadIdx_x;
+    I j_start = hipThreadIdx_y;
 
     I const ihilbert = 1;
     I const idiag = 2;
@@ -3382,21 +3418,36 @@ __global__ static void set_matrix_kernel(I const m,
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         T* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        for(auto j = j_start; j < n; j += j_inc)
-        {
-            for(auto i = i_start; i < m; i += i_inc)
-            {
-                auto const ij = i + j * int64_t(lda);
-                auto const ii = ioff + i;
-                auto const jj = ioff + j;
 
-                T const aij = (itype == ihilbert) ? 1.0 / (ii + jj - 1.0)
-                    : (itype == idiag)            ? ((i == j) ? (ii) : 0)
-                                       : (std::max(ii, jj) + std::min(ii, jj) * int64_t(lda));
-                Ap[ij] = aij;
+        auto A = [=](auto i, auto j) -> T& { return (Ap[idx2D(i, j, lda)]); };
+
+        for(I jb = jb_start; jb < nblocks; jb += jb_inc)
+        {
+            for(I ib = ib_start; ib < nblocks; ib += ib_inc)
+            {
+                auto const ia = ib * nb;
+                auto const ja = jb * nb;
+
+                auto const ni = bsize(ib);
+                auto const nj = bsize(jb);
+
+                for(auto j = j_start; j < nj; j += j_inc)
+                {
+                    for(auto i = i_start; i < ni; i += i_inc)
+                    {
+                        auto const ii = ioff + (ia + i);
+                        auto const jj = ioff + (ja + j);
+
+                        T const aij = (itype == ihilbert) ? 1.0 / (ii + jj - 1.0)
+                            : (itype == idiag)            ? ((ii == jj) ? (ib + 1) : 0)
+                                               : std::min(ib, jb) * 100 + std::max(ib, jb);
+
+                        A(ia + i, ja + j) = aij;
+                    }
+                }
             }
         }
-    }
+    } // end for bid
 }
 #if(0)
 template <typename S, typename I>
@@ -3880,6 +3931,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #else
 #define ROCBLASCALL_GEMM simple_gemm
 #endif
+        S* const Amat_norm = norms;
+
+        ALLOC_ALL();
+        assert(total_bytes <= size_dwork_byte);
 
 #ifdef NDEBUG
 #else
@@ -3901,24 +3956,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             I const isymm = 3;
 
             I const itype = isymm;
-            I const mm = n;
-            I const nn = n;
             ROCSOLVER_LAUNCH_KERNEL((set_matrix_kernel<T, I, U, Istride>), dim3(nbx, nby, nbz),
-                                    dim3(nx, ny, 1), 0, stream, mm, nn, A, shiftA, lda, strideA,
+                                    dim3(nx, ny, 1), 0, stream, n, nb, A, shiftA, lda, strideA,
                                     itype, batch_count);
         }
 #endif
-
-        S* const Amat_norm = norms;
-
-        ALLOC_ALL();
-        assert(total_bytes <= size_dwork_byte);
 
         // ---------------------
         // launch configurations
         // ---------------------
         auto const max_lds = get_lds();
-        auto const max_thread_blocks = 64 * 1000;
+        auto const max_thread_blocks = 1024;
         auto const nx = NX_THREADS;
         auto const ny = RSYEVJ_BDIM / nx;
 
@@ -4305,7 +4353,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 				    batch_count);
                     // clang-format on
                 }
-
+                TRACE(1);
                 {
                     // --------------------------------------
                     // check convergence of all batch entries
@@ -4329,6 +4377,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         break;
                     };
                 }
+                TRACE(1);
 
                 auto const batch_count_remain = batch_count - n_completed;
                 assert((1 <= batch_count_remain) && (batch_count_remain <= batch_count));
@@ -4385,8 +4434,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         Vtmp_row_ptr_array, Vtmp_col_ptr_array, Vtmp_last_row_ptr_array,
                         Vtmp_last_col_ptr_array, Vtmp_ptr_array,
 
-                        A_diag_ptr_array, A_last_diag_ptr_array, Atmp_diag_ptr_array,
-                        Atmp_last_diag_ptr_array, Vtmp_diag_ptr_array, Vtmp_last_diag_ptr_array,
+                        A_diag_ptr_array, A_last_diag_ptr_array, 
+			
+			Atmp_diag_ptr_array, Atmp_last_diag_ptr_array, Vtmp_diag_ptr_array, Vtmp_last_diag_ptr_array,
 
                         completed, batch_count);
                     // clang-format on
@@ -4479,7 +4529,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         if(idebug >= 1)
                         {
                             bool const include_diagonal = false;
-                            update_norm(include_diagonal, residual);
                             printf("=== before pgreedy_mwm === \n");
                             print_Gmat();
                         }
@@ -4539,6 +4588,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             //  So Vtmp is still the matrix
                             //  of eigen vectors
                             //  ----------------------------
+                            TRACE(1);
 
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL(
@@ -4550,6 +4600,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
 				batch_count_remain);
                             // clang-format on
+
+                            TRACE(1);
 
                             if(use_swap_kernel)
                             {
@@ -4581,6 +4633,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // now Atmp is the rearranged matrix
                         // ----------------------------------
 
+                        TRACE(1);
                         // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((reorder_kernel<T, I, Istride,T**,T**>),
 					// dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
@@ -4591,6 +4644,31 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 					Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
 					batch_count_remain);
                         // clang-format on
+
+                        TRACE(1);
+
+                        if(idebug >= 1)
+                        {
+                            bool const include_diagonal_values = 1;
+
+                            ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, T**>),
+                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+                                                    n, nb, Atmp_ptr_array, shift_Atmp, ldatmp,
+                                                    lstride_Atmp, Gmat, include_diagonal_values,
+                                                    completed, batch_count_remain);
+
+                            printf("using Atmp_ptr_array to compute Gmat\n");
+                            print_Gmat();
+
+                            ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, T*>),
+                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+                                                    n, nb, Atmp, shift_Atmp, ldatmp, lstride_Atmp,
+                                                    Gmat, include_diagonal_values, completed,
+                                                    batch_count_remain);
+
+                            printf("using Atmp to compute Gmat\n");
+                            print_Gmat();
+                        }
                     }
 
                     TRACE(2);
