@@ -40,9 +40,10 @@ ROCSOLVER_BEGIN_NAMESPACE
 static constexpr int idebug = 0;
 #define TRACE(ival)                                       \
     {                                                     \
-        auto const istat = hipDeviceSynchronize();        \
         if(idebug >= ival)                                \
         {                                                 \
+            auto const istat = hipDeviceSynchronize();    \
+            assert(istat == hipSuccess);                  \
             printf("trace: %s:%d\n", __FILE__, __LINE__); \
             fflush(stdout);                               \
         }                                                 \
