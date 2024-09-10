@@ -3931,6 +3931,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         //  -------------
         bool const use_swap_kernel = false;
         bool const do_overwrite_A_with_V = false;
+        bool const use_swap_Atmp_Vtmp = true;
+        bool const use_swap_aj_vj = true;
 
         std::vector<T*> h_A_ptr_array(batch_count);
         get_ptr_array<T, I, Istride>(A, shiftA, lda, strideA, batch_count, h_A_ptr_array);
@@ -4678,12 +4680,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             }
                             else
                             {
-                                //   SWAP_Atmp_Vtmp();
-
-                                size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
-                                HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
-                                                         hipMemcpyDeviceToDevice, stream));
-                                HIP_CHECK(hipStreamSynchronize(stream));
+                                if(use_swap_Atmp_Vtmp)
+                                {
+                                    SWAP_Atmp_Vtmp();
+                                }
+                                else
+                                {
+                                    size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
+                                    HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
+                                                             hipMemcpyDeviceToDevice, stream));
+                                    HIP_CHECK(hipStreamSynchronize(stream));
+                                }
                             }
                         }
 
@@ -5001,7 +5008,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 if(do_overwrite_A_with_V)
                                 {
-                                    bool constexpr use_swap_aj_vj = true;
                                     if(use_swap_aj_vj)
                                     {
                                         SWAP_AJ_VJ();
@@ -5386,11 +5392,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         }
                         else
                         {
-                            // SWAP_Atmp_Vtmp();
-                            size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
-                            HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
-                                                     hipMemcpyDeviceToDevice, stream));
-                            HIP_CHECK(hipStreamSynchronize(stream));
+                            if(use_swap_Atmp_Vtmp)
+                            {
+                                SWAP_Atmp_Vtmp();
+                            }
+                            else
+                            {
+                                size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
+                                HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
+                                                         hipMemcpyDeviceToDevice, stream));
+                                HIP_CHECK(hipStreamSynchronize(stream));
+                            }
                         }
 
                         if(use_backward_reorder)
@@ -5428,12 +5440,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             }
                             else
                             {
-                                // SWAP_Atmp_Vtmp();
-
-                                size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
-                                HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
-                                                         hipMemcpyDeviceToDevice, stream));
-                                HIP_CHECK(hipStreamSynchronize(stream));
+                                if(use_swap_Atmp_Vtmp)
+                                {
+                                    SWAP_Atmp_Vtmp();
+                                }
+                                else
+                                {
+                                    size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
+                                    HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
+                                                             hipMemcpyDeviceToDevice, stream));
+                                    HIP_CHECK(hipStreamSynchronize(stream));
+                                }
                             }
                         }
                     }
