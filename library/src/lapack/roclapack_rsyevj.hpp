@@ -3937,7 +3937,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #ifdef NDEBUG
 #define ROCBLASCALL_GEMM rocblasCall_gemm
 #else
-#define ROCBLASCALL_GEMM simple_gemm
+// #define ROCBLASCALL_GEMM simple_gemm
+#define ROCBLASCALL_GEMM rocblasCall_gemm
 #endif
         S* const Amat_norm = norms;
 
@@ -5000,7 +5001,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 if(do_overwrite_A_with_V)
                                 {
-                                    bool constexpr use_swap_aj_vj = false;
+                                    bool constexpr use_swap_aj_vj = true;
                                     if(use_swap_aj_vj)
                                     {
                                         SWAP_AJ_VJ();
