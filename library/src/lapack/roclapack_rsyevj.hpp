@@ -4174,14 +4174,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
             std::vector<S> h_W(n * batch_count);
 
+            {
+                auto const istat = (hipStreamSynchronize(stream));
+                assert(istat == hipSuccess);
+            }
+
             for(I bid = 0; bid < batch_count; bid++)
             {
                 auto const istat = (hipMemcpyAsync(&(h_W[bid * n]), &(W[bid * strideW]),
                                                    sizeof(S) * n, hipMemcpyDeviceToHost, stream));
                 assert(istat == hipSuccess);
             }
-            auto const istat = (hipStreamSynchronize(stream));
-            assert(istat == hipSuccess);
+
+            {
+                auto const istat = (hipStreamSynchronize(stream));
+                assert(istat == hipSuccess);
+            }
 
             for(I bid = 0; bid < batch_count; bid++)
             {
@@ -5448,27 +5456,44 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #endif
         }
 
+        TRACE(1);
         {
             // -------------------------------------------
             // check whether eigenvalues need to be sorted
             // -------------------------------------------
 
             // reuse storage
-            Istride const stridemap = (batch_count > 1) ? sizeof(I) * n : 0;
+            Istride const stridemap = (batch_count > 1) ? n : 0;
             if(need_sort)
             {
+                TRACE(1);
                 ROCSOLVER_LAUNCH_KERNEL((sort_kernel<S, I, Istride>), dim3(1, 1, nbz),
                                         dim3(nx, 1, 1), 0, stream,
 
                                         n, W, strideW, eig_map, stridemap, batch_count);
+                TRACE(1);
             }
 
 #ifdef NDEBUG
 #else
-            if(idebug >= 1)
+            if(idebug >= 2)
             {
-                printf("after sort_kernel\n");
-                print_eig(n, W, strideW, batch_count);
+                printf("after sort_kernel, need_sort=%d\n", (int)need_sort);
+                for(I bid = 0; bid < batch_count; bid++)
+                {
+                    std::vector<S> h_W(n);
+
+                    auto istat = hipMemcpy(&(h_W[0]), W + bid * strideW, sizeof(S) * n,
+                                           hipMemcpyDeviceToHost);
+                    assert(istat == hipSuccess);
+
+                    auto const ioff = 1;
+                    for(I i = 0; i < n; i++)
+                    {
+                        auto const wi = h_W[i];
+                        printf("W(%d,%d) = %le;\n", ioff + i, ioff + bid, wi);
+                    }
+                }
             }
 #endif
             // -----------------------------------------------
