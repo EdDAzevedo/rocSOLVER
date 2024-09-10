@@ -1041,7 +1041,7 @@ static rocblas_status simple_gemm(rocblas_handle handle,
 
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
-    I const max_thread_blocks = 64 * 1000;
+    I const max_thread_blocks = 1024;
     I const nx = 32;
     I const ny = 32;
 
@@ -3440,7 +3440,7 @@ __global__ static void set_matrix_kernel(I const n,
 
                         T const aij = (itype == ihilbert) ? 1.0 / (ii + jj - 1.0)
                             : (itype == idiag)            ? ((ii == jj) ? (ib + 1) : 0)
-                                               : std::min(ib, jb) * 100 + std::max(ib, jb);
+                                               : std::min(ii, jj) * n + std::max(ii, jj);
 
                         A(ia + i, ja + j) = aij;
                     }
@@ -3945,11 +3945,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             // -------------------------------------------
             auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
+	    auto const max_thread_blocks = 1024;
             auto const nx = 32;
             auto const ny = 32;
-            auto const nbx = ceil(n, nx);
-            auto const nby = ceil(n, ny);
-            auto const nbz = batch_count;
+            auto const nbx = std::min( max_thread_blocks, ceil(n, nx));
+            auto const nby = std::min( max_thread_blocks, ceil(n, ny));
+            auto const nbz = std::min( max_thread_blocks, batch_count);
+
 
             I const ihilbert = 1;
             I const idiag = 2;
@@ -3968,7 +3970,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         auto const max_lds = get_lds();
         auto const max_thread_blocks = 1024;
         auto const nx = NX_THREADS;
-        auto const ny = RSYEVJ_BDIM / nx;
+        auto const ny = NY_THREADS;
 
         auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
         auto const nby = std::min(max_thread_blocks, ceil(n, ny));
@@ -4036,7 +4038,43 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 auto const Vmat_p = &(h_Vj[bid * lstride_Vj]);
                 auto Vmat = [=](auto i, auto j) { return (Vmat_p[i + j * ldvj]); };
 
+		auto min = [](auto x, auto y) { return( (x < y) ? x : y ); };
+		auto max = [](auto x, auto y) { return( (x > y) ? x : y ); };
+
                 auto const ioff = 1;
+		// --------------------------
+		// compute summary statistics
+		// --------------------------
+
+		auto avg = Vmat(0,0)*0;
+		double dmax = std::abs(Vmat(0,0));
+		double dmin = std::abs(Vmat(0,0));
+
+		for(auto j=0; j < nb2; j++) {
+                for(auto i=0; i < nb2; i++) {
+			auto const vij = Vmat(i,j);
+			auto const abs_vij = std::abs(vij);
+			avg += vij;
+			dmax = max(  dmax, abs_vij );
+			dmin = min(  dmin, abs_vij );
+		};
+		};
+		avg = avg / (nb2 * nb2);
+
+		double  dsd = 0;
+		for(auto j=0; j < nb2; j++) {
+                for(auto i=0; i < nb2; i++) {
+			auto const vij = Vmat(i,j);
+			dsd += std::norm(  vij - avg );
+		};
+		};
+		dsd = std::sqrt( dsd );
+
+
+		printf("avg = %le + sqrt(-1)*%le; dsd = %le; dmax = %le; dmin = %le;\n",
+                        std::real(avg), std::imag(avg), dsd, dmax, dmin );
+
+		if (idebug >= 2) {
                 for(auto j = 0; j < nb2; j++)
                 {
                     for(auto i = 0; i < nb2; i++)
@@ -4046,6 +4084,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                ioff + j, ioff + bid, std::real(vij), std::imag(vij));
                     }
                 }
+		}
             }
             fflush(stdout);
         };
@@ -4510,7 +4549,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = false;
+                    bool const use_schedule = true;
 
                     if(!use_schedule)
                     {
@@ -4650,6 +4689,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         if(idebug >= 1)
                         {
                             bool const include_diagonal_values = 1;
+			    printf("after symmetric reordering, include_diagonal_values = %d\n",
+					    (int) include_diagonal_values );
 
                             ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, T**>),
                                                     dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
@@ -5067,6 +5108,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format on
                         HIP_CHECK(hipStreamSynchronize(stream));
 
+			if (idebug >= 1)
                         {
                             auto const bid = 0;
                             std::vector<T> h_A(lda * n);
@@ -5100,8 +5142,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
 					handle, transA, transB, m1, n1, k1, 
 					&alpha,
-				        Vj_ptr_array, shift_Vj, ldvj, lstride_Vj,
 				        A_col_ptr_array, shift_zero, lda, strideA, 
+				        Vj_ptr_array, shift_Vj, ldvj, lstride_Vj,
 					&beta,
 				        Atmp_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
 					lbatch_count, work_rocblas));
@@ -5110,6 +5152,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         // -----------------------------------------------------------
                         // launch batch list to perform Vj to update last block column
+			//
+                        // Atmp <-  A * Vj
                         // -----------------------------------------------------------
 
                         I const m2 = n;
@@ -5122,14 +5166,35 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
                             handle, transA, transB, m2, n2, k2, 
 			    &alpha, 
-			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last, 
 			    A_last_col_ptr_array, shift_zero, lda, strideA, 
+			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last, 
 			    &beta, 
 			    Atmp_last_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
                             batch_count_remain, work_rocblas));
                         // clang-format on
                         HIP_CHECK(hipStreamSynchronize(stream));
                     }
+
+                    TRACE(1);
+
+			if (idebug >= 1)
+                        {
+                            auto const bid = 0;
+			    std::vector<T*> h_Atmp_ptr_array(batch_count);
+
+			    HIP_CHECK(hipMemcpy(&(h_Atmp_ptr_array[0]),
+						    Atmp_ptr_array, 
+						    sizeof(T*) * batch_count,
+						    hipMemcpyDeviceToHost));
+
+                            std::vector<T> h_Atmp(ldatmp * n);
+			    size_t const nbytes = sizeof(T)*ldatmp * n;
+                            HIP_CHECK(hipMemcpy(&(h_Atmp[0]), 
+						    h_Atmp_ptr_array[bid], 
+						    nbytes,
+                                                hipMemcpyDeviceToHost));
+                            print_Vj("Atmp_Vj", n, h_Atmp, ldatmp, ldatmp * n, 1);
+                        }
 
                     TRACE(1);
 
@@ -5223,6 +5288,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #else
                         if(idebug >= 1)
                         {
+                            printf("after copy Atmp back to A\n");
+
                             TRACE(1);
                             print_Gmat();
                             print_residual();
