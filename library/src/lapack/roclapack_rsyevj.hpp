@@ -4280,7 +4280,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         }
 #ifdef NDEBUG
 #else
-        if(idebug >= 1)
+        if(idebug >= 2)
         {
             std::vector<S> h_Amat_norm(batch_count);
 
@@ -4573,8 +4573,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
                     bool const use_schedule = false;
+                    bool const use_greedy_mwm = (!use_schedule);
 
-                    if(!use_schedule)
+                    if(use_greedy_mwm)
                     {
                         I const ldgmat = nblocks;
                         Istride const strideGmat = (nblocks * nblocks);
@@ -5114,8 +5115,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 			    lbatch_count, work_rocblas));
                         // clang-format on
 
-                        HIP_CHECK(hipStreamSynchronize(stream));
-
                         // ----------------------------------------------------------
                         // launch batch list to perform Vj' to update last block rows
                         //
@@ -5135,7 +5134,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 			    A_last_row_ptr_array, shift_zero, lda, strideA,
                             batch_count_remain, work_rocblas));
                         // clang-format on
-                        HIP_CHECK(hipStreamSynchronize(stream));
 
                         if(idebug >= 2)
                         {
@@ -5177,7 +5175,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 				        Atmp_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
 					lbatch_count, work_rocblas));
                         // clang-format on
-                        HIP_CHECK(hipStreamSynchronize(stream));
 
                         // -----------------------------------------------------------
                         // launch batch list to perform Vj to update last block column
@@ -5201,7 +5198,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 			    Atmp_last_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
                             batch_count_remain, work_rocblas));
                         // clang-format on
-                        HIP_CHECK(hipStreamSynchronize(stream));
                     }
 
                     TRACE(2);
@@ -5301,7 +5297,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 						    batch_count_remain);
                             // clang-format on
                         }
-                        HIP_CHECK(hipStreamSynchronize(stream));
                     }
 
                     TRACE(2);
@@ -5353,7 +5348,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 			    Atmp_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
 			    lbatch_count, work_rocblas));
                         // clang-format on
-                        HIP_CHECK(hipStreamSynchronize(stream));
 
                         // ------------------------------------------------------------
                         // launch batch list to perform Vj to update last block columns
@@ -5375,7 +5369,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 			    Atmp_last_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
 			    batch_count_remain, work_rocblas));
                         // clang-format on
-                        HIP_CHECK(hipStreamSynchronize(stream));
 
                         if(use_swap_kernel)
                         {
@@ -5401,7 +5394,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
                                 HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
                                                          hipMemcpyDeviceToDevice, stream));
-                                HIP_CHECK(hipStreamSynchronize(stream));
                             }
                         }
 
@@ -5449,7 +5441,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                     size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
                                     HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
                                                              hipMemcpyDeviceToDevice, stream));
-                                    HIP_CHECK(hipStreamSynchronize(stream));
                                 }
                             }
                         }
