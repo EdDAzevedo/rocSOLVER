@@ -4690,7 +4690,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                     size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
                                     HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
                                                              hipMemcpyDeviceToDevice, stream));
-                                    HIP_CHECK(hipStreamSynchronize(stream));
                                 }
                             }
                         }
@@ -5019,7 +5018,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                                                  hipMemcpyDeviceToDevice, stream));
                                         HIP_CHECK(hipMemcpyAsync(Vj_last, Aj_last, size_Vj_last_bytes,
                                                                  hipMemcpyDeviceToDevice, stream));
-                                        HIP_CHECK(hipStreamSynchronize(stream));
 
                                         assert(size_Vj_bytes == size_Aj_bytes);
                                         assert(size_Vj_last_bytes == size_Aj_last_bytes);
