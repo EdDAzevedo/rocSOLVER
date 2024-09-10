@@ -37,7 +37,7 @@
 #include "rocsolver/rocsolver.h"
 
 ROCSOLVER_BEGIN_NAMESPACE
-static constexpr int idebug = 1;
+static constexpr int idebug = 0;
 #define TRACE(ival)                                       \
     {                                                     \
         auto const istat = hipDeviceSynchronize();        \
@@ -3365,9 +3365,16 @@ __global__ static void set_completed_kernel(I const n,
 
             atomicAdd(&(completed[0]), 1);
         };
-        // debug
-        printf("bid=%d,anorm=%le,gnorm=%le,abstol=%le,is_completed=%d,completed[0]=%d\n", bid,
-               (double)anorm, (double)gnorm, (double)abstol, (int)is_completed, (int)completed[0]);
+
+#ifdef NDEBUG
+#else
+        if(idebug >= 1)
+        {
+            printf("bid=%d,anorm=%le,gnorm=%le,abstol=%le,is_completed=%d,completed[0]=%d\n", bid,
+                   (double)anorm, (double)gnorm, (double)abstol, (int)is_completed,
+                   (int)completed[0]);
+        }
+#endif
     }
     __syncthreads();
 }
@@ -4377,7 +4384,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 #ifdef NDEBUG
 #else
-                if(idebug >= 1)
+                if(idebug >= 2)
                 {
                     TRACE(2);
                     print_Gmat();
@@ -4578,7 +4585,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format on
 #ifdef NDEBUG
 #else
-                        if(idebug >= 1)
+                        if(idebug >= 2)
                         {
                             bool const include_diagonal = false;
                             printf("=== before pgreedy_mwm === \n");
@@ -4701,7 +4708,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 #ifdef NDEBUG
 #else
-                        if(idebug >= 1)
+                        if(idebug >= 2)
                         {
                             bool const include_diagonal_values = 1;
                             printf("after symmetric reordering, include_diagonal_values = %d\n",
@@ -5294,7 +5301,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 #ifdef NDEBUG
 #else
-                    if(idebug >= 1)
+                    if(idebug >= 2)
                     {
                         bool const include_diagonal = false;
                         update_norm(include_diagonal, residual);
@@ -5448,7 +5455,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 #ifdef NDEBUG
 #else
-            if(idebug >= 1)
+            if(idebug >= 2)
             {
                 printf("after copy_diagonal_kernel\n");
                 print_eig(n, W, strideW, batch_count);
@@ -5610,3 +5617,11 @@ ROCSOLVER_END_NAMESPACE
 #undef ALLOC_SCHEDULE
 
 #undef ALLOC_ALL
+
+#undef ROCBLASCALL_GEMM
+#undef TRACE
+
+#undef SWAP_Atmp_Vtmp
+#undef SWAP_A_Atmp
+#undef SWAP_A_Vtmp
+#undef SWAP_AJ_VJ
