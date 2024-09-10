@@ -1465,7 +1465,7 @@ __global__ static void gather2D_kernel(I const m,
     bool const has_col_map = (col_map_ != nullptr);
 
     I const bid_start = hipBlockIdx_z;
-    I const bid_inc = hipBlockDim_z * hipGridDim_z;
+    I const bid_inc = hipGridDim_z;
 
     I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
     I const i_inc = hipBlockDim_x * hipGridDim_x;
@@ -1483,7 +1483,7 @@ __global__ static void gather2D_kernel(I const m,
         I const* const row_map = (has_row_map) ? &(row_map_[bid * n]) : nullptr;
         I const* const col_map = (has_col_map) ? &(col_map_[bid * n]) : nullptr;
 
-        auto const Ap = [=](auto i, auto j) -> const T& { return (A_p[idx2D(i, j, lda)]); };
+        auto const Ap = [=](auto i, auto j) -> T { return (A_p[idx2D(i, j, lda)]); };
         auto const Bp = [=](auto i, auto j) -> T& { return (B_p[idx2D(i, j, ldb)]); };
 
         for(auto j = j_start; j < n; j += j_inc)
@@ -3923,6 +3923,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         //  larger matrix
         //  -------------
         bool const use_swap_kernel = false;
+        bool const do_overwrite_A_with_V = false;
 
         std::vector<T*> h_A_ptr_array(batch_count);
         get_ptr_array<T, I, Istride>(A, shiftA, lda, strideA, batch_count, h_A_ptr_array);
@@ -4198,14 +4199,15 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     }
                     w_norm = std::sqrt(w_norm);
 
-                    printf("w_max = %le, w_min = %le, w_norm = %le\n", w_max, w_min, w_norm);
+                    printf("w_max = %le; w_min = %le; w_norm = %le;\n", w_max, w_min, w_norm);
                 }
                 else
                 {
+                    auto const ioff = 1;
                     for(I i = 0; i < n; i++)
                     {
                         double const w_i = h_W[i + bid * n];
-                        printf("W(%d,%d) = %le\n", (int)i, (int)bid, (double)w_i);
+                        printf("W(%d,%d) = %le\n", (int)i + ioff, (int)bid + ioff, (double)w_i);
                     }
                 }
             }
@@ -4552,7 +4554,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = true;
+                    bool const use_schedule = false;
 
                     if(!use_schedule)
                     {
@@ -4586,7 +4588,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     I const* const row_map = col_map;
 #ifdef NDEBUG
 #else
-                    if(idebug >= 1)
+                    if(idebug >= 2)
                     {
                         // -------------
                         // print col_map
@@ -4921,7 +4923,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             TRACE(2);
 
-                            bool const do_overwrite_A_with_V = true;
                             {
                                 // -----------------------------------------
                                 // setup options to
@@ -5006,7 +5007,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 TRACE(2);
                                 S const atol = 1e-5;
 
-                                if(idebug >= 1)
+                                if(idebug >= 2)
                                 {
                                     bool isok_Vj = false;
                                     I const n1 = (2 * nb);
@@ -5114,7 +5115,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format on
                         HIP_CHECK(hipStreamSynchronize(stream));
 
-                        if(idebug >= 1)
+                        if(idebug >= 2)
                         {
                             auto const bid = 0;
                             std::vector<T> h_A(lda * n);
@@ -5200,7 +5201,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     TRACE(2);
 
-                    bool const use_restore_diagonal_blocks = false;
+                    bool const use_restore_diagonal_blocks = (!do_overwrite_A_with_V);
                     if(use_restore_diagonal_blocks)
                     {
                         // ----------------------------------------
@@ -5283,12 +5284,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     TRACE(2);
 
+#ifdef NDEBUG
+#else
+                    if(idebug >= 1)
                     {
                         bool const include_diagonal = false;
                         update_norm(include_diagonal, residual);
-#ifdef NDEBUG
-#else
-                        if(idebug >= 1)
                         {
                             printf("after copy Atmp back to A\n");
 
@@ -5296,8 +5297,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             print_Gmat();
                             print_residual();
                         }
-#endif
                     }
+#endif
 
                     if(need_V)
                     {
@@ -5453,7 +5454,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             // -------------------------------------------
 
             // reuse storage
-            Istride const stridemap = sizeof(I) * n;
+            Istride const stridemap = (batch_count > 1) ? sizeof(I) * n : 0;
             if(need_sort)
             {
                 ROCSOLVER_LAUNCH_KERNEL((sort_kernel<S, I, Istride>), dim3(1, 1, nbz),
@@ -5547,9 +5548,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                        (int)bid, (int)h_n_sweeps[bid], (int)bid, (int)h_info[bid], (int)bid,
                        (double)h_residual[bid], (int)bid, (int)h_completed[bid + 1]);
 
+                auto const ioff = 1;
                 for(auto i = 0; i < n; i++)
                 {
-                    printf("W[%d,%d] = %le\n", i, bid, (double)h_W[i + bid * n]);
+                    printf("W(%d,%d) = %le;\n", (int)ioff + i, (int)ioff + bid,
+                           (double)h_W[i + bid * n]);
                 }
             }
         }
