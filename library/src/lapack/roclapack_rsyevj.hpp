@@ -37,7 +37,7 @@
 #include "rocsolver/rocsolver.h"
 
 ROCSOLVER_BEGIN_NAMESPACE
-static constexpr int idebug = 0;
+static constexpr int idebug = 1;
 #define TRACE(ival)                                       \
     {                                                     \
         if(idebug >= ival)                                \
@@ -405,6 +405,7 @@ static constexpr int idebug = 0;
 
 #define SWAP_Atmp_Vtmp()                                          \
     {                                                             \
+        HIP_CHECK(hipStreamSynchronize(stream));                  \
         swap(Atmp, Vtmp);                                         \
         swap(Atmp_row_ptr_array, Vtmp_row_ptr_array);             \
         swap(Atmp_col_ptr_array, Vtmp_col_ptr_array);             \
@@ -422,6 +423,7 @@ static constexpr int idebug = 0;
 
 #define SWAP_A_Atmp()                                          \
     {                                                          \
+        HIP_CHECK(hipStreamSynchronize(stream));               \
         swap(A, Atmp);                                         \
         swap(A_row_ptr_array, Atmp_row_ptr_array);             \
         swap(A_col_ptr_array, Atmp_col_ptr_array);             \
@@ -439,6 +441,7 @@ static constexpr int idebug = 0;
 
 #define SWAP_A_Vtmp()                                          \
     {                                                          \
+        HIP_CHECK(hipStreamSynchronize(stream));               \
         swap(A, Vtmp);                                         \
         swap(A_row_ptr_array, Vtmp_row_ptr_array);             \
         swap(A_col_ptr_array, Vtmp_col_ptr_array);             \
@@ -1569,7 +1572,7 @@ __global__ static void reorder_kernel(char c_direction,
         T const* const dA = load_ptr_batch<T>(AA, bid, shiftA, strideA);
         T* const dC = load_ptr_batch<T>(CC, bid, shiftC, strideC);
 
-        auto A = [=](auto i, auto j) { return (dA[idx2D(i, j, ldA)]); };
+        auto A = [=](auto i, auto j) -> const T& { return (dA[idx2D(i, j, ldA)]); };
 
         auto C = [=](auto i, auto j) -> T& { return (dC[idx2D(i, j, ldC)]); };
 
@@ -1595,16 +1598,45 @@ __global__ static void reorder_kernel(char c_direction,
                 assert(bsize(iblock) == bsize(iblock_old));
                 assert(bsize(jblock) == bsize(jblock_old));
 
-                for(auto j = j_start; j < nj; j += j_inc)
+                bool constexpr use_pointers = true;
+                if(use_pointers)
                 {
-                    for(auto i = i_start; i < ni; i += i_inc)
+                    auto i = i_start;
+                    auto j = j_start;
+
+                    T* cp_j = &(C(ic + i, jc + j));
+                    T const* ap_j = &(A(ia + i, ja + j));
+
+                    for(j = j_start; j < nj; j += j_inc)
                     {
-                        C(ic + i, jc + j) = A(ia + i, ja + j);
+                        T* cp_i = cp_j;
+                        T const* ap_i = ap_j;
+
+                        for(i = i_start; i < ni; i += i_inc)
+                        {
+                            *cp_i = *ap_i;
+
+                            cp_i += i_inc;
+                            ap_i += i_inc;
+                        }
+
+                        cp_j += (ldC * j_inc);
+                        ap_j += (ldA * j_inc);
                     }
                 }
-            }
-        }
-    }
+                else
+                {
+                    for(auto j = j_start; j < nj; j += j_inc)
+                    {
+                        for(auto i = i_start; i < ni; i += i_inc)
+                        {
+                            C(ic + i, jc + j) = A(ia + i, ja + j);
+                        }
+                    }
+                }
+            } // end for iblock
+        } // end for jblock
+    } // end for bid
 }
 
 // --------------------------------
@@ -2385,7 +2417,7 @@ static __device__ void cal_norm_body(I const m,
 
     bool const is_root = (i_start == 0) && (j_start == 0);
 
-    constexpr bool use_serial = true;
+    constexpr bool use_serial = false;
     S const zero = 0;
 
     if(use_serial)
@@ -2426,13 +2458,39 @@ static __device__ void cal_norm_body(I const m,
 
     {
         double dsum = zero;
-        for(auto j = j_start; j < n; j += j_inc)
+        bool constexpr use_pointers = true;
+        if(use_pointers)
         {
-            for(auto i = i_start; i < m; i += i_inc)
+            auto i = i_start;
+            auto j = j_start;
+            T const* ap_j = &(A(i, j));
+
+            for(j = j_start; j < n; j += j_inc)
             {
-                bool const is_diag = (i == j);
-                auto const aij = (is_diag && (!include_diagonal)) ? zero : A(i, j);
-                dsum += std::norm(aij);
+                T const* ap_i = ap_j;
+
+                for(i = i_start; i < m; i += i_inc)
+                {
+                    bool const is_diag = (i == j);
+                    auto const aij = (is_diag && (!include_diagonal)) ? zero : (*ap_i);
+
+                    dsum += std::norm(aij);
+
+                    ap_i += i_inc;
+                }
+                ap_j += (lda * j_inc);
+            }
+        }
+        else
+        {
+            for(auto j = j_start; j < n; j += j_inc)
+            {
+                for(auto i = i_start; i < m; i += i_inc)
+                {
+                    bool const is_diag = (i == j);
+                    auto const aij = (is_diag && (!include_diagonal)) ? zero : A(i, j);
+                    dsum += std::norm(aij);
+                }
             }
         }
 
@@ -3930,10 +3988,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         //  -------------
         //  larger matrix
         //  -------------
-        bool const use_swap_kernel = false;
-        bool const do_overwrite_A_with_V = false;
-        bool const use_swap_Atmp_Vtmp = true;
-        bool const use_swap_aj_vj = true;
+        bool constexpr use_swap_kernel = false;
+        bool constexpr do_overwrite_A_with_V = false;
+        bool constexpr use_swap_Atmp_Vtmp = false;
+        bool constexpr use_swap_aj_vj = false;
 
         std::vector<T*> h_A_ptr_array(batch_count);
         get_ptr_array<T, I, Istride>(A, shiftA, lda, strideA, batch_count, h_A_ptr_array);
@@ -4410,7 +4468,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     // clang-format off
                     ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>), 
-				    dim3(1, 1, nbz), dim3(nx, 1, 1), 0, stream, 
+				    dim3(nnb, 1, 1), dim3(nnx, 1, 1), 0, stream, 
 				    n, nb, Amat_norm, atol,
 				    h_sweeps, n_sweeps, residual, info, completed,
 				    batch_count);
@@ -4573,7 +4631,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = false;
+                    bool const use_schedule = true;
                     bool const use_greedy_mwm = (!use_schedule);
 
                     if(use_greedy_mwm)
