@@ -458,6 +458,7 @@ static constexpr int idebug = 1;
     }
 
 #define SWAP_AJ_VJ()                            \
+    HIP_CHECK(hipStreamSynchronize(stream));    \
     swap(Vj, Aj);                               \
     swap(Vj_last, Aj_last);                     \
     swap(Vj_ptr_array, Aj_ptr_array);           \
@@ -925,6 +926,34 @@ static __device__ I idx2D(I const i, I const j, I const ld)
     return (i + j * static_cast<int64_t>(ld));
 };
 
+// permute eigen vectors after eigen values are sorted
+// call permute_swap in a single thread block
+//
+// launch as dim3(1,1,batch_count), dim3(nx,1,1)
+template <typename T, typename I, typename Istride, typename UV>
+static __global__ void permute_swap_kernel(I const n,
+                                           UV V_,
+                                           Istride const shift_V,
+                                           I const ldv,
+                                           Istride const stride_V,
+                                           I* const map_,
+                                           Istride const stride_map,
+                                           I const batch_count)
+{
+    assert(map_ != nullptr);
+
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        auto const V = load_ptr_batch(V_, bid, shift_V, stride_V);
+        auto const map = map_ + bid * stride_map;
+
+        permute_swap<T, I>(n, V, ldv, map);
+    }
+}
+
 // ------------------------------------------
 // simple implementation of GEMM for debugging
 //
@@ -1056,10 +1085,18 @@ static rocblas_status simple_gemm(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    ROCSOLVER_LAUNCH_KERNEL((simple_gemm_kernel<T, I, AA, BB, CC, Istride>), dim3(nbx, nby, nbz),
-                            dim3(nx, ny, 1), 0, stream, transA, transB, mm, nn, kk, alpha, A_,
-                            shiftA, lda, strideA, B_, shiftB, ldb, strideB, beta, C_, shiftC, ldc,
-                            strideC, batch_count, work);
+    // clang-format off
+    ROCSOLVER_LAUNCH_KERNEL((simple_gemm_kernel<T, I, AA, BB, CC, Istride>),
+		    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+		    transA, transB,
+		    mm, nn, kk,
+		    alpha,
+		    A_, shiftA, lda, strideA,
+		    B_, shiftB, ldb, strideB,
+		    beta,
+		    C_, shiftC, ldc, strideC,
+		    batch_count, work);
+    // clang-format on
 
     return (rocblas_status_success);
 }
@@ -1427,7 +1464,7 @@ __global__ static void sort_kernel(I const n,
                                    S* const W_,
                                    Istride const strideW,
                                    I* const map_,
-                                   Istride const stridemap,
+                                   Istride const stride_map,
                                    I const batch_count)
 {
     bool const has_map = (map_ != nullptr);
@@ -1438,7 +1475,7 @@ __global__ static void sort_kernel(I const n,
     for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         S* W = W_ + bid * strideW;
-        I* map = (has_map) ? map_ + bid * stridemap : nullptr;
+        I* map = (has_map) ? map_ + bid * stride_map : nullptr;
 
         shell_sort(n, W, map);
     }
@@ -1736,8 +1773,8 @@ __global__ static void lacpy_kernel(char const uplo,
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
 
-    I const i_inc = hipGridDim_x * hipBlockDim_x;
-    I const j_inc = hipGridDim_y * hipBlockDim_y;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+    I const j_inc = hipBlockDim_y * hipGridDim_y;
 
     I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
     I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipBlockDim_y;
@@ -1757,20 +1794,32 @@ __global__ static void lacpy_kernel(char const uplo,
 
         auto C = [=](auto i, auto j) -> T& { return (Cp[idx2D(i, j, ldc)]); };
 
-        for(I j = j_start; j < n; j += j_inc)
+        if(use_all)
         {
-            for(I i = i_start; i < m; i += i_inc)
+            for(I j = j_start; j < n; j += j_inc)
             {
-                bool const is_upper = (i <= j);
-                bool const is_lower = (i >= j);
-
-                bool const do_assignment
-                    = (use_all) || (use_upper && is_upper) || (use_lower && is_lower);
-                if(do_assignment)
+                for(I i = i_start; i < m; i += i_inc)
                 {
                     C(i, j) = A(i, j);
-                };
+                }
             }
+        }
+        else
+        {
+            for(I j = j_start; j < n; j += j_inc)
+            {
+                for(I i = i_start; i < m; i += i_inc)
+                {
+                    bool const is_upper = (i <= j);
+                    bool const is_lower = (i >= j);
+
+                    bool const do_assignment = (use_upper && is_upper) || (use_lower && is_lower);
+                    if(do_assignment)
+                    {
+                        C(i, j) = A(i, j);
+                    };
+                } // end for i
+            } // end for j
         }
     }
 }
@@ -1829,7 +1878,7 @@ __global__ static void laswap_kernel(I const m,
     } // end for bid
 }
 
-/* 
+/*
  * -----------------------------------------------------------------
  * Greedy heuristic to solve the maximum weight matching on a graph
  * to pick the most profitable set of independent pairs
@@ -2417,7 +2466,7 @@ static __device__ void cal_norm_body(I const m,
 
     bool const is_root = (i_start == 0) && (j_start == 0);
 
-    constexpr bool use_serial = false;
+    constexpr bool use_serial = true;
     S const zero = 0;
 
     if(use_serial)
@@ -3902,8 +3951,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     // scalar case
     if(n == 1)
     {
-        ROCSOLVER_LAUNCH_KERNEL(scalar_case<T>, gridReset, threadsReset, 0, stream, evect, A,
-                                strideA, W, strideW, batch_count);
+        // clang-format off
+        ROCSOLVER_LAUNCH_KERNEL(scalar_case<T>,
+			gridReset, threadsReset, 0, stream,
+			evect,
+			A, strideA, W, strideW,
+			batch_count);
+        // clang-format on
     }
 
     // quick return
@@ -3976,11 +4030,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         {
             size_t const lmemsize = get_lds();
             Istride const strideAcpy = Istride(n) * n;
+            // clang-format off
             ROCSOLVER_LAUNCH_KERNEL((rsyevj_small_kernel<T, I, S, U, Istride>),
                                     dim3(1, 1, batch_count), dim3(ddx, ddy, 1), lmemsize, stream,
-                                    esort, evect, uplo, n, A, shiftA, lda, strideA, atol, eps,
-                                    residual, max_sweeps, n_sweeps, W, strideW, info, Acpy,
-                                    strideAcpy, batch_count, d_schedule_small);
+                                    esort, evect, uplo, n,
+				    A, shiftA, lda, strideA,
+				    atol, eps, residual, max_sweeps, n_sweeps,
+				    W, strideW,
+				    info,
+				    Acpy, strideAcpy,
+				    batch_count, d_schedule_small);
+            // clang-format on
         }
     }
     else
@@ -3992,6 +4052,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         bool constexpr do_overwrite_A_with_V = false;
         bool constexpr use_swap_Atmp_Vtmp = false;
         bool constexpr use_swap_aj_vj = false;
+        bool constexpr use_gather2D = false;
 
         std::vector<T*> h_A_ptr_array(batch_count);
         get_ptr_array<T, I, Istride>(A, shiftA, lda, strideA, batch_count, h_A_ptr_array);
@@ -4008,6 +4069,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 #ifdef NDEBUG
 #else
+        if(idebug >= 1)
+        {
+            printf("need_V=%d, need_sort=%d, n=%d, batch_count=%d, nb=%d\n", (int)need_V,
+                   (int)need_sort, (int)n, (int)batch_count, (int)nb);
+        }
+
         if(idebug >= 2)
         {
             // -------------------------------------------
@@ -4027,9 +4094,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             I const isymm = 3;
 
             I const itype = isymm;
-            ROCSOLVER_LAUNCH_KERNEL((set_matrix_kernel<T, I, U, Istride>), dim3(nbx, nby, nbz),
-                                    dim3(nx, ny, 1), 0, stream, n, nb, A, shiftA, lda, strideA,
-                                    itype, batch_count);
+            // clang-format off
+            ROCSOLVER_LAUNCH_KERNEL((set_matrix_kernel<T, I, U, Istride>),
+			    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+			    n, nb,
+			    A, shiftA, lda, strideA,
+			    itype, batch_count);
+            // clang-format on
         }
 #endif
 
@@ -4047,18 +4118,23 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
         auto update_norm = [=](bool const include_diagonal, S* residual) {
             // clang-format off
-                ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), 
+                ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>),
 				dim3(1, 1, nbz), dim3(nx, ny, 1), 0, stream,
-				n, nb, 
-				A, shiftA, lda, strideA, 
-				Gmat, 
+				n, nb,
+				A, shiftA, lda, strideA,
+				Gmat,
 				include_diagonal, completed, batch_count);
             // clang-format on
 
             size_t const shmem_size = sizeof(S);
-            ROCSOLVER_LAUNCH_KERNEL((sum_Gmat_kernel<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1),
-                                    shmem_size, stream, n, nb, Gmat, residual, completed,
-                                    batch_count);
+            // clang-format off
+            ROCSOLVER_LAUNCH_KERNEL((sum_Gmat_kernel<S, I>),
+			    dim3(1, 1, nbz), dim3(nx, ny, 1), shmem_size, stream,
+			    n, nb,
+			    Gmat, residual,
+			    completed,
+			    batch_count);
+            // clang-format on
         };
 
         auto check_V = [=](I const nb2, std::vector<T>& h_Vj, I const ldvj, Istride const lstride_Vj,
@@ -4143,8 +4219,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 };
                 dsd = std::sqrt(dsd);
 
-                printf("avg = %le + sqrt(-1)*%le; dsd = %le; dmax = %le; dmin = %le;\n",
-                       std::real(avg), std::imag(avg), dsd, dmax, dmin);
+                if(idebug >= 2)
+                {
+                    printf("avg = %le + sqrt(-1)*%le; dsd = %le; dmax = %le; dmin = %le;\n",
+                           std::real(avg), std::imag(avg), dsd, dmax, dmin);
+                }
 
                 if(idebug >= 2)
                 {
@@ -4234,10 +4313,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         auto print_eig = [=](I const n, S* W, Istride const strideW, I const batch_count,
                              bool const is_summary = false) {
             // clang-format off
-            ROCSOLVER_LAUNCH_KERNEL((copy_diagonal_kernel<T, I, U, Istride>), 
-			    dim3(1, 1, batch_count), dim3(32, 32, 1), 0, stream, 
-			    n, A, shiftA, lda, strideA, 
-			    W, strideW, 
+            ROCSOLVER_LAUNCH_KERNEL((copy_diagonal_kernel<T, I, U, Istride>),
+			    dim3(1, 1, batch_count), dim3(32, 32, 1), 0, stream,
+			    n, A, shiftA, lda, strideA,
+			    W, strideW,
 			    batch_count);
             // clang-format on
 
@@ -4323,9 +4402,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
             // clang-format off
             ROCSOLVER_LAUNCH_KERNEL((symmetrize_matrix_kernel<T, I, U, Istride>),
-                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
-				    c_uplo, n, 
-				    A, shiftA, lda, strideA, 
+                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+				    c_uplo, n,
+				    A, shiftA, lda, strideA,
 				    batch_count);
             // clang-format on
         }
@@ -4384,7 +4463,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
  *     Atmp <-  P' * A * P
  *
  *
- * (3) copy the pairs of diagonal blocks into 
+ * (3) copy the pairs of diagonal blocks into
  *     Aj( (2*nb),(2*nb),(nblocks-1),batch_count_remain)
  *
  * (4) perform Jacobi method in Aj() and store the
@@ -4467,8 +4546,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     auto const nnb = std::min(max_thread_blocks, ceil(batch_count, nnx));
 
                     // clang-format off
-                    ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>), 
-				    dim3(nnb, 1, 1), dim3(nnx, 1, 1), 0, stream, 
+                    ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>),
+				    dim3(nnb, 1, 1), dim3(nnx, 1, 1), 0, stream,
 				    n, nb, Amat_norm, atol,
 				    h_sweeps, n_sweeps, residual, info, completed,
 				    batch_count);
@@ -4529,7 +4608,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     // clang-format off
                     ROCSOLVER_LAUNCH_KERNEL(
-                        (setup_ptr_arrays_kernel<T, I, Istride, U>), 
+                        (setup_ptr_arrays_kernel<T, I, Istride, U>),
 
 			dim3(1, 1, 1), dim3(1, 1, 1), 0, stream,
 
@@ -4541,7 +4620,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         Vtmp, shift_Vtmp, ldvtmp, lstride_Vtmp,
 
-                        Aj,      ldaj,      Vj,      ldvj, 
+                        Aj,      ldaj,      Vj,      ldvj,
 			Aj_last, ldaj_last, Vj_last, ldvj_last,
 
                         Vj_ptr_array, Aj_ptr_array, Vj_last_ptr_array, Aj_last_ptr_array,
@@ -4555,8 +4634,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         Vtmp_row_ptr_array, Vtmp_col_ptr_array, Vtmp_last_row_ptr_array,
                         Vtmp_last_col_ptr_array, Vtmp_ptr_array,
 
-                        A_diag_ptr_array, A_last_diag_ptr_array, 
-			
+                        A_diag_ptr_array, A_last_diag_ptr_array,
+
 			Atmp_diag_ptr_array, Atmp_last_diag_ptr_array, Vtmp_diag_ptr_array, Vtmp_last_diag_ptr_array,
 
                         completed, batch_count);
@@ -4641,8 +4720,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((symmetrize_matrix_kernel<S, I, S*, Istride>),
-					dim3(1, 1, nbz), dim3(nx, 1, 1), 0, stream, 
-					c_uplo, n, 
+					dim3(1, 1, nbz), dim3(nx, 1, 1), 0, stream,
+					c_uplo, n,
 					Gmat, shift_zero, ldgmat, strideGmat,
 					batch_count_remain);
                         // clang-format on
@@ -4664,6 +4743,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map = (use_schedule) ? col_map_schedule : col_map_mwm;
                     I const* const row_map = col_map;
+                    I const* const null_row_map = nullptr;
+                    I const* const null_col_map = nullptr;
 #ifdef NDEBUG
 #else
                     if(idebug >= 2)
@@ -4699,13 +4780,24 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         if(need_V)
                         {
                             // ------------------------------------
-                            // matrix V need only column reordering
+                            //  We apply operations   of the form
+                            //     P1 * J1' * (P1' * A * P1) * J1 * P1'
+                            //     then
+                            //     P2 * J2' * P2' [ A ]  P2 * J2 * P2'
+                            //     to finally get
+                            //     V' * A * V = diag(D)
+                            //
+                            //     so set of eigen vectors is the form
+                            //     V = eye * (P1 * J1 * P1') * (P2 * J2 * P2') * ....
+                            //
+                            // so forming matrix V need only
+                            // operations (including permutation) on the columns
                             // ------------------------------------
-                            I const* const null_row_map = nullptr;
 
                             //  ----------------------------
-                            //  perform Atmp <-  Vtmp * Perm
-                            //          swap(Atmp,Vtmp)
+                            //  perform Atmp <-  Vtmp  * Perm
+                            //  then
+                            //   copy Vtmp <- Atmp or  swap(Atmp,Vtmp)
                             //
                             //  So Vtmp is still the matrix
                             //  of eigen vectors
@@ -4714,31 +4806,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL(
-                                (reorder_kernel<T, I, Istride>), 
-				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
-				c_direction, n, nb, 
-				null_row_map, col_map, stride_map, 
+                                (reorder_kernel<T, I, Istride,T**,T**>),
+				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+				c_direction, n, nb,
+				null_row_map, col_map, stride_map,
 				Vtmp_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
-                                Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+                                Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 				batch_count_remain);
                             // clang-format on
 
                             TRACE(2);
 
-                            if(use_swap_kernel)
-                            {
-                                auto const mm = n;
-                                auto const nn = n;
-                                // clang-format off
-                              ROCSOLVER_LAUNCH_KERNEL((laswap_kernel<T, I, T**,T**,Istride>),
-					      dim3(nbx,nby,nbz),dim3(nx,ny,1),0,stream,
-					      mm,nn, 
-					      Atmp_ptr_array, shift_Atmp,ldatmp,lstride_Atmp,
-					      Vtmp_ptr_array, shift_Vtmp,ldvtmp,lstride_Vtmp,
-					      batch_count_remain );
-                                // clang-format on
-                            }
-                            else
                             {
                                 if(use_swap_Atmp_Vtmp)
                                 {
@@ -4746,9 +4824,22 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 }
                                 else
                                 {
-                                    size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
-                                    HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
-                                                             hipMemcpyDeviceToDevice, stream));
+                                    // ------------------------------------------
+                                    // copy Atmp back to Vtmp
+                                    // so Vtmp is still holding the eigen vectors
+                                    // ------------------------------------------
+
+                                    auto const mm = n;
+                                    auto const nn = n;
+                                    char const cl_uplo = 'A';
+                                    // clang-format off
+                                ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+				    cl_uplo, mm, nn,
+				    Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
+				    Vtmp_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
+				    batch_count_remain);
+                                    // clang-format on
                                 }
                             }
                         }
@@ -4764,10 +4855,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         ROCSOLVER_LAUNCH_KERNEL((reorder_kernel<T, I, Istride,T**,T**>),
 					// dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
 					dim3(1, 1, 1), dim3(1, 1, 1), 0, stream,
-					c_direction, n, nb, 
+					c_direction, n, nb,
 					row_map, col_map, stride_map,
-					A_ptr_array, shift_zero, lda, strideA, 
-					Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+					A_ptr_array, shift_zero, lda, strideA,
+					Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					batch_count_remain);
                         // clang-format on
 
@@ -4821,10 +4912,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
-				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream, 
-				    cl_uplo, m1, n1, 
-				    Atmp_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
-				    Aj_ptr_array, shift_Aj, ldaj, lstride_Aj, 
+				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+				    cl_uplo, m1, n1,
+				    Atmp_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
+				    Aj_ptr_array, shift_Aj, ldaj, lstride_Aj,
 				    lbatch_count);
                             // clang-format on
 
@@ -4840,9 +4931,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
 					    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-					    cl_uplo, m2, n2, 
+					    cl_uplo, m2, n2,
 					    Atmp_last_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
-					    Aj_last_ptr_array, shift_Aj, ldaj_last, lstride_Aj_last, 
+					    Aj_last_ptr_array, shift_Aj, ldaj_last, lstride_Aj_last,
 					    batch_count_remain);
                             // clang-format on
 #ifdef NDEBUG
@@ -4982,11 +5073,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 // clang-format off
                                 ROCSOLVER_LAUNCH_KERNEL(
-                                    (laset_kernel<T, I, T*, Istride>), 
-				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream, 
-				    c_uplo, m1, n1, 
-				    alpha_offdiag, beta_diag, 
-				    Vj, shift_Vj, ldvj, lstride_Vj, 
+                                    (laset_kernel<T, I, T*, Istride>),
+				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+				    c_uplo, m1, n1,
+				    alpha_offdiag, beta_diag,
+				    Vj, shift_Vj, ldvj, lstride_Vj,
 				    lbatch_count);
                                 // clang-format on
 
@@ -4995,10 +5086,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 // clang-format off
                                 ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, T*, Istride>),
-						dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
-						c_uplo, m2, n2, 
-						alpha_offdiag, beta_diag, 
-						Vj_last, shift_Vj_last, ldvj_last, lstride_Vj_last, 
+						dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+						c_uplo, m2, n2,
+						alpha_offdiag, beta_diag,
+						Vj_last, shift_Vj_last, ldvj_last, lstride_Vj_last,
 						batch_count_remain);
                                 // clang-format on
                             }
@@ -5033,14 +5124,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 // clang-format off
                                 ROCSOLVER_LAUNCH_KERNEL(
-                                    (rsyevj_small_kernel<T, I, S, T**, Istride>), 
-				    dim3(1, 1, nbz2), dim3(nx, ny, 1), lmemsize, stream, 
-				    rsyevj_esort, rsyevj_evect, rsyevj_fill, 
-				    n1, 
+                                    (rsyevj_small_kernel<T, I, S, T**, Istride>),
+				    dim3(1, 1, nbz2), dim3(nx, ny, 1), lmemsize, stream,
+				    rsyevj_esort, rsyevj_evect, rsyevj_fill,
+				    n1,
 				    Aj_ptr_array, shift_Aj, ldaj, lstride_Aj,
-                                    rsyevj_atol, eps, residual_Aj, rsyevj_max_sweeps, 
-				    n_sweeps_Aj, W_Aj, strideW_Aj, info_Aj, 
-				    Vj, lstride_Vj, 
+                                    rsyevj_atol, eps, residual_Aj, rsyevj_max_sweeps,
+				    n_sweeps_Aj, W_Aj, strideW_Aj, info_Aj,
+				    Vj, lstride_Vj,
 				    lbatch_count, d_schedule_small, do_overwrite_A_with_V);
                                 // clang-format on
 
@@ -5051,16 +5142,16 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 TRACE(2);
                                 // clang-format off
                                 ROCSOLVER_LAUNCH_KERNEL(
-                                    (rsyevj_small_kernel<T, I, S, T**, Istride>), 
-				    dim3(1, 1, nbz), dim3(nx, ny, 1), lmemsize, stream, 
-				    rsyevj_esort, rsyevj_evect, rsyevj_fill, 
-				    n2, 
-				    Aj_last_ptr_array, shift_Aj_last, ldaj_last, lstride_Aj_last, 
+                                    (rsyevj_small_kernel<T, I, S, T**, Istride>),
+				    dim3(1, 1, nbz), dim3(nx, ny, 1), lmemsize, stream,
+				    rsyevj_esort, rsyevj_evect, rsyevj_fill,
+				    n2,
+				    Aj_last_ptr_array, shift_Aj_last, ldaj_last, lstride_Aj_last,
 				    rsyevj_atol, eps, residual_Aj_last,
-                                    rsyevj_max_sweeps, n_sweeps_Aj_last, 
+                                    rsyevj_max_sweeps, n_sweeps_Aj_last,
 				    W_Aj_last, strideW_Aj_last,
-                                    info_Aj_last, 
-				    Vj_last, lstride_Vj_last, 
+                                    info_Aj_last,
+				    Vj_last, lstride_Vj_last,
 				    batch_count_remain, d_schedule_last, do_overwrite_A_with_V);
                                 // clang-format on
                                 TRACE(2);
@@ -5163,12 +5254,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         // clang-format off
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
-                            handle, transA, transB, m1, n1, k1, 
-			    &alpha, 
-			    Vj_ptr_array, shift_Vj, ldvj, lstride_Vj, 
-			    Atmp_row_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+                            handle, transA, transB, m1, n1, k1,
+			    &alpha,
+			    Vj_ptr_array, shift_Vj, ldvj, lstride_Vj,
+			    Atmp_row_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 			    &beta,
-                            A_row_ptr_array, shift_zero, lda, strideA, 
+                            A_row_ptr_array, shift_zero, lda, strideA,
 			    lbatch_count, work_rocblas));
                         // clang-format on
 
@@ -5183,11 +5274,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         // clang-format off
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
-                            handle, transA, transB, m2, n2, k2, 
-			    &alpha, 
-			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last, 
-			    Atmp_last_row_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
-			    &beta, 
+                            handle, transA, transB, m2, n2, k2,
+			    &alpha,
+			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last,
+			    Atmp_last_row_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
+			    &beta,
 			    A_last_row_ptr_array, shift_zero, lda, strideA,
                             batch_count_remain, work_rocblas));
                         // clang-format on
@@ -5224,12 +5315,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         TRACE(2);
                         // clang-format off
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
-					handle, transA, transB, m1, n1, k1, 
+					handle, transA, transB, m1, n1, k1,
 					&alpha,
-				        A_col_ptr_array, shift_zero, lda, strideA, 
+				        A_col_ptr_array, shift_zero, lda, strideA,
 				        Vj_ptr_array, shift_Vj, ldvj, lstride_Vj,
 					&beta,
-				        Atmp_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+				        Atmp_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					lbatch_count, work_rocblas));
                         // clang-format on
 
@@ -5247,11 +5338,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         // clang-format off
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
-                            handle, transA, transB, m2, n2, k2, 
-			    &alpha, 
-			    A_last_col_ptr_array, shift_zero, lda, strideA, 
-			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last, 
-			    &beta, 
+                            handle, transA, transB, m2, n2, k2,
+			    &alpha,
+			    A_last_col_ptr_array, shift_zero, lda, strideA,
+			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last,
+			    &beta,
 			    Atmp_last_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
                             batch_count_remain, work_rocblas));
                         // clang-format on
@@ -5292,13 +5383,15 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, T**, Istride>),
 					dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
-					cl_uplo, m1, n1, 
+					cl_uplo, m1, n1,
 					Aj, shift_Aj, ldaj, lstride_Aj,
 					Atmp_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					lbatch_count);
                         // clang-format on
 
-                        TRACE(2);
+                        // ------------------------------------------------------
+                        // copy the last diagonal blocks from Aj_last back to Atmp
+                        // ------------------------------------------------------
 
                         I const m2 = (nb + nb_last);
                         I const n2 = (nb + nb_last);
@@ -5306,9 +5399,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, T**, Istride>),
 					dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-					cl_uplo, m2, n2, 
-					Aj_last, shift_Aj_last, ldaj_last, lstride_Aj_last, 
-					Atmp_last_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+					cl_uplo, m2, n2,
+					Aj_last, shift_Aj_last, ldaj_last, lstride_Aj_last,
+					Atmp_last_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					batch_count_remain);
                         // clang-format on
                     }
@@ -5330,12 +5423,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             Istride const stride_map = 0;
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL(
-                                (reorder_kernel<T, I, Istride>), 
-				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
+                                (reorder_kernel<T, I, Istride,T**,T**>),
+				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
 				c_direction, n, nb,
                                 row_map, col_map, stride_map,
-                                Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
-				A_ptr_array, shift_zero, lda, strideA, 
+                                Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
+				A_ptr_array, shift_zero, lda, strideA,
 				batch_count_remain);
                             // clang-format on
                         }
@@ -5348,9 +5441,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
                                                     dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                    cl_uplo, mm, nn, 
-						    Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
-						    A_ptr_array, shift_zero, lda, strideA, 
+                                                    cl_uplo, mm, nn,
+						    Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
+						    A_ptr_array, shift_zero, lda, strideA,
 						    batch_count_remain);
                             // clang-format on
                         }
@@ -5398,11 +5491,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format off
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
                             handle, transA, transB, m1, n1, k1,
-                            &alpha, 
-			    Vtmp_col_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp, 
-			    Vj_ptr_array, shift_Vj, ldvj, lstride_Vj, 
-			    &beta, 
-			    Atmp_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+                            &alpha,
+			    Vtmp_col_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
+			    Vj_ptr_array, shift_Vj, ldvj, lstride_Vj,
+			    &beta,
+			    Atmp_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 			    lbatch_count, work_rocblas));
                         // clang-format on
 
@@ -5419,28 +5512,14 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format off
                         ROCBLAS_CHECK(ROCBLASCALL_GEMM(
                             handle, transA, transB, m2, n2, k2,
-                            &alpha, 
-			    Vtmp_last_col_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp, 
-			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last, 
-			    &beta, 
-			    Atmp_last_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+                            &alpha,
+			    Vtmp_last_col_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
+			    Vj_last_ptr_array, shift_Vj_last, ldvj_last, lstride_Vj_last,
+			    &beta,
+			    Atmp_last_col_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 			    batch_count_remain, work_rocblas));
                         // clang-format on
 
-                        if(use_swap_kernel)
-                        {
-                            auto const mm = n;
-                            auto const nn = n;
-                            // clang-format off
-                              ROCSOLVER_LAUNCH_KERNEL((laswap_kernel<T, I, T**,T**,Istride>),
-					      dim3(nbx,nby,nbz),dim3(nx,ny,1),0,stream,
-					      mm,nn, 
-					      Atmp_ptr_array, shift_Atmp,ldatmp,lstride_Atmp,
-					      Vtmp_ptr_array, shift_Vtmp,ldvtmp,lstride_Vtmp,
-					      batch_count_remain );
-                            // clang-format on
-                        }
-                        else
                         {
                             if(use_swap_Atmp_Vtmp)
                             {
@@ -5448,57 +5527,65 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             }
                             else
                             {
-                                size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
-                                HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
-                                                         hipMemcpyDeviceToDevice, stream));
+                                // ---------------------------
+                                // perform  copy  Vtmp <- Atmp
+                                // ---------------------------
+
+                                auto const mm = n;
+                                auto const nn = n;
+                                char const cl_uplo = 'A';
+                                // clang-format off
+                                    ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+				        dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+				        cl_uplo, mm, nn,
+				        Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
+				        Vtmp_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
+					batch_count_remain);
+                                // clang-format on
                             }
                         }
 
                         if(use_backward_reorder)
                         {
+                            // ------------------------------------
+                            // Atmp <- Vtmp  with reordering
+                            // ------------------------------------
                             char const c_direction = 'B';
-                            I* const null_row_map = nullptr;
-                            I const* const col_map = col_map_schedule;
 
                             // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL(
-                                (reorder_kernel<T, I, Istride>), 
-				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, 
-				c_direction, n, nb, 
+                                (reorder_kernel<T, I, Istride,T**,T**>),
+				dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+				c_direction, n, nb,
 				null_row_map,
-                                col_map, 
+                                col_map,
 				stride_map,
-                                Vtmp_ptr_array, shift_Vtmp, ldatmp, lstride_Vtmp, 
-				Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp, 
+                                Vtmp_ptr_array, shift_Vtmp, ldatmp, lstride_Vtmp,
+				Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 				batch_count_remain);
                             // clang-format on
 
-                            if(use_swap_kernel)
-                            {
-                                auto const mm = n;
-                                auto const nn = n;
+                            // -------------------------
+                            // swap or copy Vtmp <- Atmp
+                            // -------------------------
 
-                                // clang-format off
-                              ROCSOLVER_LAUNCH_KERNEL((laswap_kernel<T, I, T**,T**,Istride>),
-					      dim3(nbx,nby,nbz),dim3(nx,ny,1),0,stream,
-					      mm,nn, 
-					      Atmp_ptr_array, shift_Atmp,ldatmp,lstride_Atmp,
-					      Vtmp_ptr_array, shift_Vtmp,ldvtmp,lstride_Vtmp,
-					      batch_count_remain );
-                                // clang-format on
+                            if(use_swap_Atmp_Vtmp)
+                            {
+                                SWAP_Atmp_Vtmp();
                             }
                             else
                             {
-                                if(use_swap_Atmp_Vtmp)
-                                {
-                                    SWAP_Atmp_Vtmp();
-                                }
-                                else
-                                {
-                                    size_t size_Vtmp_bytes = sizeof(T) * ldvtmp * n;
-                                    HIP_CHECK(hipMemcpyAsync(Vtmp, Atmp, size_Vtmp_bytes,
-                                                             hipMemcpyDeviceToDevice, stream));
-                                }
+                                auto const mm = n;
+                                auto const nn = n;
+                                char const cl_uplo = 'A';
+                                // clang-format off
+                                    ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+				        dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+				        cl_uplo, mm, nn,
+				        Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
+				        Vtmp_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
+					batch_count_remain);
+                                // clang-format on
                             }
                         }
                     }
@@ -5512,10 +5599,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             // ---------------------
 
             // clang-format off
-            ROCSOLVER_LAUNCH_KERNEL((copy_diagonal_kernel<T, I, U, Istride>), 
-			    dim3(1, 1, nbz), dim3(nx, 1, 1), 0, stream, 
-			    n, A, shiftA, lda, strideA, 
-			    W, strideW, 
+            ROCSOLVER_LAUNCH_KERNEL((copy_diagonal_kernel<T, I, U, Istride>),
+			    dim3(1, 1, nbz), dim3(nx, 1, 1), 0, stream,
+			    n, A, shiftA, lda, strideA,
+			    W, strideW,
 			    batch_count);
             // clang-format on
 
@@ -5530,97 +5617,134 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         }
 
         TRACE(1);
+        // -------------------------------------------
+        // check whether eigenvalues need to be sorted
+        // -------------------------------------------
+
+        Istride const stride_map = (batch_count > 1) ? n : 0;
+        if(need_sort)
         {
-            // -------------------------------------------
-            // check whether eigenvalues need to be sorted
-            // -------------------------------------------
+            TRACE(1);
+            ROCSOLVER_LAUNCH_KERNEL((sort_kernel<S, I, Istride>), dim3(1, 1, nbz), dim3(nx, 1, 1),
+                                    0, stream,
 
-            // reuse storage
-            Istride const stridemap = (batch_count > 1) ? n : 0;
-            if(need_sort)
-            {
-                TRACE(1);
-                ROCSOLVER_LAUNCH_KERNEL((sort_kernel<S, I, Istride>), dim3(1, 1, nbz),
-                                        dim3(nx, 1, 1), 0, stream,
-
-                                        n, W, strideW, eig_map, stridemap, batch_count);
-                TRACE(1);
-            }
-
-#ifdef NDEBUG
-#else
-            if(idebug >= 2)
-            {
-                printf("after sort_kernel, need_sort=%d\n", (int)need_sort);
-                for(I bid = 0; bid < batch_count; bid++)
-                {
-                    std::vector<S> h_W(n);
-
-                    auto istat = hipMemcpy(&(h_W[0]), W + bid * strideW, sizeof(S) * n,
-                                           hipMemcpyDeviceToHost);
-                    assert(istat == hipSuccess);
-
-                    auto const ioff = 1;
-                    for(I i = 0; i < n; i++)
-                    {
-                        auto const wi = h_W[i];
-                        printf("W(%d,%d) = %le;\n", ioff + i, ioff + bid, wi);
-                    }
-                }
-            }
-#endif
-            // -----------------------------------------------
-            // over-write original matrix A with eigen vectors
-            // -----------------------------------------------
-            if(need_V)
-            {
-                I* const row_map = nullptr;
-                I* const col_map = (need_sort) ? eig_map : nullptr;
-                auto const mm = n;
-                auto const nn = n;
-                ROCSOLVER_LAUNCH_KERNEL((gather2D_kernel<T, I, Istride, T*, U>),
-                                        dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream, mm, nn,
-                                        row_map, col_map, Vtmp, shift_Vtmp, ldvtmp, lstride_Vtmp, A,
-                                        shiftA, lda, strideA, batch_count);
-            }
+                                    n, W, strideW, eig_map, stride_map, batch_count);
+            TRACE(1);
         }
-        TRACE(2);
 
-        {
-            // ------------------------------------------------------
-            // final evaluation of residuals and test for convergence
-            // ------------------------------------------------------
-
-            {
-                int ivalue = 0;
-                size_t nbytes = sizeof(I) * (batch_count + 1);
-                HIP_CHECK(hipMemsetAsync((void*)completed, ivalue, nbytes, stream));
-            }
-
-            TRACE(2);
-            bool const need_diagonal = false;
-            ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>), dim3(nbx, nby, nbz),
-                                    dim3(nx, ny, 1), 0, stream,
-
-                                    n, nb, A, shiftA, lda, strideA, Gmat, need_diagonal, completed,
-                                    batch_count);
-
-            TRACE(2);
-
-            ROCSOLVER_LAUNCH_KERNEL((sum_Gmat_kernel<S, I>), dim3(1, 1, nbz), dim3(nx, ny, 1),
-                                    sizeof(S), stream, n, nb, Gmat, residual, completed, batch_count);
-            auto const nnx = 64;
-            auto const nnb = ceil(batch_count, nnx);
-            TRACE(2);
-            ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>), dim3(nnb, 1, 1),
-                                    dim3(nnx, 1, 1), 0, stream, n, nb, Amat_norm, atol, h_sweeps,
-                                    n_sweeps, residual, info, completed, batch_count);
-        }
-        TRACE(2);
 #ifdef NDEBUG
 #else
         if(idebug >= 1)
         {
+            printf("after sort_kernel, need_sort=%d\n", (int)need_sort);
+            for(I bid = 0; bid < batch_count; bid++)
+            {
+                std::vector<S> h_W(n);
+
+                auto istat
+                    = hipMemcpy(&(h_W[0]), W + bid * strideW, sizeof(S) * n, hipMemcpyDeviceToHost);
+                assert(istat == hipSuccess);
+
+                auto const ioff = 1;
+                for(I i = 0; i < n; i++)
+                {
+                    auto const wi = h_W[i];
+                    printf("W(%d,%d) = %le;\n", ioff + i, ioff + bid, wi);
+                }
+            }
+        }
+#endif
+        if(need_V)
+        {
+            // -----------------------------------------------
+            // over-write original matrix A with eigen vectors
+            // -----------------------------------------------
+            if(use_gather2D)
+            {
+                // -----------------------------
+                // Note permute only the columns
+                // -----------------------------
+
+                I* const row_map = nullptr;
+                I* const col_map = (need_sort) ? eig_map : nullptr;
+                auto const mm = n;
+                auto const nn = n;
+
+                // clang-format off
+                ROCSOLVER_LAUNCH_KERNEL((gather2D_kernel<T, I, Istride, T*, U>),
+                                        dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+					mm, nn,
+                                        row_map, col_map,
+					Vtmp, shift_Vtmp, ldvtmp, lstride_Vtmp,
+					A, shiftA, lda, strideA,
+					batch_count);
+                // clang-format on
+            }
+            else
+            {
+                // clang-format off
+		            char const cl_uplo = 'A';
+			    auto const mm = n;
+			    auto const nn = n;
+                            ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, U, Istride>),
+                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+                                                    cl_uplo, mm, nn,
+						    Vtmp, shift_Vtmp, ldvtmp, lstride_Vtmp,
+						    A, shiftA, lda, strideA,
+						    batch_count);
+                // clang-format on
+
+                if(need_sort)
+                {
+                    Istride const stride_map = (batch_count > 1) ? n : 0;
+
+                    // clang-format off
+                    ROCSOLVER_LAUNCH_KERNEL((permute_swap_kernel<T, I, Istride, U>),
+                                            dim3(1, 1, nbz), dim3(nx, ny, 1), 0, stream,
+					    n,
+					    A, shiftA, lda, strideA,
+					    eig_map, stride_map,
+					    batch_count);
+                    // clang-format on
+                }
+            }
+        } // if (need_V)
+
+#if(0)
+        // ------------------------------------------------------
+        // final evaluation of residuals and test for convergence
+        // ------------------------------------------------------
+
+        {
+            int ivalue = 0;
+            size_t nbytes = sizeof(I) * (batch_count + 1);
+            HIP_CHECK(hipMemsetAsync((void*)completed, ivalue, nbytes, stream));
+        }
+
+        TRACE(2);
+        {
+            bool const include_diagonal = false;
+            update_norm(include_diagonal, residual);
+
+            auto const nnx = 64;
+            auto const nnb = ceil(batch_count, nnx);
+
+            // clang-format off
+            ROCSOLVER_LAUNCH_KERNEL((set_completed_kernel<S, I, Istride>),
+			    dim3(nnb, 1, 1), dim3(nnx, 1, 1), 0, stream,
+			    n, nb,
+			    Amat_norm, atol, h_sweeps, n_sweeps, residual,
+			    info, completed, batch_count);
+            // clang-format on
+        }
+#endif
+
+#ifdef NDEBUG
+#else
+        if(idebug >= 1)
+        {
+            printf("final values before return\n");
+
             print_Gmat();
 
             std::vector<I> h_n_sweeps(batch_count);
@@ -5642,7 +5766,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             printf("completed[0] = %d\n", (int)h_completed[0]);
             for(I bid = 0; bid < batch_count; bid++)
             {
-                printf("n_sweeps[%d] = %d, info[%d] = %d, residual[%d] = %le, completed(%d) = %d\n",
+                printf("n_sweeps[%d] = %d, info[%d] = %d, residual[%d] = %le, completed(%d) = "
+                       "%d\n",
                        (int)bid, (int)h_n_sweeps[bid], (int)bid, (int)h_info[bid], (int)bid,
                        (double)h_residual[bid], (int)bid, (int)h_completed[bid + 1]);
 
