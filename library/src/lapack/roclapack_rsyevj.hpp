@@ -1381,36 +1381,46 @@ static __device__ void laset_body(char const uplo,
 
     bool const use_upper = (uplo == 'U') || (uplo == 'u');
     bool const use_lower = (uplo == 'L') || (uplo == 'l');
-    bool const use_full = (uplo == 'A') || (uplo == 'a');
+    bool const use_full = (!use_upper) && (!use_lower);
 
-    bool const is_valid = use_upper || use_lower || use_full;
-    assert(is_valid);
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
-    auto A = [=](auto i, auto j) -> T& {
-        assert((0 <= i) && (i < m) && (i < lda) && (0 <= j) && (j < n));
-        return (A_[idx2D(i, j, lda)]);
-    };
+    auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
 
-    for(I j = j_start; j < n; j += j_inc)
+    if(use_full)
     {
-        for(I i = i_start; i < m; i += i_inc)
+        for(I j = j_start; j < n; j += j_inc)
         {
-            bool const is_diag = (i == j);
-            bool const is_strictly_upper = (i < j);
-            bool const is_strictly_lower = (i > j);
-
-            if(is_diag)
+            for(I i = i_start; i < m; i += i_inc)
             {
-                A(i, i) = beta_diag;
+                bool const is_diag = (i == j);
+                A(i, j) = (is_diag) ? beta_diag : alpha_offdiag;
             }
-            else
+        }
+    }
+    else
+    {
+        for(I j = j_start; j < n; j += j_inc)
+        {
+            for(I i = i_start; i < m; i += i_inc)
             {
-                bool const do_assignment = (use_full || (use_lower && is_strictly_lower)
-                                            || (use_upper && is_strictly_upper));
+                bool const is_diag = (i == j);
+                bool const is_strictly_upper = (i < j);
+                bool const is_strictly_lower = (i > j);
 
-                if(do_assignment)
+                if(is_diag)
                 {
-                    A(i, j) = alpha_offdiag;
+                    A(i, i) = beta_diag;
+                }
+                else
+                {
+                    bool const do_assignment
+                        = (use_lower && is_strictly_lower) || (use_upper && is_strictly_upper);
+
+                    if(do_assignment)
+                    {
+                        A(i, j) = alpha_offdiag;
+                    }
                 }
             }
         }
@@ -3656,7 +3666,10 @@ ROCSOLVER_KERNEL void rsyevj_small_kernel(const rocblas_esort esort,
                                           I* schedule_,
                                           bool const do_overwrite_A = true)
 {
-    auto const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x;
+    auto const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x
+        + hipThreadIdx_z * (hipBlockDim_x * hipBlockDim_y);
+    auto const nthreads = (hipBlockDim_x * hipBlockDim_y) * hipBlockDim_z;
+
     auto const bid_start = hipBlockIdx_z;
     auto const bid_inc = hipGridDim_z;
 
@@ -3665,8 +3678,17 @@ ROCSOLVER_KERNEL void rsyevj_small_kernel(const rocblas_esort esort,
     auto const ntables = half_n;
 
     // get dimensions of 2D thread array
-    I ddx = NX_THREADS;
-    I ddy = RSYEVJ_BDIM / ddx;
+    I ddx = std::sqrt(static_cast<double>(nthreads));
+    I ddy = nthreads;
+    while(ddx > 1)
+    {
+        ddy = nthreads / ddx;
+        if((ddx * ddy) == nthreads)
+        {
+            break;
+        };
+        ddx--;
+    }
 
     bool const need_sort = (esort != rocblas_esort_none);
     bool const need_V = (evect != rocblas_evect_none);
@@ -4109,12 +4131,20 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         // ---------------------
         auto const max_lds = get_lds();
         auto const max_thread_blocks = 1024;
-        auto const nx = NX_THREADS;
-        auto const ny = NY_THREADS;
 
-        auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
-        auto const nby = std::min(max_thread_blocks, ceil(n, ny));
-        auto const nbz = std::min(max_thread_blocks, batch_count);
+#ifdef NDEBUG
+        bool constexpr use_debug = false;
+#else
+        // bool constexpr use_debug = false;
+        bool constexpr use_debug = true;
+#endif
+
+        auto const nx = (use_debug) ? 1 : NX_THREADS;
+        auto const ny = (use_debug) ? 1 : NY_THREADS;
+
+        auto const nbx = (use_debug) ? 1 : std::min(max_thread_blocks, ceil(n, nx));
+        auto const nby = (use_debug) ? 1 : std::min(max_thread_blocks, ceil(n, ny));
+        auto const nbz = (use_debug) ? 1 : std::min(max_thread_blocks, batch_count);
 
         auto update_norm = [=](bool const include_diagonal, S* residual) {
             // clang-format off
@@ -4853,8 +4883,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         TRACE(2);
                         // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((reorder_kernel<T, I, Istride,T**,T**>),
-					// dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-					dim3(1, 1, 1), dim3(1, 1, 1), 0, stream,
+					dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
 					c_direction, n, nb,
 					row_map, col_map, stride_map,
 					A_ptr_array, shift_zero, lda, strideA,
@@ -5663,9 +5692,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             {
                 // -----------------------------
                 // Note permute only the columns
+                //
+                // A <- Vtmp with optional col reordering
                 // -----------------------------
 
-                I* const row_map = nullptr;
+                I* const null_row_map = nullptr;
                 I* const col_map = (need_sort) ? eig_map : nullptr;
                 auto const mm = n;
                 auto const nn = n;
@@ -5674,7 +5705,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 ROCSOLVER_LAUNCH_KERNEL((gather2D_kernel<T, I, Istride, T*, U>),
                                         dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
 					mm, nn,
-                                        row_map, col_map,
+                                        null_row_map, col_map,
 					Vtmp, shift_Vtmp, ldvtmp, lstride_Vtmp,
 					A, shiftA, lda, strideA,
 					batch_count);
