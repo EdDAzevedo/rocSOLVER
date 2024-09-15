@@ -1322,13 +1322,41 @@ static __device__ void lacpy_body(char const uplo,
 
     auto B = [=](auto i, auto j) -> T& { return (B_[idx2D(i, j, ldb)]); };
 
+    bool constexpr use_pointers = true;
     if(use_full)
     {
-        for(auto j = j_start; j < n; j += j_inc)
+        if(use_pointers)
         {
-            for(auto i = i_start; i < m; i += i_inc)
+            I i = i_start;
+            I j = j_start;
+            T const* ap_j = &(A(i, j));
+            T* bp_j = &(B(i, j));
+
+            for(j = j_start; j < n; j += j_inc)
             {
-                B(i, j) = A(i, j);
+                T const* ap_i = ap_j;
+                T* bp_i = bp_j;
+
+                for(i = i_start; i < m; i += i_inc)
+                {
+                    *bp_i = *ap_i;
+
+                    ap_i += i_inc;
+                    bp_i += i_inc;
+                }
+
+                ap_j += lda * static_cast<int64_t>(j_inc);
+                bp_j += ldb * static_cast<int64_t>(j_inc);
+            } // end for j
+        }
+        else
+        {
+            for(auto j = j_start; j < n; j += j_inc)
+            {
+                for(auto i = i_start; i < m; i += i_inc)
+                {
+                    B(i, j) = A(i, j);
+                }
             }
         }
     }
@@ -1612,7 +1640,7 @@ __global__ static void reorder_kernel(char c_direction,
     // ----------------------
     auto const nb_last = n - (nblocks - 1) * nb;
     auto bsize = [=](auto iblock) { return ((iblock == (nblocks - 1)) ? nb_last : nb); };
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
@@ -1667,8 +1695,8 @@ __global__ static void reorder_kernel(char c_direction,
                             ap_i += i_inc;
                         }
 
-                        cp_j += (ldC * j_inc);
-                        ap_j += (ldA * j_inc);
+                        cp_j += ldC * static_cast<int64_t>(j_inc);
+                        ap_j += ldA * static_cast<int64_t>(j_inc);
                     }
                 }
                 else
@@ -2537,7 +2565,7 @@ static __device__ void cal_norm_body(I const m,
 
                     ap_i += i_inc;
                 }
-                ap_j += (lda * j_inc);
+                ap_j += static_cast<int64_t>(lda) * j_inc;
             }
         }
         else
@@ -4135,8 +4163,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #ifdef NDEBUG
         bool constexpr use_debug = false;
 #else
-        // bool constexpr use_debug = false;
-        bool constexpr use_debug = true;
+        // bool constexpr use_debug = true;
+        bool constexpr use_debug = false;
 #endif
 
         auto const nx = (use_debug) ? 1 : NX_THREADS;
@@ -4466,6 +4494,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         I n_completed = 0;
         I h_sweeps = 0;
         bool is_converged = false;
+
+#ifdef NDEBUG
+#else
+        std::vector<T> h_Aorg(lda * n);
+        if(need_V)
+        {
+            h_Aorg.resize(lda * n);
+            HIP_CHECK(hipMemcpy(&(h_Aorg[0]), h_A_ptr_array[0], sizeof(T) * lda * n,
+                                hipMemcpyDeviceToHost));
+        }
+#endif
 
         for(h_sweeps = 0; (h_sweeps < max_sweeps) && (!is_converged); h_sweeps++)
         {
@@ -5642,6 +5681,58 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 printf("after copy_diagonal_kernel\n");
                 print_eig(n, W, strideW, batch_count);
             }
+
+            if((idebug >= 1) && (need_V))
+            {
+                // -------------------
+                // check eigen vectors
+                // -------------------
+
+                std::vector<T> h_Vtmp(ldvtmp * n);
+                HIP_CHECK(
+                    hipMemcpy(&(h_Vtmp[0]), Vtmp, sizeof(T) * ldvtmp * n, hipMemcpyDeviceToHost));
+                std::vector<S> h_W(n);
+                HIP_CHECK(hipMemcpy(&(h_W[0]), W, sizeof(S) * n, hipMemcpyDeviceToHost));
+
+                // --------------------------------
+                // compute h_Aorg * Vtmp - Vtmp * W
+                // --------------------------------
+
+                double resid = 0;
+                for(auto icol = 0; icol < n; icol++)
+                {
+                    std::vector<T> Av(n);
+                    for(auto i = 0; i < n; i++)
+                    {
+                        T Av_i = 0;
+                        for(auto j = 0; j < n; j++)
+                        {
+                            auto const ij_a = i + j * lda;
+                            auto const ij_v = i + j * ldvtmp;
+                            auto const aij = h_Aorg[ij_a];
+                            auto const vj = h_Vtmp[ij_v];
+                            Av_i += aij * vj;
+                        }
+                        Av[i] = Av_i;
+                    }
+                    std::vector<T> v(n);
+                    for(auto i = 0; i < n; i++)
+                    {
+                        v[i] = h_Vtmp[i + icol * ldvtmp];
+                    }
+
+                    double resid_icol = 0;
+                    for(auto i = 0; i < n; i++)
+                    {
+                        resid_icol += std::norm(h_W[icol] * v[i] - Av[i]);
+                    }
+                    resid_icol = std::sqrt(resid_icol);
+                    resid = std::max(resid, resid_icol);
+                    printf("icol=%d, resid=%le\n", (int)icol, (double)resid_icol);
+                }
+                printf("norm(A*V - V * D) = %le\n", (double)resid);
+            }
+
 #endif
         }
 
