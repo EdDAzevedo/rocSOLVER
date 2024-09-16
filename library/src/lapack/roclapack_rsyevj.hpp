@@ -37,7 +37,7 @@
 #include "rocsolver/rocsolver.h"
 
 ROCSOLVER_BEGIN_NAMESPACE
-static constexpr int idebug = 1;
+static constexpr int idebug = 2;
 #define TRACE(ival)                                       \
     {                                                     \
         if(idebug >= ival)                                \
@@ -618,47 +618,126 @@ static void generateTournamentSequence(I const nplayers, std::vector<I>& result)
 // CPU code to adjust the schedule due to
 // permutation in each round so that the independent
 // pairs are contiguous (0,1), (2,3), ...
+//
+//
+// The sequence of operations is of the form
+//
+// A1 <-   (P0 * J0 * P0') * A0 * (P0 * J0 * P0')
+// A2 <-   (P1 * J1 * P1') * A1 * (P1 * J1 * P1')
+// A3 <-   (P2 * J2 * P2') * A2 * (P2 * J2 * P2')
+// ... etc
+//
+// where P0 is permutation to form independent pairs as (0,1), (2,3)
+// and P0' is the inverse permutation to restore to original ordering
+//
+// Note that
+// A2 <- (P1 * J1 * P1')' * (P0 * J0 * P0')' * A0 * (P0 * J0 * P0') * (P1 * J1 * P1')
+// or
+// A2 <- (P1 * J1 * (P1'*P0) * J0 * P0' * A0 * P0 * J0 * (P0'*P1) * J1 * P1'
+//
+// similarly
+//
+// A3 <- (P2 * J2 * P2') * (P1 * J1 * (P1'*P0) * J0 * P0' * A0 * P0 * J0 * (P0'*P1) * J1 * P1' (P2 * J2 * P2')
+//
+// note we can combine  Q2 = P2'*P1,  Q1 = P1'*P0, so there is no need
+// to perform a reordering to restore to original
+//
+// This code updates the schedule to update
+// Q1 <- P0'*P1
+// Q2 <- P1'*P2
+// Q3 <- P2'*P3  ... etc
+//
 // ----------------------------------------------
 template <typename I>
-static void adjust_schedule(I const nplayers, std::vector<I>& schedule)
+static void adjust_schedule(I const nplayers, std::vector<I>& schedule_)
 {
     I const num_rounds = (nplayers - 1);
-    assert(schedule.size() >= (num_rounds * nplayers));
+    assert(schedule_.size() >= (num_rounds * nplayers));
 
-    std::vector<I> new2old(nplayers);
-    std::vector<I> old2new(nplayers);
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * ld); };
 
-    for(I iround = 0; iround < num_rounds; iround++)
+    auto schedule = [&](auto iplayer, auto iround) -> I& {
+        auto const ld = nplayers;
+        return (schedule_[idx2D(iplayer, iround, ld)]);
+    };
+
+    // ---------------------------------------------------
+    // Note this adjustment is not performance critical and
+    // is performed only once per schedule
+    // ---------------------------------------------------
+
+    auto const n = nplayers;
+
+    std::vector<I> P_j(nplayers);
+    std::vector<I> inv_P_j(nplayers);
+    std::vector<I> P_jm1(nplayers);
+    std::vector<I> inv_P_jm1(nplayers);
+    std::vector<I> Q_j(nplayers);
+
     {
-        // ---------------------------
-        // form new2old(:) permutation
-        // ---------------------------
-        I* const cp = &(schedule[iround * nplayers]);
+        I jm1 = 0;
         for(I i = 0; i < nplayers; i++)
         {
-            new2old[i] = cp[i];
+            P_jm1[i] = schedule(i, jm1);
         }
 
-        // ---------------------------
-        // form new2old(:) permutation
-        // ---------------------------
+        // ------------------------
+        // form inverse permutation
+        // ------------------------
         for(I i = 0; i < nplayers; i++)
         {
-            old2new[new2old[i]] = i;
+            inv_P_jm1[P_jm1[i]] = i;
+        }
+    }
+
+    for(I iround = 1; iround < num_rounds; iround++)
+    {
+        auto const j = iround;
+
+        for(I i = 0; i < n; i++)
+        {
+            P_j[i] = schedule(i, j);
         }
 
-        // -------------------------
-        // update remaining schedule
-        // -------------------------
-        for(I jround = iround + 1; jround < num_rounds; jround++)
+        // ------------------------
+        // form inverse permutation
+        // ------------------------
+        for(I i = 0; i < n; i++)
         {
-            I* const rp = &(schedule[jround * nplayers]);
-            for(auto i = 0; i < nplayers; i++)
-            {
-                auto const iold = rp[i];
-                auto const inew = old2new[iold];
-                rp[i] = inew;
-            }
+            inv_P_j[P_j[i]] = i;
+        }
+
+        // ---------------
+        // adjust schedule
+        //
+        // by forming  permutation
+        // Q(j) = P(jm1)' * P(j)
+        // ---------------
+
+        for(I i = 0; i < n; i++)
+        {
+            // Q_j[i] = inv_P_jm1[P_j[i]];
+            Q_j[i] = P_j[inv_P_jm1[i]];
+        }
+        for(I i = 0; i < n; i++)
+        {
+            schedule(i, j) = Q_j[i];
+        }
+
+        // --------------------------
+        // prepare for next iteration
+        //
+        // assign P_jm1 <- P_j
+        // assign inv_P_jm1 <- P_jm1
+        // --------------------------
+
+        for(I i = 0; i < n; i++)
+        {
+            P_jm1[i] = P_j[i];
+        }
+        for(I i = 0; i < n; i++)
+        {
+            inv_P_jm1[i] = inv_P_j[i];
         }
     }
 }
@@ -1922,7 +2001,6 @@ __global__ static void laswap_kernel(I const m,
  * to pick the most profitable set of independent pairs
  * -----------------------------------------------------------------
  */
-typedef int Icount;
 
 template <typename T, typename I>
 static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const mate_)
@@ -1954,22 +2032,22 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
     assert(is_even(n));
 
     auto G = [=](auto i, auto j) -> const T {
-        auto const ij = i + j * I(n);
+        // auto const ij = std::min(i, j) + std::max(i, j) * I(n);
+        auto const ij = i + j * static_cast<I>(n);
         return ((i == j) ? (0) : G_[ij]);
     };
 
     // ------------------------
     // for each vertex i,  iwmax(i) holds
     // the available vertex with max weight
-    // note the use of Icount
     // ------------------------
 
     extern __shared__ double lmem[];
     __shared__ int nmate;
 
     std::byte* pfree = (std::byte*)lmem;
-    Icount* iwmax = (Icount*)pfree;
-    pfree += sizeof(Icount) * n;
+    int* iwmax = (int*)pfree;
+    pfree += sizeof(int) * n;
     bool* is_matched = (bool*)pfree;
     pfree += sizeof(bool) * n;
 
@@ -1979,6 +2057,8 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
 
     auto const i_start = tid;
     auto const i_inc = nthreads;
+
+    bool const is_root = (i_start == 0);
 
     auto max = [](auto x, auto y) { return ((x > y) ? x : y); };
 
@@ -1995,7 +2075,7 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
         nmate = 0;
     }
 
-    Icount const iwmax_invalid = n;
+    int const iwmax_invalid = -1;
 
     __syncthreads();
 
@@ -2008,13 +2088,22 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
     __syncthreads();
 
     I ipass = 0;
-    for(ipass = 0; ipass < 2 * (n * n); ipass++)
+    for(ipass = 0; ipass < 2 * (n); ipass++)
     {
         bool const is_done = (nmate >= (n / 2));
         if(is_done)
         {
             break;
         };
+        __syncthreads();
+
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            if(!is_matched[i])
+            {
+                iwmax[i] = iwmax_invalid;
+            }
+        }
         __syncthreads();
 
         // -------------------------------------
@@ -2033,8 +2122,7 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
             // find the neighbor vertex with max weight
             // ----------------------------------------
 
-            iwmax[jvertex] = iwmax_invalid;
-            T wmax = std::numeric_limits<T>::lowest();
+            T wmax = 0;
             for(I ivertex = 0; ivertex < n; ivertex++)
             {
                 if(is_matched[ivertex])
@@ -2050,7 +2138,8 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
                 // break ties by vertex label number
                 // ---------------------------------
                 T const Gij = (G(jvertex, ivertex) + G(ivertex, jvertex)) / 2;
-                bool const is_greater = (Gij > wmax) || ((Gij == wmax) && (ivertex < iwmax[jvertex]));
+                bool const is_greater = (iwmax[jvertex] == iwmax_invalid) || (Gij > wmax)
+                    || ((Gij == wmax) && (ivertex < iwmax[jvertex]));
                 if(is_greater)
                 {
                     wmax = Gij;
@@ -2071,9 +2160,23 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
                 continue;
             };
             auto const j = iwmax[i];
-
             bool const isok_j = (0 <= j) && (j < n);
-            bool const is_accept = isok_j && (!is_matched[j]) && (iwmax[j] == i) && (i > j);
+            if(!isok_j)
+            {
+                continue;
+            };
+
+            if(is_matched[j])
+            {
+                continue;
+            };
+
+            if(i > j)
+            {
+                continue;
+            };
+
+            bool const is_accept = (iwmax[i] == j) && (iwmax[j] == i);
             if(is_accept)
             {
                 auto const min_ij = min(i, j);
@@ -2099,7 +2202,7 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
         bool const isok = (nmate == (n / 2));
         if(!isok)
         {
-            if(i_start == 0)
+            if(is_root)
             {
                 printf("pgreedy: nmate=%d, n=%d\n", nmate, n);
                 for(I iv = 0; iv < n; iv++)
@@ -2209,7 +2312,7 @@ static void pgreedy_mwm(I const n,
 
     auto const nblocks = std::min(MAX_BLOCKS, batch_count);
 
-    size_t const lmem_size = n * (sizeof(Icount) + sizeof(bool));
+    size_t const lmem_size = n * (sizeof(int) + sizeof(bool));
     size_t const max_lds = get_lds();
     assert(lmem_size + sizeof(int) <= max_lds);
 
@@ -4125,7 +4228,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                    (int)need_sort, (int)n, (int)batch_count, (int)nb);
         }
 
-        if(idebug >= 2)
+        if(idebug >= 3)
         {
             // -------------------------------------------
             // debug by setting matrix to have know values
@@ -4432,7 +4535,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             print_eig(n, W, strideW, batch_count, is_summary);
         };
 #endif
-        bool const use_adjust_schedule_large = false;
+        bool const use_adjust_schedule_large = true;
         {
             std::vector<I> h_schedule_last(len_schedule_last);
             std::vector<I> h_schedule_small(len_schedule_small);
@@ -4779,7 +4882,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = true;
+                    bool const use_schedule = false;
                     bool const use_greedy_mwm = (!use_schedule);
 
                     if(use_greedy_mwm)
@@ -4787,6 +4890,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         I const ldgmat = nblocks;
                         Istride const strideGmat = (nblocks * nblocks);
 
+#if(0)
                         // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((symmetrize_matrix_kernel<S, I, S*, Istride>),
 					dim3(1, 1, nbz), dim3(nx, 1, 1), 0, stream,
@@ -4794,6 +4898,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 					Gmat, shift_zero, ldgmat, strideGmat,
 					batch_count_remain);
                         // clang-format on
+#endif
+
 #ifdef NDEBUG
 #else
                         if(idebug >= 2)
@@ -5261,7 +5367,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                     check_V(n1, h_Vj, ldvj, lstride_Vj, atol, lbatch_count, isok_Vj);
 
-                                    // if(!isok_Vj)
+                                    if(idebug >= 3)
                                     {
                                         printf("%% ===== h_Vj ====== \n");
                                         print_Vj("Vj", n1, h_Vj, ldvj, lstride_Vj, lbatch_count);
@@ -5283,7 +5389,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                     check_V(n2, h_Vj_last, ldvj_last, lstride_Vj_last, atol,
                                             batch_count_remain, isok_Vj_last);
 
-                                    // if(!isok_Vj_last)
+                                    if(idebug >= 3)
                                     {
                                         printf("%% ==== h_Vj_last ===== \n");
                                         print_Vj("Vj_last", n2, h_Vj_last, ldvj_last,
@@ -5351,7 +5457,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             batch_count_remain, work_rocblas));
                         // clang-format on
 
-                        if(idebug >= 2)
+                        if(idebug >= 3)
                         {
                             auto const bid = 0;
                             std::vector<T> h_A(lda * n);
@@ -5418,7 +5524,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     TRACE(2);
 
-                    if(idebug >= 1)
+                    if(idebug >= 3)
                     {
                         auto const bid = 0;
                         std::vector<T*> h_Atmp_ptr_array(batch_count);
