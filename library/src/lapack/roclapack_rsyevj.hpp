@@ -716,8 +716,8 @@ static void adjust_schedule(I const nplayers, std::vector<I>& schedule_)
 
         for(I i = 0; i < n; i++)
         {
-            // Q_j[i] = inv_P_jm1[P_j[i]];
-            Q_j[i] = P_j[inv_P_jm1[i]];
+            // Q_j[i] = P_j[inv_P_jm1[i]];
+            Q_j[i] = inv_P_jm1[P_j[i]];
         }
         for(I i = 0; i < n; i++)
         {
@@ -1752,7 +1752,7 @@ __global__ static void reorder_kernel(char c_direction,
                 assert(bsize(iblock) == bsize(iblock_old));
                 assert(bsize(jblock) == bsize(jblock_old));
 
-                bool constexpr use_pointers = true;
+                bool constexpr use_pointers = false;
                 if(use_pointers)
                 {
                     auto i = i_start;
@@ -2648,7 +2648,7 @@ static __device__ void cal_norm_body(I const m,
 
     {
         double dsum = zero;
-        bool constexpr use_pointers = true;
+        bool constexpr use_pointers = false;
         if(use_pointers)
         {
             auto i = i_start;
@@ -4535,7 +4535,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             print_eig(n, W, strideW, batch_count, is_summary);
         };
 #endif
-        bool const use_adjust_schedule_large = true;
+        bool const use_adjust_schedule_large = false;
         {
             std::vector<I> h_schedule_last(len_schedule_last);
             std::vector<I> h_schedule_small(len_schedule_small);
@@ -4608,6 +4608,23 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 hipMemcpyDeviceToHost));
         }
 #endif
+
+        if(need_V)
+        {
+            // ------------------------------
+            // set Vtmp to be identity matrix
+            // ------------------------------
+
+            char const c_uplo = 'A';
+            auto const mm = n;
+            auto const nn = n;
+            T const alpha_offdiag = 0;
+            T const beta_diag = 1;
+
+            ROCSOLVER_LAUNCH_KERNEL((laset_kernel<T, I, T*, Istride>), dim3(nbx, nby, nbz),
+                                    dim3(nx, ny, 1), 0, stream, c_uplo, mm, nn, alpha_offdiag,
+                                    beta_diag, Vtmp, shift_Vtmp, ldvtmp, lstride_Vtmp, batch_count);
+        }
 
         for(h_sweeps = 0; (h_sweeps < max_sweeps) && (!is_converged); h_sweeps++)
         {
@@ -4882,7 +4899,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = false;
+                    bool const use_schedule = true;
                     bool const use_greedy_mwm = (!use_schedule);
 
                     if(use_greedy_mwm)
@@ -5804,6 +5821,12 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                 // compute h_Aorg * Vtmp - Vtmp * W
                 // --------------------------------
 
+                auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
+
+                auto Aorg_h = [=](auto i, auto j) { return (h_Aorg[idx2D(i, j, lda)]); };
+
+                auto Vtmp_h = [=](auto i, auto j) { return (h_Vtmp[idx2D(i, j, ldvtmp)]); };
+
                 double resid = 0;
                 for(auto icol = 0; icol < n; icol++)
                 {
@@ -5813,10 +5836,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         T Av_i = 0;
                         for(auto j = 0; j < n; j++)
                         {
-                            auto const ij_a = i + j * lda;
-                            auto const ij_v = i + j * ldvtmp;
-                            auto const aij = h_Aorg[ij_a];
-                            auto const vj = h_Vtmp[ij_v];
+                            auto const aij = Aorg_h(i, j);
+                            auto const vj = Vtmp_h(j, icol);
+
                             Av_i += aij * vj;
                         }
                         Av[i] = Av_i;
@@ -5824,7 +5846,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     std::vector<T> v(n);
                     for(auto i = 0; i < n; i++)
                     {
-                        v[i] = h_Vtmp[i + icol * ldvtmp];
+                        v[i] = Vtmp_h(i, icol);
                     }
 
                     double resid_icol = 0;
