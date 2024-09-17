@@ -1159,7 +1159,7 @@ __device__ static void selection_sort(const I n, S* a, I* map = nullptr, const b
 }
 
 template <typename T, typename I>
-__device__ static void permute_swap(const I n, T* C, I ldc, I* map, const I nev = -1)
+__device__ static void permute_swap(I const n, T* const C, I const ldc, I* const map, const I nev = -1)
 {
     // --------------------------------------------
     // perform swaps to implement permutation vector
