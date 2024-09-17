@@ -2326,20 +2326,79 @@ static void pgreedy_mwm(I const n,
 // [-sn1  cs1 ]  [ b       c]  [ sn1    cs1 ]   [ 0      rt2]
 // -----------------------------------------------------------------------------
 template <typename S>
-static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S& cs1, S& sn1)
+static __device__ void
+    dlaev2(S const a_arg, S const b_arg, S const c_arg, S& rt1, S& rt2, S& cs1, S& sn1)
 {
-    double const one = 1.0;
-    double const two = 2.0;
-    double const zero = 0;
-    double const half = 0.5;
+    double constexpr one = 1.0;
+    double constexpr two = 2.0;
+    double constexpr zero = 0;
+    double constexpr half = 0.5;
 
     auto abs = [](auto x) { return ((x >= 0) ? x : (-x)); };
-    auto sqrt = [](auto x) { return (std::sqrt(x)); };
+    auto sqrt = [=](auto x) { return (std::sqrt(abs(x))); };
     auto square = [](auto x) { return (x * x); };
     auto dble = [](auto x) { return (static_cast<double>(x)); };
 
+    // -----------------------------------
+    // evaluate fcn(t) = sqrt( 1 + t^2 )
+    // -----------------------------------
+    auto fcn = [=](double t) {
+        double const t_small = 0.01;
+        bool const is_t_small = (abs(t) < t_small);
+        bool const is_t_big = (abs(t) * t_small > 1);
+        double ans = 0;
+
+        auto taylor = [=](double t2) {
+            // if t is small, consider Taylor expansion
+            // 1 + t^2/2 - t^4/8 + t^6/16 - (5 t^8)/128 + (7 t^10)/256 (Taylor series)
+            auto const ans
+                = (((((7.0 / 256.0) * t2 + (-5.0 / 128.0)) * t2 + (1.0 / 16.0)) * t2 + (-1.0 / 8.0))
+                       * t2
+                   + (1.0 / 2.0))
+                    * t2
+                + 1.0;
+            return (ans);
+        };
+
+        if(is_t_small)
+        {
+            // if t is small, consider Taylor expansion
+            // 1 + t^2/2 - t^4/8 + t^6/16 - (5 t^8)/128 + (7 t^10)/256 (Taylor series)
+            double const t2 = t * t;
+            ans = taylor(t2);
+        }
+        else if(is_t_big)
+        {
+            // sqrt( 1 + t^2) = t * sqrt(  1 + s^2 ), where s = 1/t
+
+            double const s2 = 1.0 / (t * t);
+            ans = taylor(s2);
+            ans *= t;
+        }
+        else
+        {
+            ans = sqrt(1.0 + t * t);
+        }
+        return (ans);
+    };
+
+    double dscale = std::max(std::abs(a_arg), std::max(std::abs(b_arg), std::abs(c_arg)));
+    if(dscale == 0)
+    {
+        // trivial zero matrix
+        rt1 = 0;
+        rt2 = 0;
+        cs1 = 1;
+        sn1 = 0;
+        return;
+    }
+
+    double const a = dble(a_arg) / dscale;
+    double const b = dble(b_arg) / dscale;
+    double const c = dble(c_arg) / dscale;
+
     int sgn1, sgn2;
-    S ab, acmn, acmx, acs, adf, cs, ct, df, rt, sm, tb, tn;
+    double ab, acmn, acmx, acs, adf, cs, ct, df, rt, sm, tb, tn;
 
     sm = a + c;
     df = a - c;
@@ -2358,11 +2417,13 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
     }
     if(adf > ab)
     {
-        rt = adf * sqrt(one + square(ab / adf));
+        // rt = adf * sqrt(one + square(ab / adf));
+        rt = adf * fcn(ab / adf);
     }
     else if(adf < ab)
     {
-        rt = ab * sqrt(one + square(adf / ab));
+        // rt = ab * sqrt(one + square(adf / ab));
+        rt = ab * fcn(adf / ab);
     }
     else
     {
@@ -2373,25 +2434,30 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
     }
     if(sm < zero)
     {
-        rt1 = half * (sm - rt);
+        rt1 = half * (dble(sm) - dble(rt));
         sgn1 = -1;
         //
         //        order of execution important.
         //        to get fully accurate smaller eigenvalue,
         //        next line needs to be executed in higher precision.
         //
-        rt2 = (dble(acmx) / dble(rt1)) * dble(acmn) - (dble(b) / dble(rt1)) * dble(b);
+        // rt2 = (dble(acmx) / dble(rt1)) * dble(acmn) - (dble(b) / dble(rt1)) * dble(b);
+        double const temp1 = (dble(acmx) / dble(rt1));
+        double const temp2 = (dble(b) / dble(rt1));
+        rt2 = temp1 * dble(acmn) - temp2 * dble(b);
     }
     else if(sm > zero)
     {
-        rt1 = half * (sm + rt);
+        rt1 = half * (dble(sm) + dble(rt));
         sgn1 = 1;
         //
         //        order of execution important.
         //        to get fully accurate smaller eigenvalue,
-        //        next line needs to be executed in higher precision.
-        //
-        rt2 = (dble(acmx) / dble(rt1)) * dble(acmn) - (dble(b) / dble(rt1)) * dble(b);
+        //        next line needs to be executed in higher precision//
+        double const temp1 = (dble(acmx) / dble(rt1));
+        double const temp2 = (dble(b) / dble(rt1));
+        // rt2 = (dble(acmx) / dble(rt1)) * dble(acmn) - (dble(b) / dble(rt1)) * dble(b);
+        rt2 = temp1 * dble(acmn) - temp2 * dble(b);
     }
     else
     {
@@ -2407,19 +2473,20 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
     //
     if(df >= zero)
     {
-        cs = df + rt;
+        cs = dble(df) + dble(rt);
         sgn2 = 1;
     }
     else
     {
-        cs = df - rt;
+        cs = dble(df) - dble(rt);
         sgn2 = -1;
     }
     acs = abs(cs);
     if(acs > ab)
     {
         ct = -tb / cs;
-        sn1 = one / sqrt(one + ct * ct);
+        // sn1 = one / sqrt(one + ct * ct);
+        sn1 = one / fcn(ct);
         cs1 = ct * sn1;
     }
     else
@@ -2432,7 +2499,8 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
         else
         {
             tn = -cs / tb;
-            cs1 = one / sqrt(one + tn * tn);
+            // cs1 = one / sqrt(one + tn * tn);
+            cs1 = one / fcn(tn);
             sn1 = tn * cs1;
         }
     }
@@ -2483,6 +2551,9 @@ static __device__ void dlaev2(S const a, S const b, S const c, S& rt1, S& rt2, S
     };
     assert(isok);
 #endif
+
+    rt1 *= dscale;
+    rt2 *= dscale;
     return;
 }
 
