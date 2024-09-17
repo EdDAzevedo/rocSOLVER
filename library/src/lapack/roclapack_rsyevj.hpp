@@ -38,6 +38,7 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 static constexpr int idebug = 0;
+
 #define TRACE(ival)                                       \
     {                                                     \
         if(idebug >= ival)                                \
@@ -2572,7 +2573,7 @@ __device__ static void zlaev2(T const a, T const b, T const c, S& rt1, S& rt2, S
     T w;
 
     auto abs = [](auto x) { return (std::abs(x)); };
-    auto dble = [](auto x) { return (static_cast<S>(std::real(x))); };
+    auto dble = [](auto x) { return (std::real(x)); };
     auto dconjg = [](auto x) { return (conj(x)); };
 
     if(abs(b) == zero)
@@ -3042,6 +3043,9 @@ __device__ void run_rsyevj(const I dimx,
     // ---------------------------------------------
     auto const n_even = n + (n % 2);
 
+    S const small_num = get_safemin<S>() / eps;
+    S const sqrt_small_num = std::sqrt(small_num);
+
     auto const cosine = cosines_res;
     auto const sine = sines_diag;
     const bool need_sort = (esort != rocblas_esort_none);
@@ -3244,7 +3248,18 @@ __device__ void run_rsyevj(const I dimx,
                         auto const App = A(p, p);
                         auto const Apq = A(p, q);
                         auto const Aqq = A(q, q);
-                        laev2<T, S>(App, Apq, Aqq, rt1, rt2, cs1, sn1);
+
+                        auto const mag = std::abs(Apq);
+                        bool const is_small = (mag < sqrt_small_num);
+                        if(is_small)
+                        {
+                            cs1 = 1;
+                            sn1 = 0;
+                        }
+                        else
+                        {
+                            laev2<T, S>(App, Apq, Aqq, rt1, rt2, cs1, sn1);
+                        }
 
                         cosine[ij] = cs1;
                         sine[ij] = sn1;
@@ -3409,8 +3424,8 @@ __device__ void run_rsyevj(const I dimx,
                         bool const isok = isok_pq && isok_qp;
                         if(!isok)
                         {
-                            printf("n=%d,need_V=%d,j=%d,iround=%d,isweep=%d\n", (int)n, (int)need_V,
-                                   (int)j, (int)iround, (int)isweep);
+                            printf("n=%d,need_V=%d,j=%d,iround=%d,isweep=%d,norm_A=%le\n", (int)n,
+                                   (int)need_V, (int)j, (int)iround, (int)isweep, (double)norm_A);
                             printf("p=%d,q=%d,abs(A(p,q))=%le,abs(A(q,p))=%le\n", (int)p, (int)q,
                                    (double)std::abs(A(p, q)), (double)std::abs(A(q, p)));
                         }
