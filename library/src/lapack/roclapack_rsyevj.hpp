@@ -37,7 +37,7 @@
 #include "rocsolver/rocsolver.h"
 
 ROCSOLVER_BEGIN_NAMESPACE
-static constexpr int idebug = 2;
+static constexpr int idebug = 0;
 #define TRACE(ival)                                       \
     {                                                     \
         if(idebug >= ival)                                \
@@ -2607,7 +2607,7 @@ static __device__ void cal_norm_body(I const m,
 
     bool const is_root = (i_start == 0) && (j_start == 0);
 
-    constexpr bool use_serial = true;
+    constexpr bool use_serial = false;
     S const zero = 0;
 
     if(use_serial)
@@ -2648,7 +2648,7 @@ static __device__ void cal_norm_body(I const m,
 
     {
         double dsum = zero;
-        bool constexpr use_pointers = false;
+        bool constexpr use_pointers = true;
         if(use_pointers)
         {
             auto i = i_start;
@@ -3456,13 +3456,11 @@ __global__ static void cal_Gmat_kernel(I const n,
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
     auto const nblocks = ceil(n, nb);
-    assert(n <= (nblocks * nb));
 
     // ------------------------------------------------------
     // nb_last is the size of the last partially filled block
     // ------------------------------------------------------
     auto const nb_last = n - (nblocks - 1) * nb;
-    assert((1 <= nb_last) && (nb_last <= nb));
 
     auto const idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
@@ -4063,9 +4061,13 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                                 T* dwork,
                                                 size_t size_dwork_byte)
 {
+    TRACE(1);
+
     ROCSOLVER_ENTER("rsyevj_rheevj_template", "esort:", esort, "evect:", evect, "uplo:", uplo,
                     "n:", n, "shiftA:", shiftA, "lda:", lda, "abstol:", abstol,
                     "max_sweeps:", max_sweeps, "bc:", batch_count);
+
+    TRACE(1);
 
     // quick return
     bool const has_work = (n >= 1) && (batch_count >= 1);
@@ -4073,6 +4075,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     {
         return rocblas_status_success;
     }
+
+    TRACE(1);
 
     bool const need_sort = (esort != rocblas_esort_none);
     bool const need_V = (evect != rocblas_evect_none);
@@ -4096,11 +4100,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     dim3 gridReset(blocksReset, 1, 1);
     dim3 threadsReset(BS1, 1, 1);
 
-    HIP_CHECK(hipMemsetAsync(residual, 0, sizeof(S) * batch_count, stream));
-    HIP_CHECK(hipMemsetAsync(n_sweeps, 0, sizeof(I) * batch_count, stream));
-    HIP_CHECK(hipMemsetAsync(info, 0, sizeof(I) * batch_count, stream));
-    HIP_CHECK(hipMemsetAsync(completed, 0, sizeof(I) * (batch_count + 1), stream));
-
     // scalar case
     if(n == 1)
     {
@@ -4113,12 +4112,37 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         // clang-format on
     }
 
+    TRACE(1);
+
     // quick return
     if(n <= 1)
     {
         return (rocblas_status_success);
     }
 
+    TRACE(1);
+    if(residual != nullptr)
+    {
+        HIP_CHECK(hipMemsetAsync(residual, 0, sizeof(S) * batch_count, stream));
+    }
+    TRACE(1);
+    if(n_sweeps != nullptr)
+    {
+        HIP_CHECK(hipMemsetAsync(n_sweeps, 0, sizeof(I) * batch_count, stream));
+    }
+    TRACE(1);
+    if(info != nullptr)
+    {
+        HIP_CHECK(hipMemsetAsync(info, 0, sizeof(I) * batch_count, stream));
+    }
+    TRACE(1);
+    if(completed != nullptr)
+    {
+        HIP_CHECK(hipMemsetAsync(completed, 0, sizeof(I) * (batch_count + 1), stream));
+    }
+    TRACE(1);
+
+    TRACE(1);
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
     auto is_even = [](auto n) { return ((n % 2) == 0); };
@@ -4131,6 +4155,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         int const ivalue = 0;
         HIP_CHECK(hipMemsetAsync((void*)dwork, ivalue, size_dwork_byte, stream));
     }
+
+    TRACE(1);
 
     std::byte* pfree = (std::byte*)dwork;
     size_t total_bytes = 0;
@@ -4154,6 +4180,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
     rocblas_pointer_mode old_mode;
     rocblas_get_pointer_mode(handle, &old_mode);
     rocblas_set_pointer_mode(handle, rocblas_pointer_mode_host);
+
+    TRACE(1);
 
     if(n <= RSYEVJ_BLOCKED_SWITCH(T, need_V))
     {
@@ -4212,8 +4240,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 #ifdef NDEBUG
 #define ROCBLASCALL_GEMM rocblasCall_gemm
 #else
-// #define ROCBLASCALL_GEMM simple_gemm
-#define ROCBLASCALL_GEMM rocblasCall_gemm
+#define ROCBLASCALL_GEMM simple_gemm
+// #define ROCBLASCALL_GEMM rocblasCall_gemm
 #endif
         S* const Amat_norm = norms;
 
