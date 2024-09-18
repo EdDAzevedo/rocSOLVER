@@ -2667,6 +2667,7 @@ static __device__ void cal_norm_body(I const m,
                                      T const* const A_,
                                      I const lda,
                                      S* const dwork,
+                                     I const len_dwork,
                                      I const i_start,
                                      I const i_inc,
                                      I const j_start,
@@ -2713,34 +2714,24 @@ static __device__ void cal_norm_body(I const m,
     // ------------------
     if(is_root)
     {
-        dwork[0] = 0;
+        for(auto i = 0; i < len_dwork; i++)
+        {
+            dwork[i] = 0;
+        }
     }
 
     __syncthreads();
 
     {
         double dsum = zero;
-        bool constexpr use_pointers = true;
-        if(use_pointers)
+        if(include_diagonal)
         {
-            auto i = i_start;
-            auto j = j_start;
-            T const* ap_j = &(A(i, j));
-
-            for(j = j_start; j < n; j += j_inc)
+            for(auto j = j_start; j < n; j += j_inc)
             {
-                T const* ap_i = ap_j;
-
-                for(i = i_start; i < m; i += i_inc)
+                for(auto i = i_start; i < m; i += i_inc)
                 {
-                    bool const is_diag = (i == j);
-                    auto const aij = (is_diag && (!include_diagonal)) ? zero : (*ap_i);
-
-                    dsum += std::norm(aij);
-
-                    ap_i += i_inc;
+                    dsum += std::norm(A(i, j));
                 }
-                ap_j += static_cast<int64_t>(lda) * j_inc;
             }
         }
         else
@@ -2750,7 +2741,7 @@ static __device__ void cal_norm_body(I const m,
                 for(auto i = i_start; i < m; i += i_inc)
                 {
                     bool const is_diag = (i == j);
-                    auto const aij = (is_diag && (!include_diagonal)) ? zero : A(i, j);
+                    auto const aij = (is_diag) ? zero : A(i, j);
                     dsum += std::norm(aij);
                 }
             }
@@ -2759,7 +2750,8 @@ static __device__ void cal_norm_body(I const m,
         if(dsum != 0)
         {
             S const ssum = dsum;
-            atomicAdd(&(dwork[0]), ssum);
+            auto const ip = ((i_start + j_start * i_inc) % len_dwork);
+            atomicAdd(&(dwork[ip]), ssum);
         }
     }
 
@@ -2767,7 +2759,13 @@ static __device__ void cal_norm_body(I const m,
 
     if(is_root)
     {
-        dwork[0] = std::sqrt(dwork[0]);
+        double dsum = 0;
+        for(auto i = 0; i < len_dwork; i++)
+        {
+            dsum += dwork[i];
+        }
+
+        dwork[0] = std::sqrt(dsum);
     }
     __syncthreads();
 
@@ -3059,13 +3057,13 @@ __device__ void run_rsyevj(const I dimx,
     I const j_start = tiy;
     I const j_inc = dimy;
 
+    auto const num_rounds = (n_even - 1);
+    auto const ntables = (n_even / 2);
     // ---------------------------------------
     // reuse storage
     // ---------------------------------------
     S* const dwork = cosine;
-
-    auto const num_rounds = (n_even - 1);
-    auto const ntables = (n_even / 2);
+    I const len_dwork = ntables;
 
     // ----------------------------------------------------
     // schedule_(:)  is array of size n_even * (n_even - 1)
@@ -3136,7 +3134,9 @@ __device__ void run_rsyevj(const I dimx,
         S* Swork = (S*)dwork;
         auto const mm = n;
         auto const nn = n;
-        cal_norm_body(mm, nn, A_, ld1, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
+        I const len_Swork = len_dwork;
+        cal_norm_body(mm, nn, A_, ld1, Swork, len_Swork, i_start, i_inc, j_start, j_inc,
+                      need_diagonal);
         norm_A = Swork[0];
     }
 
@@ -3170,7 +3170,8 @@ __device__ void run_rsyevj(const I dimx,
     {
         S* const Swork = (S*)dwork;
         bool const need_diagonal = false;
-        cal_norm_body(n, n, A_, lda, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
+        I const len_Swork = len_dwork;
+        cal_norm_body(n, n, A_, lda, Swork, len_Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
         norm_offdiag = Swork[0];
         if((i_start == 0) && (j_start == 0))
         {
@@ -3189,10 +3190,13 @@ __device__ void run_rsyevj(const I dimx,
         bool const need_diagonal = false;
         {
             S* const Swork = (S*)dwork;
+            I const len_Swork = len_dwork;
 
             auto const mm = n;
             auto const nn = n;
-            cal_norm_body(mm, nn, A_, lda, Swork, i_start, i_inc, j_start, j_inc, need_diagonal);
+
+            cal_norm_body(mm, nn, A_, lda, Swork, len_Swork, i_start, i_inc, j_start, j_inc,
+                          need_diagonal);
             norm_offdiag = Swork[0];
         }
 
@@ -3601,8 +3605,12 @@ __global__ static void cal_Gmat_kernel(I const n,
                 // -----------------------------------------------
                 // compute norm of Block (ib,jb) submatrix block
                 // -----------------------------------------------
-                cal_norm_body(ni, nj, &(Ap(ii, jj)), lda, &(Gmat(ib, jb, bid)), i_start, i_inc,
-                              j_start, j_inc, need_diagonal);
+                extern __shared__ double lmem[];
+                S* dwork = reinterpret_cast<S*>(lmem);
+                I const len_dwork = nb;
+                cal_norm_body(ni, nj, &(Ap(ii, jj)), lda, dwork, len_dwork, i_start, i_inc, j_start,
+                              j_inc, need_diagonal);
+                Gmat(ib, jb, bid) = dwork[0];
             }
         }
     }
@@ -3640,6 +3648,10 @@ __global__ static void sum_Gmat_kernel(I const n,
 
     auto Gnorm = [=](auto bid) -> S& { return (Gnorm_[bid]); };
 
+    extern double __shared__ lmem[];
+    S* Swork = reinterpret_cast<S*>(lmem);
+    I const len_Swork = nblocks;
+
     for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         // -----------------------------
@@ -3651,8 +3663,10 @@ __global__ static void sum_Gmat_kernel(I const n,
         auto const ld1 = nblocks;
 
         bool const include_diagonal = true;
-        cal_norm_body(mm, nn, &(Gmat(0, 0, bid)), ld1, &(Gnorm(bid)), i_start, i_inc, j_start,
+
+        cal_norm_body(mm, nn, &(Gmat(0, 0, bid)), ld1, Swork, len_Swork, i_start, i_inc, j_start,
                       j_inc, include_diagonal);
+        Gnorm(bid) = Swork[0];
     }
 }
 
@@ -4393,15 +4407,17 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
         auto update_norm = [=](bool const include_diagonal, S* residual) {
             // clang-format off
+
+		size_t const lmem_size = sizeof(S)*nb;
                 ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>),
-				dim3(1, 1, nbz), dim3(nx, ny, 1), 0, stream,
+				dim3(1, 1, nbz), dim3(nx, ny, 1), lmem_size, stream,
 				n, nb,
 				A, shiftA, lda, strideA,
 				Gmat,
 				include_diagonal, completed, batch_count);
             // clang-format on
 
-            size_t const shmem_size = sizeof(S);
+            size_t const shmem_size = sizeof(S) * nblocks;
             // clang-format off
             ROCSOLVER_LAUNCH_KERNEL((sum_Gmat_kernel<S, I>),
 			    dim3(1, 1, nbz), dim3(nx, ny, 1), shmem_size, stream,
@@ -5177,19 +5193,20 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             printf("after symmetric reordering, include_diagonal_values = %d\n",
                                    (int)include_diagonal_values);
 
+                            size_t const lmem_size = sizeof(S) * nb;
                             ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, T**>),
-                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                    n, nb, Atmp_ptr_array, shift_Atmp, ldatmp,
+                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), lmem_size,
+                                                    stream, n, nb, Atmp_ptr_array, shift_Atmp, ldatmp,
                                                     lstride_Atmp, Gmat, include_diagonal_values,
                                                     completed, batch_count_remain);
                             printf("using Atmp_ptr_array to compute Gmat\n");
                             print_Gmat();
 
                             ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, T*>),
-                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                    n, nb, Atmp, shift_Atmp, ldatmp, lstride_Atmp,
-                                                    Gmat, include_diagonal_values, completed,
-                                                    batch_count_remain);
+                                                    dim3(nbx, nby, nbz), dim3(nx, ny, 1), lmem_size,
+                                                    stream, n, nb, Atmp, shift_Atmp, ldatmp,
+                                                    lstride_Atmp, Gmat, include_diagonal_values,
+                                                    completed, batch_count_remain);
 
                             printf("using Atmp to compute Gmat\n");
                             print_Gmat();
