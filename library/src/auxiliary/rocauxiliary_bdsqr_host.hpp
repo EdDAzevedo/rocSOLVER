@@ -734,306 +734,6 @@ static void swap_template(I const n, T* x, I const incx, T* y, I const incy, hip
                        n, x, incx, y, incy);
 }
 
-extern "C" {
-
-double dlamch_(char* cmach);
-float slamch_(char* cmach);
-
-void zswap_(int* n, std::complex<double>* zx, int* incx, std::complex<double>* zy, int* incy);
-
-void cswap_(int* n, std::complex<float>* zx, int* incx, std::complex<float>* zy, int* incy);
-
-void dswap_(int* n, double* zx, int* incx, double* zy, int* incy);
-
-void sswap_(int* n, float* zx, int* incx, float* zy, int* incy);
-
-void dlasq1_(int* n, double* D_, double* E_, double* rwork_, int* info_arg);
-void slasq1_(int* n, float* D_, float* E_, float* rwork_, int* info_arg);
-
-void zlasr_(char* side,
-            char* pivot,
-            char* direct,
-            int* m,
-            int* n,
-            double* c,
-            double* s,
-            std::complex<double>* A,
-            int* lda);
-void clasr_(char* side,
-            char* pivot,
-            char* direct,
-            int* m,
-            int* n,
-            float* c,
-            float* s,
-            std::complex<float>* A,
-            int* lda);
-void slasr_(char* side, char* pivot, char* direct, int* m, int* n, float* c, float* s, float* A, int* lda);
-void dlasr_(char* side, char* pivot, char* direct, int* m, int* n, double* c, double* s, double* A, int* lda);
-
-void dlasv2_(double* f,
-             double* g,
-             double* h,
-             double* ssmin,
-             double* ssmax,
-             double* snr,
-             double* csr,
-             double* snl,
-             double* csl);
-void slasv2_(float* f,
-             float* g,
-             float* h,
-             float* ssmin,
-             float* ssmax,
-             float* snr,
-             float* csr,
-             float* snl,
-             float* csl);
-
-void zdrot_(int* n,
-            std::complex<double>* zx,
-            int* incx,
-            std::complex<double>* zy,
-            int* incy,
-            double* c,
-            double* s);
-
-void csrot_(int* n,
-            std::complex<float>* zx,
-            int* incx,
-            std::complex<float>* zy,
-            int* incy,
-            float* c,
-            float* s);
-
-void drot_(int* n, double* dx, int* incx, double* dy, int* incy, double* c, double* s);
-
-void srot_(int* n, float* dx, int* incx, float* dy, int* incy, float* c, float* s);
-
-void zdscal_(int* n, double* da, std::complex<double>* zx, int* incx);
-void csscal_(int* n, float* da, std::complex<float>* zx, int* incx);
-void zscal_(int* n, std::complex<double>* za, std::complex<double>* zx, int* incx);
-void cscal_(int* n, std::complex<float>* za, std::complex<float>* zx, int* incx);
-void dscal_(int* n, double* da, double* zx, int* incx);
-void sscal_(int* n, float* da, float* zx, int* incx);
-
-void dlartg_(double* f, double* g, double* c, double* s, double* r);
-void slartg_(float* f, float* g, float* c, float* s, float* r);
-
-void zlartg_(std::complex<double>* f,
-             std::complex<double>* g,
-             double* c,
-             std::complex<double>* s,
-             std::complex<double>* r);
-void clartg_(std::complex<float>* f,
-             std::complex<float>* g,
-             float* c,
-             std::complex<float>* s,
-             std::complex<float>* r);
-
-void dlas2_(double* f, double* g, double* h, double* ssmin, double* ssmax);
-void slas2_(float* f, float* g, float* h, float* ssmin, float* ssmax);
-};
-
-extern "C" {
-
-void cbdsqr_(char* uplo,
-             int* n,
-             int* ncvt,
-             int* nru,
-             int* ncc,
-             float* d,
-             float* e,
-             std::complex<float>* vt,
-             int* ldvt,
-             std::complex<float>* u,
-             int* ldu,
-             std::complex<float>* c,
-             int* ldc,
-             float* rwork,
-             int* info);
-
-void zbdsqr_(char* uplo,
-             int* n,
-             int* ncvt,
-             int* nru,
-             int* ncc,
-             double* d,
-             double* e,
-             std::complex<double>* vt,
-             int* ldvt,
-             std::complex<double>* u,
-             int* ldu,
-             std::complex<double>* c,
-             int* ldc,
-             double* rwork,
-             int* info);
-
-void sbdsqr_(char* uplo,
-             int* n,
-             int* ncvt,
-             int* nru,
-             int* ncc,
-             float* d,
-             float* e,
-             float* vt,
-             int* ldvt,
-             float* u,
-             int* ldu,
-             float* c,
-             int* ldc,
-             float* rwork,
-             int* info);
-
-void dbdsqr_(char* uplo,
-             int* n,
-             int* ncvt,
-             int* nru,
-             int* ncc,
-             double* d,
-             double* e,
-             double* vt,
-             int* ldvt,
-             double* u,
-             int* ldu,
-             double* c,
-             int* ldc,
-             double* rwork,
-             int* info);
-};
-
-static void call_bdsqr(char& uplo,
-                       int& n,
-                       int& ncvt,
-                       int& nru,
-                       int& ncc,
-                       double& d,
-                       double& e,
-                       std::complex<double>& vt,
-                       int& ldvt,
-                       std::complex<double>& u,
-                       int& ldu,
-                       std::complex<double>& c,
-                       int& ldc,
-                       double& rwork,
-                       int& info)
-{
-    zbdsqr_(&uplo, &n, &ncvt, &nru, &ncc, &d, &e, (std::complex<double>*)&vt, &ldvt,
-            (std::complex<double>*)&u, &ldu, (std::complex<double>*)&c, &ldc, &rwork, &info);
-}
-
-static void call_bdsqr(char& uplo,
-                       int& n,
-                       int& ncvt,
-                       int& nru,
-                       int& ncc,
-                       double& d,
-                       double& e,
-                       rocblas_complex_num<double>& vt,
-                       int& ldvt,
-                       rocblas_complex_num<double>& u,
-                       int& ldu,
-                       rocblas_complex_num<double>& c,
-                       int& ldc,
-                       double& rwork,
-                       int& info)
-{
-    zbdsqr_(&uplo, &n, &ncvt, &nru, &ncc, &d, &e, (std::complex<double>*)&vt, &ldvt,
-            (std::complex<double>*)&u, &ldu, (std::complex<double>*)&c, &ldc, &rwork, &info);
-}
-
-static void call_bdsqr(char& uplo,
-                       int& n,
-                       int& ncvt,
-                       int& nru,
-                       int& ncc,
-                       float& d,
-                       float& e,
-                       std::complex<float>& vt,
-                       int& ldvt,
-                       std::complex<float>& u,
-                       int& ldu,
-                       std::complex<float>& c,
-                       int& ldc,
-                       float& rwork,
-                       int& info)
-{
-    cbdsqr_(&uplo, &n, &ncvt, &nru, &ncc, &d, &e, (std::complex<float>*)&vt, &ldvt,
-            (std::complex<float>*)&u, &ldu, (std::complex<float>*)&c, &ldc, &rwork, &info);
-}
-
-static void call_bdsqr(char& uplo,
-                       int& n,
-                       int& ncvt,
-                       int& nru,
-                       int& ncc,
-                       float& d,
-                       float& e,
-                       float& vt,
-                       int& ldvt,
-                       float& u,
-                       int& ldu,
-                       float& c,
-                       int& ldc,
-                       float& rwork,
-                       int& info)
-{
-    sbdsqr_(&uplo, &n, &ncvt, &nru, &ncc, &d, &e, &vt, &ldvt, &u, &ldu, &c, &ldc, &rwork, &info);
-}
-
-static void call_bdsqr(char& uplo,
-                       int& n,
-                       int& ncvt,
-                       int& nru,
-                       int& ncc,
-                       float& d,
-                       float& e,
-                       rocblas_complex_num<float>& vt,
-                       int& ldvt,
-                       rocblas_complex_num<float>& u,
-                       int& ldu,
-                       rocblas_complex_num<float>& c,
-                       int& ldc,
-                       float& rwork,
-                       int& info)
-{
-    cbdsqr_(&uplo, &n, &ncvt, &nru, &ncc, &d, &e, (std::complex<float>*)&vt, &ldvt,
-            (std::complex<float>*)&u, &ldu, (std::complex<float>*)&c, &ldc, &rwork, &info);
-}
-
-static void call_bdsqr(char& uplo,
-                       int& n,
-                       int& ncvt,
-                       int& nru,
-                       int& ncc,
-                       double& d,
-                       double& e,
-                       double& vt,
-                       int& ldvt,
-                       double& u,
-                       int& ldu,
-                       double& c,
-                       int& ldc,
-                       double& rwork,
-                       int& info)
-{
-    dbdsqr_(&uplo, &n, &ncvt, &nru, &ncc, &d, &e, &vt, &ldvt, &u, &ldu, &c, &ldc, &rwork, &info);
-}
-
-#ifdef USE_LAPACK
-static void call_lamch(char& cmach_arg, double& eps)
-{
-    char cmach = cmach_arg;
-    eps = dlamch_(&cmach);
-}
-
-static void call_lamch(char& cmach_arg, float& eps)
-{
-    char cmach = cmach_arg;
-    eps = slamch_(&cmach);
-}
-#else
-
 static void call_lamch(char& cmach, double& eps)
 {
     eps = ((cmach == 'E') || (cmach == 'e')) ? std::numeric_limits<double>::epsilon()
@@ -1050,48 +750,6 @@ static void call_lamch(char& cmach, float& eps)
                                              : std::numeric_limits<float>::min();
 }
 
-#endif
-
-#ifdef USE_LAPACK
-static void call_swap(int& n,
-                      rocblas_complex_num<float>& zx,
-                      int& incx,
-                      rocblas_complex_num<float>& zy,
-                      int& incy)
-{
-    cswap_(&n, (std::complex<float>*)&zx, &incx, (std::complex<float>*)&zy, &incy);
-}
-
-static void call_swap(int& n, std::complex<float>& zx, int& incx, std::complex<float>& zy, int& incy)
-{
-    cswap_(&n, &zx, &incx, &zy, &incy);
-}
-
-static void call_swap(int& n,
-                      rocblas_complex_num<double>& zx,
-                      int& incx,
-                      rocblas_complex_num<double>& zy,
-                      int& incy)
-{
-    zswap_(&n, (std::complex<double>*)&zx, &incx, (std::complex<double>*)&zy, &incy);
-}
-
-static void call_swap(int& n, std::complex<double>& zx, int& incx, std::complex<double>& zy, int& incy)
-{
-    zswap_(&n, &zx, &incx, &zy, &incy);
-}
-
-static void call_swap(int& n, float& zx, int& incx, float& zy, int& incy)
-{
-    sswap_(&n, &zx, &incx, &zy, &incy);
-}
-
-static void call_swap(int& n, double& zx, int& incx, double& zy, int& incy)
-{
-    dswap_(&n, &zx, &incx, &zy, &incy);
-}
-#else
-
 template <typename T, typename I>
 static void call_swap(I& n, T& x_in, I& incx, T& y_in, I& incy)
 {
@@ -1107,20 +765,6 @@ static void call_swap(I& n, T& x_in, I& incx, T& y_in, I& incy)
         y[iy] = temp;
     }
 }
-
-#endif
-
-#ifdef USE_LAPACK
-static void call_las2(double& f, double& g, double& h, double& ssmin, double& ssmax)
-{
-    dlas2_(&f, &g, &h, &ssmin, &ssmax);
-}
-
-static void call_las2(float& f, float& g, float& h, float& ssmin, float& ssmax)
-{
-    slas2_(&f, &g, &h, &ssmin, &ssmax);
-}
-#else
 
 template <typename T>
 static void call_las2(T& f, T& g, T& h, T& ssmin, T& ssmax)
@@ -1192,39 +836,6 @@ static void call_las2(T& f, T& g, T& h, T& ssmin, T& ssmax)
         }
     }
 }
-
-#endif
-
-#ifdef USE_LAPACK
-
-static void call_lartg(double& f, double& g, double& c, double& s, double& r)
-{
-    dlartg_(&f, &g, &c, &s, &r);
-}
-
-static void call_lartg(float& f, float& g, float& c, float& s, float& r)
-{
-    slartg_(&f, &g, &c, &s, &r);
-}
-
-static void call_lartg(std::complex<float>& f,
-                       std::complex<float>& g,
-                       float& c,
-                       std::complex<float>& s,
-                       std::complex<float>& r)
-{
-    clartg_(&f, &g, &c, &s, &r);
-}
-
-static void call_lartg(std::complex<double>& f,
-                       std::complex<double>& g,
-                       double& c,
-                       std::complex<double>& s,
-                       std::complex<double>& r)
-{
-    zlartg_(&f, &g, &c, &s, &r);
-}
-#else
 
 static float real_part(float z)
 {
@@ -1503,60 +1114,6 @@ static void call_lartg(T& f, T& g, S& cs, T& sn, T& r)
     }
 }
 
-#endif
-
-#ifdef USE_LAPACK
-static void call_scal(int& n, rocblas_complex_num<float>& da, rocblas_complex_num<float>& zx, int& incx)
-{
-    cscal_(&n, (std::complex<float>*)&da, (std::complex<float>*)&zx, &incx);
-}
-
-static void call_scal(int& n, std::complex<float>& da, std::complex<float>& zx, int& incx)
-{
-    cscal_(&n, &da, &zx, &incx);
-}
-
-static void
-    call_scal(int& n, rocblas_complex_num<double>& da, rocblas_complex_num<double>& zx, int& incx)
-{
-    zscal_(&n, (std::complex<double>*)&da, (std::complex<double>*)&zx, &incx);
-}
-
-static void call_scal(int& n, std::complex<double>& da, std::complex<double>& zx, int& incx)
-{
-    zscal_(&n, &da, &zx, &incx);
-}
-
-static void call_scal(int& n, double& da, rocblas_complex_num<double>& zx, int& incx)
-{
-    zdscal_(&n, &da, (std::complex<double>*)&zx, &incx);
-}
-
-static void call_scal(int& n, double& da, std::complex<double>& zx, int& incx)
-{
-    zdscal_(&n, &da, &zx, &incx);
-}
-
-static void call_scal(int& n, float& da, rocblas_complex_num<float>& zx, int& incx)
-{
-    csscal_(&n, &da, (std::complex<float>*)&zx, &incx);
-}
-
-static void call_scal(int& n, float& da, std::complex<float>& zx, int& incx)
-{
-    csscal_(&n, &da, &zx, &incx);
-}
-
-static void call_scal(int& n, double& da, double& zx, int& incx)
-{
-    dscal_(&n, &da, &zx, &incx);
-}
-
-static void call_scal(int& n, float& da, float& zx, int& incx)
-{
-    sscal_(&n, &da, &zx, &incx);
-}
-#else
 template <typename T, typename S, typename I>
 static void call_scal(I& n, S& a, T& x_in, I& incx)
 {
@@ -1576,64 +1133,6 @@ static void call_scal(I& n, S& a, T& x_in, I& incx)
     };
 }
 
-#endif
-
-#ifdef USE_LAPACK
-static void call_rot(int& n,
-                     std::complex<float>& zx,
-                     int& incx,
-                     std::complex<float>& zy,
-                     int& incy,
-                     float& c,
-                     float& s)
-{
-    csrot_(&n, &zx, &incx, &zy, &incy, &c, &s);
-}
-
-static void call_rot(int& n,
-                     rocblas_complex_num<float>& zx,
-                     int& incx,
-                     rocblas_complex_num<float>& zy,
-                     int& incy,
-                     float& c,
-                     float& s)
-{
-    csrot_(&n, (std::complex<float>*)&zx, &incx, (std::complex<float>*)&zy, &incy, &c, &s);
-}
-
-static void call_rot(int& n,
-                     std::complex<double>& zx,
-                     int& incx,
-                     std::complex<double>& zy,
-                     int& incy,
-                     double& c,
-                     double& s)
-{
-    zdrot_(&n, &zx, &incx, &zy, &incy, &c, &s);
-}
-
-static void call_rot(int& n,
-                     rocblas_complex_num<double>& zx,
-                     int& incx,
-                     rocblas_complex_num<double>& zy,
-                     int& incy,
-                     double& c,
-                     double& s)
-{
-    zdrot_(&n, (std::complex<double>*)&zx, &incx, (std::complex<double>*)&zy, &incy, &c, &s);
-}
-
-static void call_rot(int& n, double& dx, int& incx, double& dy, int& incy, double& c, double& s)
-{
-    drot_(&n, &dx, &incx, &dy, &incy, &c, &s);
-}
-
-static void call_rot(int& n, float& dx, int& incx, float& dy, int& incy, float& c, float& s)
-{
-    srot_(&n, &dx, &incx, &dy, &incy, &c, &s);
-}
-#else
-
 template <typename T, typename S, typename I>
 static void call_rot(I& n, T& x_in, I& incx, T& y_in, I& incy, S& c, S& s)
 {
@@ -1651,35 +1150,6 @@ static void call_rot(I& n, T& x_in, I& incx, T& y_in, I& incy, S& c, S& s)
     }
 }
 
-#endif
-
-#ifdef USE_LAPACK
-static void call_lasv2(double& f,
-                       double& g,
-                       double& h,
-                       double& ssmin,
-                       double& ssmax,
-                       double& snr,
-                       double& csr,
-                       double& snl,
-                       double& csl)
-{
-    dlasv2_(&f, &g, &h, &ssmin, &ssmax, &snr, &csr, &snl, &csl);
-}
-
-static void call_lasv2(float& f,
-                       float& g,
-                       float& h,
-                       float& ssmin,
-                       float& ssmax,
-                       float& snr,
-                       float& csr,
-                       float& snl,
-                       float& csl)
-{
-    slasv2_(&f, &g, &h, &ssmin, &ssmax, &snr, &csr, &snl, &csl);
-}
-#else
 // --------------------------------------------------------
 // lasv2 computes the singular value decomposition of a 2 x 2
 // triangular matrix
@@ -1899,90 +1369,6 @@ static void call_lasv2(T& f, T& g, T& h, T& ssmin, T& ssmax, T& snr, T& csr, T& 
     ssmin = sign(ssmin, tsign * sign(one, f) * sign(one, h));
 }
 
-#endif
-
-static void call_lasq1(int& n, double& D_, double& E_, double& rwork_, int& info_arg)
-{
-    dlasq1_(&n, &D_, &E_, &rwork_, &info_arg);
-};
-
-static void call_lasq1(int& n, float& D_, float& E_, float& rwork_, int& info_arg)
-{
-    slasq1_(&n, &D_, &E_, &rwork_, &info_arg);
-};
-
-#ifdef USE_LAPACK
-static void call_lasr(char& side,
-                      char& pivot,
-                      char& direct,
-                      int& m,
-                      int& n,
-                      float& c,
-                      float& s,
-                      rocblas_complex_num<float>& A,
-                      int& lda)
-{
-    clasr_(&side, &pivot, &direct, &m, &n, &c, &s, (std::complex<float>*)&A, &lda);
-};
-
-static void call_lasr(char& side,
-                      char& pivot,
-                      char& direct,
-                      int& m,
-                      int& n,
-                      double& c,
-                      double& s,
-                      rocblas_complex_num<double>& A,
-                      int& lda)
-{
-    zlasr_(&side, &pivot, &direct, &m, &n, &c, &s, (std::complex<double>*)&A, &lda);
-};
-
-static void call_lasr(char& side,
-                      char& pivot,
-                      char& direct,
-                      int& m,
-                      int& n,
-                      double& c,
-                      double& s,
-                      std::complex<double>& A,
-                      int& lda)
-{
-    zlasr_(&side, &pivot, &direct, &m, &n, &c, &s, &A, &lda);
-};
-
-static void call_lasr(char& side,
-                      char& pivot,
-                      char& direct,
-                      int& m,
-                      int& n,
-                      float& c,
-                      float& s,
-                      std::complex<float>& A,
-                      int& lda)
-{
-    clasr_(&side, &pivot, &direct, &m, &n, &c, &s, &A, &lda);
-};
-
-static void
-    call_lasr(char& side, char& pivot, char& direct, int& m, int& n, float& c, float& s, float& A, int& lda)
-{
-    slasr_(&side, &pivot, &direct, &m, &n, &c, &s, &A, &lda);
-};
-
-static void call_lasr(char& side,
-                      char& pivot,
-                      char& direct,
-                      int& m,
-                      int& n,
-                      double& c,
-                      double& s,
-                      double& A,
-                      int& lda)
-{
-    dlasr_(&side, &pivot, &direct, &m, &n, &c, &s, &A, &lda);
-};
-#else
 template <typename S, typename T, typename I>
 static void call_lasr(char& side, char& pivot, char& direct, I& m, I& n, S& c, S& s, T& A, I& lda)
 {
@@ -1991,8 +1377,6 @@ static void call_lasr(char& side, char& pivot, char& direct, I& m, I& n, S& c, S
 
     lasr_body<S, T, I>(side, pivot, direct, m, n, &c, &s, &A, lda, tid, i_inc);
 };
-
-#endif
 
 template <typename S, typename T, typename I>
 static void bdsqr_single_template(char uplo,
@@ -2024,13 +1408,6 @@ static void bdsqr_single_template(char uplo,
     // bdsqr_sort() to perform sorting
     // -----------------------------------
     bool constexpr need_sort = false;
-
-    // ---------------------------------------------------
-    // NOTE: lasq1 may return non-zero info value that
-    // has a different meaning
-    // Consider turning off lasq1 to have consistent info value
-    // ---------------------------------------------------
-    bool constexpr use_lasq1 = false;
 
     S const zero = 0;
     S const one = 1;
@@ -2194,19 +1571,6 @@ static void bdsqr_single_template(char uplo,
 
     if(n == 1)
         goto L160;
-    /*
-   *     if no singular vectors desired, use qd algorithm
-   */
-    if((!rotate) && (use_lasq1))
-    {
-        call_lasq1(n, d(1), e(1), work(1), info);
-        /*
-     *     if info equals 2, dqds didn't finish, try to finish
-     */
-        if(info != 2)
-            return;
-        info = 0;
-    }
 
     nm1 = n - 1;
     nm12 = nm1 + nm1;
@@ -3680,40 +3044,14 @@ rocblas_status rocsolver_bdsqr_host_batch_template(rocblas_handle handle,
         I nrv = n;
         I ncvt = nv;
         bool const values_only = (ncvt == 0) && (nru == 0) && (ncc == 0);
-        bool const use_lapack_bdsqr = false;
 
-        if((use_lapack_bdsqr) && (values_only))
-        {
-            // --------------------------------
-            // call the lapack version of bdsqr
-            // --------------------------------
-            auto ln = n;
-            auto lncvt = ncvt;
-            auto lnru = nru;
-            auto lncc = ncc;
-            S& d_arg = d_[0];
-            S& e_arg = e_[0];
-            T& vt_arg = vt_[0];
-            T& u_arg = u_[0];
-            T& c_arg = c_[0];
-            S& work_arg = work_[0];
-            auto ldvt_arg = ldvt;
-            auto ldu_arg = ldu;
-            auto ldc_arg = ldc;
+        bdsqr_single_template<S, T, I>(uplo, n, ncvt, nru, ncc,
 
-            call_bdsqr(uplo, ln, lncvt, lnru, lncc, d_arg, e_arg, vt_arg, ldvt_arg, u_arg, ldu_arg,
-                       c_arg, ldu_arg, work_arg, info);
-        }
-        else
-        {
-            bdsqr_single_template<S, T, I>(uplo, n, ncvt, nru, ncc,
+                                       d_, e_,
 
-                                           d_, e_,
+                                       vt_, ldvt, u_, ldu, c_, ldc,
 
-                                           vt_, ldvt, u_, ldu, c_, ldc,
-
-                                           work_, info, dwork_, stream);
-        }
+                                       work_, info, dwork_, stream);
 
         if(info == 0)
         {
