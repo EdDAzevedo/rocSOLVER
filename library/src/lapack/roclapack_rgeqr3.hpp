@@ -42,6 +42,11 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
+#ifndef RGEQR3_BLOCKSIZE
+#define RGEQR3_BLOCKSIZE(T) \
+    ((sizeof(T) == 4) ? 256 : (sizeof(T) == 8) ? 128 : (sizeof(T) == 16) ? 64 : 32)
+#endif
+
 template <typename T, typename I>
 static rocblas_status rocblasCall_trmm_mem(rocblas_side const side,
                                            I const mm,
@@ -52,29 +57,30 @@ static rocblas_status rocblasCall_trmm_mem(rocblas_side const side,
     // -----------------------------------------------------
     // TODO: ** need to double check whether this is correct
     // -----------------------------------------------------
-    *size_trmm_byte = 3 * sizeof(T*) * std::max(1, batch_count);
+    *size_trmm_byte = sizeof(T*) * std::max(1, batch_count);
     return (rocblas_status_success);
 }
 
 // -----------------------------------------------
-// copy vector
+// copy diagonal values
 //
-// launch as dim(nbocks,1,batch_count), dim3(nx,1,1)
-// where nblocks = ceil( n, nx)
+// launch as dim(nbx,1,batch_count), dim3(nx,1,1)
+// where nbx = ceil( n, nx)
 // -----------------------------------------------
 template <typename T, typename I, typename Istride>
-static __global__ void copy1D(rocblas_handle handle,
-                              I const n,
-                              T const* const x,
-                              Istride const shiftx,
-                              I const incx,
-                              Istride stridex,
+static __global__ void copy_diagonal_kernel(hipStream_t stream,
+                                            I const n,
 
-                              T* const y,
-                              Istride const shifty,
-                              I const incy,
-                              Istride const stridey,
-                              I const batch_count)
+                                            T const* const* Tmat,
+                                            Istride const shift_Tmat,
+                                            I const ldT,
+                                            Istride const stride_Tmat,
+
+                                            T* const tau_,
+                                            Istride const stride_tau,
+
+                                            I const batch_count)
+
 {
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
@@ -84,100 +90,57 @@ static __global__ void copy1D(rocblas_handle handle,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        T const* const xp = load_ptr_batch(x, bid, shiftx, stridex);
-        T* const yp = load_ptr_batch(y, bid, shifty, stridey);
+        T const* const T_p = load_ptr_batch(Tmat, bid, shift_Tmat, stride_Tmat);
+        T* const tau_p = tau_ + bid * stride_tau;
 
-        if((incx == 1) && (incy == 1))
+        auto Tp = [=](auto i, auto j) -> const T {
+            auto const ij = i + j * static_cast<int64_t>(ldT);
+            return (T_p[ij]);
+        };
+
+        auto tau = [=](auto i) -> T& { return (tau_p[i]); };
+
+        for(auto i = i_start; i < n; i += i_inc)
         {
-            // ------------
-            // special case
-            // ------------
-            for(I i = i_start; i < n; i += i_inc)
-            {
-                yp[i] = xp[i];
-            }
-        }
-        else
-        {
-            for(I i = i_start; i < n; i += i_inc)
-            {
-                auto const ix = i * incx;
-                auto const iy = i * incy;
-                yp[iy] = xp[ix];
-            }
+            tau(i) = Tp(i, i);
         }
     }
 }
 
-#ifndef RGEQR3_BLOCKSIZE
-#define RGEQR3_BLOCKSIZE(T) \
-    ((sizeof(T) == 4) ? 256 : (sizeof(T) == 8) ? 128 : (sizeof(T) == 16) ? 64 : 32)
-#endif
-
+// -----------------------------------
+// copy diagonal entries from T matrix
+// into tau array
+// -----------------------------------
 template <typename T, typename I, typename Istride>
-static void rocsolver_rgeqr3_getMemorySize(I const m, I const n, I const batch_count, size_t* work_size)
+static void copy_diagonal_template(hipStream_t stream,
+                                   I const nn,
+                                   T const* const Tmat,
+                                   Istride const shift_Tmat,
+                                   I const ldT,
+                                   Istride const stride_Tmat,
+                                   T* const tau_,
+                                   Istride const stride_tau,
+                                   I batch_count)
 {
-    *work_size = 0;
-    bool const has_work = (m >= 1) && (m >= 1) && (batch_count >= 1);
-    if(!has_work)
-    {
-        return;
-    }
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+    auto min = [](auto x, auto y) { return ((x <= y) ? x : y); };
 
-    auto const nb = RGEQR3_BLOCKSIZE(T);
-    I lwork_bytes = -1;
-    void* work = nullptr;
+    auto const max_blocks = 64 * 1000;
+    auto const nx = 64;
+    auto const nbx = ceil(n, nx);
+    auto const nbz = min(max_blocks, batch_count);
 
-    T* Amat = nullptr;
-    Istride shift_Amat = 0;
-    I ldA = m;
-    Istride stride_Amat = ldA * n;
-
-    T* Tmat = nullptr;
-    Istride shift_Tmat = 0;
-    I ldT = nb;
-    Istride stride_Tmat = ldT * nb;
-
-    T* Wmat = nullptr;
-    Istride shift_Wmat = 0;
-    I ldW = nb;
-    Istride stride_Wmat = ldW * nb;
-
-    auto istat = rocsolver_rgeqr3_template<BATCHED, STRIDED, T, I, I*, rocblas_stride>(
-        m, n, Amat, shift_Amat, ldA, stride_Amat, Tmat, shift_Tmat, ldT, stride_Tmat Wmat,
-        shift_Wmat, ldW, stride_Wmat, batch_count, work, lwork_bytes);
-    if(istat == rocblas_status_success)
-    {
-        *work_size = lwork_bytes;
-    }
-
-#if(0)
-    if(n == 1)
-    {
-        size_t size_work_byte = 0;
-        size_t size_norms_byte = 0;
-        rocsolver_larfg_getMemorySize<T>(n, batch_count, &size_work_byte, &size_norms_byte);
-
-        *work_size += (size_work_byte + size_norms_byte);
-    }
-
-    auto const n1 = n / 2;
-    auto const n2 = n - n1;
-    auto const side = rocblas_side_left;
-    ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, m, n1, batch_count, &size_trmm_n1))
-    ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, m, n2, batch_count, &size_trmm_n2))
-
-    *work_size += std::max(size_trmm_n1, size_trmm_n2);
-#endif
+    copy_diagonal_kernel<T, I, Istride><<<dim3(nbx, 1, nbz), dim3(nx, 1, 1), 0, stream>>>(
+        stream, nn, Tmat, shift_Tmat, ldT, stride_Tmat, tau_, stride_tau, batch_count);
 }
 
-template <bool BATCHED, typename T, typename I>
+template <typename T, typename I>
 static void
-    rocsolver_rgeqr_getMemorySize(I const m, I const n, I const batch_count, size_t* plwork_byte)
+    rocsolver_rgeqr_getMemorySize(I const m, I const n, I const batch_count, size_t* plwork_bytes)
 {
-    assert(plwork_byte == nullptr);
+    assert(plwork_bytes != nullptr);
 
-    *plwork_byte = 0;
+    *plwork_bytes = 0;
     // if quick return no workspace needed
     if(m == 0 || n == 0 || batch_count == 0)
     {
@@ -186,16 +149,18 @@ static void
 
     const size_t nb = RGEQR3_BLOCKSIZE(T);
 
-    size_t const size_T_byte = size(T) * nb * nb;
-    size_t const size_W_byte = size(T) * nb * nb;
+    size_t const size_T_bytes = sizeof(T) * nb * nb;
+    size_t const size_W_bytes = sizeof(T) * nb * nb;
 
     size_t size_rgeqr3 = 0;
     rocsolver_rgeqr3_getMemorySize(m, nb, batch_count, &size_rgeqr3);
 
-    size_t const lwork_byte = (size_T_byte + size_W_byte)
+    size_t size_applyQtC = 0;
+    rocsolver_applyQtC_getMemorySize(m, n, nb, batch_count, &size_applyQtC);
 
-        * plwork_bye
-        = lwork_bye + size_rgeqr3;
+    size_t const lwork_bytes = (size_T_bytes + size_W_bytes) + size_applyQtC;
+
+    *plwork_bytes = lwork_bytes + size_rgeqr3;
 }
 
 __device__ __host__ static double dconj(double x)
@@ -264,7 +229,7 @@ static __global__ void geadd_kernel(char trans,
     auto const nx = hipBlockDim_x;
     auto const ny = hipBlockDim_y;
 
-    bool const is_tranpose = (trans == 'T') || (trans == 't');
+    bool const is_transpose = (trans == 'T') || (trans == 't');
     bool const is_conj_transpose = (trans == 'C') || (trans == 'c');
 
     auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
@@ -274,15 +239,11 @@ static __global__ void geadd_kernel(char trans,
     I const j_start = hipThreadIdx_y + hipBlockIdx_y * ny;
     I const j_inc = (nby * ny);
 
-    bool const is_transpose = (trans == 'T' || trans == 't');
-    bool const is_conj_transpose = (trans == 'C' || trans == 'c');
-
     auto const bid_inc = hipGridDim_z;
     auto const bid_start = hipBlockIdx_z;
 
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
-
     T const zero = 0;
+    bool const is_beta_zero = (beta == zero);
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
@@ -301,8 +262,8 @@ static __global__ void geadd_kernel(char trans,
                     : (is_conj_transpose)       ? dconj(A(j, i))
                                                 : A(i, j);
 
-                auto const cij0 = (beta == zero) ? zero : beta * C(i, j);
-                C(i, j) = cij0 + alpha * aij;
+                auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
+                C(i, j) = beta_cij + alpha * aij;
             }
         }
     }
@@ -388,7 +349,8 @@ static rocblas_status formT3(rocblas_handle handle,
 
                              U Ymat,
                              Istride const shift_Y1,
-                             Istride const shift_Y2 I const ldY1,
+                             Istride const shift_Y2,
+                             I const ldY,
                              Istride stride_Ymat,
 
                              T* const Tmat,
@@ -398,9 +360,10 @@ static rocblas_status formT3(rocblas_handle handle,
                              Istride const stride_Tmat,
 
                              T* const Wmat,
-                             Istride const shift_W,
+                             Istride const shift_Wmat,
                              I const ldW,
-                             Istride const stride_Wmat I const batch_count,
+                             Istride const stride_Wmat,
+                             I const batch_count,
 
                              void* work,
                              I& lwork_bytes)
@@ -432,6 +395,12 @@ static rocblas_status formT3(rocblas_handle handle,
     if(!has_work)
     {
         return (rocblas_status_success);
+    }
+
+    hipStream_t stream;
+    if(!is_query)
+    {
+        rocblas_get_stream(handle, &stream);
     }
 
     std::byte* pfree = (std::byte*)work;
@@ -563,7 +532,7 @@ W = Y21';
 		    alpha,
 		    Ymat, shift_Y21, ldY, stride_Ymat,
 		    beta,
-		    Wmat, shift_W, ldW, stride_Wmat,
+		    Wmat, shift_Wmat, ldW, stride_Wmat,
 		    batch_count );
         // clang-format on
     }
@@ -602,11 +571,12 @@ W = Y21';
         auto const nn = ncols_W;
         T const alpha = 1;
 
-        ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_byte));
-        size_t const size_workArr = size_trmm_byte;
+        size_t size_trmm_bytes = 0;
+        ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_bytes));
+        size_t const size_workArr = size_trmm_bytes;
         T** const workArr = (T**)pfree;
 
-        total_bytes = max(total_bytes, size_trmm_byte);
+        total_bytes = max(total_bytes, size_trmm_bytes);
 
         if(!is_query)
         {
@@ -616,9 +586,9 @@ W = Y21';
 			    mm,nn, alpha,
 
 			    Ymat, shift_Y12, ldY, stride_Ymat,
-			    Wmat, shift_W, ldW, stride_Wmat,
-			    batch_count, workArr );
-        // clang-format on
+			    Wmat, shift_Wmat, ldW, stride_Wmat,
+			    batch_count, workArr ));
+            // clang-format on
         }
     }
 
@@ -662,7 +632,7 @@ W = Y21';
 			    Ymat, shift_Y31, ldY, stride_Ymat,
 			    Ymat, shift_Y22, ldY, stride_Ymat,
 			    beta,
-			    Wmat, shift_W, ldW, stride_Wmat,
+			    Wmat, shift_Wmat, ldW, stride_Wmat,
 			    batch_count,
 			    workArr ));
             // clang-format on
@@ -690,15 +660,16 @@ W = trmm( side, uplo, transA, cdiag, mm,nn,alpha, T1, W );
         rocblas_side const side = rocblas_side_left;
         rocblas_fill const uplo = rocblas_fill_upper;
         rocblas_operation const transA = rocblas_operation_none;
-        rocblas_diagonal const diag = rocblas_diagonal_none;
+        rocblas_diagonal const diag = rocblas_diagonal_non_unit;
 
         auto const mm = nrows_W;
         auto const nn = ncols_W;
 
         T const alpha = -1;
 
-        ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_byte));
-        size_t const size_workArr = size_trmm_byte;
+        size_t size_trmm_bytes = 0;
+        ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_bytes));
+        size_t const size_workArr = size_trmm_bytes;
         void* const workArr = (void*)pfree;
 
         total_bytes = max(total_bytes, size_workArr);
@@ -711,7 +682,7 @@ W = trmm( side, uplo, transA, cdiag, mm,nn,alpha, T1, W );
 				    mm, nn,
 				    alpha,
 				    Tmat, shift_T1, ldT, stride_Tmat,
-				    Wmat, shift_W,  ldW, stride_Wmat,
+				    Wmat, shift_Wmat,  ldW, stride_Wmat,
 				    batch_count,
 				    workArr ));
             // clang-format on
@@ -738,9 +709,12 @@ W = trmm( side, uplo, transA, cdiag, mm,nn,alpha, T2, W );
         rocblas_operation const transA = rocblas_operation_none;
         rocblas_diagonal const diag = rocblas_diagonal_non_unit;
         T const alpha = 1;
+        auto const mm = nrows_W;
+        auto const nn = ncols_W;
 
-        ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_byte));
-        size_t const size_workArr = size_trmm_byte;
+        size_t size_trmm_bytes = 0;
+        ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_bytes));
+        size_t const size_workArr = size_trmm_bytes;
         T** const workArr = (T**)pfree;
 
         total_bytes = max(total_bytes, size_workArr);
@@ -751,9 +725,8 @@ W = trmm( side, uplo, transA, cdiag, mm,nn,alpha, T2, W );
 		    ROCBLAS_CHECK( rocblasCall_trmm( handle,
 				    side, uplo, transA, diag,
 				    mm, nn, alpha,
-
-				    Tmat, shift_T2, ldT, shift_Tmat,
-				    Wmat, shift_W, ldW, shift_Wmat,
+				    Tmat, shift_T2, ldT, stride_Tmat,
+				    Wmat, shift_Wmat, ldW, stride_Wmat,
 				    batch_count,
 				    workArr ));
             // clang-format on
@@ -780,8 +753,8 @@ W = trmm( side, uplo, transA, cdiag, mm,nn,alpha, T2, W );
 //  T is k by k
 // -------------------------
 
-template <typename T, typename I, typename UY, typename Istride>
-static rocblas_status applyQtC(handle,
+template <typename T, typename I, typename UY, typename UC, typename Istride>
+static rocblas_status applyQtC(rocblas_handle handle,
                                I const m,
                                I const n,
                                I const k,
@@ -801,12 +774,12 @@ static rocblas_status applyQtC(handle,
                                I const ldC,
                                Istride const stride_Cmat,
 
-                               T* Wmat,
+                               T* const Wmat,
                                Istride const shift_Wmat,
                                I const ldW,
                                Istride const stride_Wmat,
 
-                               batch_count,
+                               I const batch_count,
                                void* work,
                                I& lwork_bytes)
 {
@@ -944,6 +917,7 @@ W = trmm( side, uplo, transA, cdiag, mm,nn,alpha, Y1, W );
         char const trans = 'N';
         auto const mm = nrows_C1;
         auto const nn = ncols_C1;
+        T const alpha = 1;
 
         if(!is_query)
         {
@@ -986,9 +960,9 @@ W = trmm( side, uplo, transA, cdiag, mm,nn,alpha, Y1, W );
 			    mm,nn, alpha,
 
 			    Ymat, shift_Y1, ldY, stride_Ymat,
-			    Wmat, shift_W, ldW, stride_Wmat,
-			    batch_count, workArr );
-        // clang-format on
+			    Wmat, shift_Wmat, ldW, stride_Wmat,
+			    batch_count, workArr ));
+            // clang-format on
         }
     }
 
@@ -1042,7 +1016,7 @@ W = gemm( transA, transB, mm,nn,kk, alpha, Y2, C2, beta, W );
                             Ymat, shift_Y2, ldY, stride_Ymat,
                             Cmat, shift_C2, ldC, stride_Cmat,
                             beta,
-                            Wmat, shift_W, ldW, stride_Wmat,
+                            Wmat, shift_Wmat, ldW, stride_Wmat,
                             batch_count,
                             workArr ));
             // clang-format on
@@ -1075,8 +1049,10 @@ W = trmm( side, uplo, transA, cdiag, mm,nn, alpha, T, W );
             ? rocblas_operation_conjugate_transpose
             : rocblas_operation_transpose;
         rocblas_diagonal const diag = rocblas_diagonal_non_unit;
+
         auto const mm = nrows_W;
         auto const nn = ncols_W;
+        T const alpha = 1;
 
         assert(nrows_W == ncols_T);
         assert(nrows_W == nrows_T);
@@ -1091,13 +1067,13 @@ W = trmm( side, uplo, transA, cdiag, mm,nn, alpha, T, W );
         {
             // clang-format off
 	    ROCBLAS_CHECK(rocblasCall_trmm(handle,
-			    side, uplo, trans, diag,
+			    side, uplo, transA, diag,
 			    mm,nn, alpha,
 
 			    Tmat, shift_Tmat, ldT, stride_Tmat,
 			    Wmat, shift_Wmat, ldW, stride_Wmat,
-			    batch_count, workArr );
-        // clang-format on
+			    batch_count, workArr ));
+            // clang-format on
         }
     }
 
@@ -1135,7 +1111,7 @@ C2 = gemm( transA, transB, mm,nn,kk,  alpha, Y2, W, beta, C2 );
         T const beta = 1;
 
         T** const workArr = (T**)pfree;
-        total_bytes = max(total_bytes, sizeof(T*) batch_count);
+        total_bytes = max(total_bytes, sizeof(T*) * batch_count);
 
         if(!is_query)
         {
@@ -1184,6 +1160,7 @@ W = trmm( side, uplo, transA, cdiag, mm,nn, alpha, Y1, W );
         assert(nrows_W == nrows_Y1);
         assert(nrows_W == ncols_Y1);
 
+        size_t size_trmm_bytes = 0;
         ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_bytes));
         size_t const size_workArr = size_trmm_bytes;
         void* const workArr = (void*)pfree;
@@ -1198,7 +1175,7 @@ W = trmm( side, uplo, transA, cdiag, mm,nn, alpha, Y1, W );
 				    mm, nn,
 				    alpha,
 				    Ymat, shift_Y1, ldY, stride_Ymat,
-				    Wmat, shift_W,  ldW, stride_Wmat,
+				    Wmat, shift_Wmat,  ldW, stride_Wmat,
 				    batch_count,
 				    workArr ));
             // clang-format on
@@ -1245,6 +1222,54 @@ W = trmm( side, uplo, transA, cdiag, mm,nn, alpha, Y1, W );
     return (rocblas_status_success);
 }
 
+template <typename T, typename I>
+static void rocsolver_applyQtC_getMemorySize(I const m,
+                                             I const n,
+                                             I const k,
+                                             I const batch_count,
+                                             size_t* size_applyQtC)
+{
+    assert(size_applyQtC != nullptr);
+    *size_applyQtC = 0;
+
+    T* const Ymat = nullptr;
+    rocblas_stride const shift_Ymat = 0;
+    I const ldY = k;
+    rocblas_stride const stride_Ymat = ldY * k;
+
+    T* const Tmat = nullptr;
+    rocblas_stride const shift_Tmat = 0;
+    I const ldT = k;
+    rocblas_stride const stride_Tmat = ldT * k;
+
+    T* const Wmat = nullptr;
+    rocblas_stride const shift_Wmat = 0;
+    I const ldW = k;
+    rocblas_stride const stride_Wmat = ldW * k;
+
+    T* const Cmat = nullptr;
+    rocblas_stride const shift_Cmat = 0;
+    I const ldC = m;
+    rocblas_stride const stride_Cmat = ldC * n;
+
+    void* const work = nullptr;
+
+    rocblas_handle handle;
+
+    // --------------------
+    // query work space only
+    // --------------------
+    I lwork_bytes = -1;
+
+    auto const istat = applyQtC(handle, m, n, k, Ymat, shift_Ymat, ldY, stride_Ymat, Tmat,
+                                shift_Tmat, ldT, stride_Tmat, Cmat, shift_Cmat, ldC, stride_Cmat,
+                                Wmat, shift_Wmat, ldW, stride_Wmat, batch_count, work, lwork_bytes);
+
+    if(istat == rocblas_status_success)
+    {
+        *size_applyQtC = lwork_bytes;
+    }
+}
 // --------------------------------------------------
 // Algorithm inspired by the paper
 // "Applying recursion to serial and parallel QR factorization"
@@ -1264,7 +1289,7 @@ W = trmm( side, uplo, transA, cdiag, mm,nn, alpha, Y1, W );
 //  in lapack GEQRF
 // --------------------------------------------------
 
-template <bool BATCHED, bool STRIDED, typename T, typename I, typename U, typename Istride, bool COMPLEX = rocblas_is_complex<T>>
+template <typename T, typename I, typename U, typename Istride, bool COMPLEX = rocblas_is_complex<T>>
 static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
                                                 const I m,
                                                 const I n,
@@ -1276,19 +1301,18 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 
                                                 T* const Tmat,
                                                 const Istride shift_Tmat,
-                                                const I ldt,
+                                                const I ldT,
                                                 const Istride stride_Tmat,
 
                                                 T* const Wmat,
                                                 const Istride shift_Wmat,
-                                                const I ldw,
+                                                const I ldW,
                                                 const Istride stride_Wmat,
 
                                                 const I batch_count,
 
                                                 void* work,
                                                 I& lwork_bytes)
-
 {
     ROCSOLVER_ENTER("rgeqr3", "m:", m, "n:", n, "shift_Amat:", shift_Amat, "lda:", ldA,
                     "bc:", batch_count);
@@ -1311,7 +1335,10 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
     }
 
     hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
+    if(!is_query)
+    {
+        rocblas_get_stream(handle, &stream);
+    }
 
     std::byte* pfree = (std::byte*)work;
     if(!is_query)
@@ -1330,13 +1357,13 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
     auto min = [](auto x, auto y) { return ((x <= y) ? x : y); };
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
+    auto sign = [](auto x) { return ((x > 0) ? 1 : (x < 0) ? -1 : 0); };
+
     if(n == 1)
     {
         // ------------------------------------------------------
         // generate Householder reflector to work on first column
         // ------------------------------------------------------
-        const I j = 0;
-        Istride const stride_Tmat = (ldt * n);
 
         size_t size_work_byte = 0;
         size_t size_norms_byte = 0;
@@ -1346,30 +1373,42 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
         // allocate scratch storage
         // ----------------
 
-        T* const work = (T*)pfree;
+        T* const dwork = (T*)pfree;
         pfree += size_work_byte;
 
         T* const norms = (T*)pfree;
-        pfree += size_norm_byte;
+        pfree += size_norms_byte;
 
-        total_bytes = max(total_bytes, size_norm_byte + size_work_byte);
+        size_t const size_tau_byte = sizeof(T) * batch_count;
+        Istride const stride_tau = 1;
+        T* tau = (T*)tau;
+        pfree += size_tau_byte;
 
-        auto alpha = A;
-        auto shifta = shift_Amat;
-        auto x = A;
-        auto shiftx = shift_Amat + 1;
-        rocblas_int incx = 1;
-        auto stridex = stride_Amat;
-        T* tau = Tmat + shift_Tmat;
-        auto strideP = stride_Tmat;
+        total_bytes = max(total_bytes, size_tau_byte + size_norms_byte + size_work_byte);
+
+        auto alpha = Amat;
+        I const shifta = shift_Amat;
+        auto x = Amat;
+        I const shiftx = shift_Amat + 1;
+        I const incx = 1;
+        Istride const stridex = stride_Amat;
+        I const ldtau = 1;
+        Istride const shift_tau = 0;
 
         if(!is_query)
         {
             rocsolver_larfg_template(handle, m, alpha, shifta, x, shiftx, incx, stridex, tau,
-                                     strideP, batch_count, work, norms);
+                                     stride_tau, batch_count, dwork, norms);
+
+            I const mm = 1;
+            I const nn = 1;
+            char const trans = 'N';
+            geadd_template(stream, trans, mm, nn, tau, shift_tau, ldtau, Tmat, shift_Tmat, ldT,
+                           shift_Tmat, batch_count);
         }
 
-        pfree = pfree - size_norm_byte;
+        pfree = pfree - size_tau_byte;
+        pfree = pfree - size_norms_byte;
         pfree = pfree - size_work_byte;
     }
     else
@@ -1413,7 +1452,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 
             if(is_query)
             {
-                I lwork_n1 = -1;
+                I lwork_n1_bytes = -1;
                 // clang-format off
               ROCBLAS_CHECK(rocsolver_rgeqr3_template(
                 handle,
@@ -1421,7 +1460,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 	        Amat, shift_Amat, ldA, stride_Amat,
 		Tmat, shift_Tmat, ldT, stride_Tmat,
                 Wmat, shift_Wmat, ldW, stride_Wmat,
-		work, lwork_n1));
+		work, lwork_n1_bytes));
                 // clang-format on
 
                 total_bytes = max(total_bytes, lwork_n1_bytes);
@@ -1440,136 +1479,194 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
             }
         }
 
-        /*
-  % -----------------------------------------
-  % compute A(1:m, j1:n) = Q1' * A(1:m, j1:n)
-  % -----------------------------------------
-  % A(1:m, j1:n) = (eye - Y1*T1*Y1') * A(1:m, j1:n)
-
-  use_applyQtC = 1;
-  if (use_applyQtC),
-	A(1:m, j1:n) = applyQtC(   Y1, T1, A(1:m,j1:n) );
-  else
-    A(1:m,j1:n) = A(1:m,j1:n) - ...
-	  Y1(1:m,1:n1) * (T1(1:n1,1:n1) * (Y1(1:m,1:n1)'*A(1:m,j1:n)));
-  end;
-
-*/
-
         // -----------------------------------------------------
-        // compute  A(0:(m-1), n1:(n-1) ) = Q1' * A( 0:(m-1), n1:n )
+        //
+        // compute A(1:m, j1:n) = Q1' * A(1:m, j1:n)
         //
         // where Q1 = eye - Y1 * T1 * Y1',
         // and Y1 is lower trapezoidal with unit diagonal
+        //
+        // A(1:m,j1:n) = A(1:m,j1:n) - ...
+        //   Y1(1:m,1:n1) * (T1(1:n1,1:n1) * (Y1(1:m,1:n1)'*A(1:m,j1:n)));
         // -----------------------------------------------------
         {
-            // --------------------
-            // get memory for larfb
-            // --------------------
-            T* tmptr = nullptr;
-            T** workArr = nullptr;
+            // --------------------------
+            // Note: C is alias of A(1:m, j1:n)
+            // --------------------------
+            auto const Cmat = Amat;
+            auto const ldC = ldA;
+            auto const shift_Cmat = shift_Amat + idx2F(1, j1, ldA);
+            auto const stride_Cmat = stride_Amat;
 
+            auto const mm = m;
+            auto const nn = (n - j1 + 1);
+            auto const kk = n1;
+
+            if(is_query)
             {
-                size_t size_tmptr_byte = 0;
-                size_t size_workArr_byte = 0;
-                I const mm = m;
-                I const nn = n - n1;
-                I const kk = n1;
-                rocsolver_larfb_getMemorySize<BATCHED, T>(rocblas_side_left, mm, nn, kk, batch_count,
-                                                          &size_tmptr_byte, &size_workArr_byte);
-
-                T* const tmptr = (T*)pfree;
-                pfree += size_tmptr_byte;
-
-                T* const workArr = (T*)pfree;
-                pfree += size_workArr_byte;
-
-                total_bytes = max(total_bytes, size_tmptr_byte + size_workArr_byte);
-
-                // -----------------------------------------------
-                // call larfb to apply block Householder reflector
-                // -----------------------------------------------
-
-                const rocblas_side side = rocblas_side_left;
-                const rocblas_operation trans = rocblas_operation_conjugate_transpose;
-                const rocblas_direct direct = rocblas_forward_direction;
-                const rocblas_storev storev = rocblas_column_wise;
-
-                auto const Ymat = Amat;
-                auto const shift_Ymat = shift_Amat;
-                auto const ldY = ldA;
-                auto const stride_Ymat = stride_Amat;
-
-                if(!is_query)
-                {
-                    ROCBLAS_CHECK(rocsolver_larfb_template<BATCHED, STRIDED, T>(
-                        handle, side, trans, direct, storev, mm, nn, kk, Ymat, shift_Y, ldY,
-                        stride_Ymat, Tmat, shift_T, ldT, stride_Tmat, Amat,
-                        shift_A + idx2D(0, n1, lda), lda, stride_Amat, batch_count, tmptr, workArr));
-                }
-                // ------------------------
-                // release memory for larfb
-                // ------------------------
-
-                pfree = pfree - size_tmptr_byte;
-                pfree = pfree - size_workArr_byte;
+                I lwork_QtC_bytes = 0;
+                // clang-format off
+	      ROCBLAS_CHECK( applyQtC( handle,
+				    mm, nn, kk,
+				    Ymat, shift_Y1, ldY, stride_Ymat,
+				    Tmat, shift_T1, ldT, stride_Tmat,
+				    Cmat, shift_Cmat, ldC, stride_Cmat,
+				    Wmat, shift_Wmat, ldW, stride_Wmat,
+				    batch_count,
+				    work,
+				    lwork_QtC_bytes
+				    ) );
+                // clang-format on
+                total_bytes = max(total_bytes, lwork_QtC_bytes);
+            }
+            else
+            {
+                // clang-format off
+	      ROCBLAS_CHECK( applyQtC( handle,
+				    mm, nn, kk,
+				    Ymat, shift_Y1, ldY, stride_Ymat,
+				    Tmat, shift_T1, ldT, stride_Tmat,
+				    Cmat, shift_Cmat, ldC, stride_Cmat,
+				    Wmat, shift_Wmat, ldW, stride_Wmat,
+				    batch_count,
+				    work,
+				    lwork_bytes
+				    ) );
+                // clang-format on
             }
 
             // -----------------------------------------
-            // [Y2, R2, T2 ] = rgeqr3( A( n1:m, n1:n ) )
+            // [Y2, R2, T2 ] = rgeqr3( A( j1:m, j1:n ) )
             // -----------------------------------------
+
+            auto const m2 = (m - j1 + 1);
+            auto const n2 = (n - j1 + 1);
 
             {
                 auto const mm = (m - j1 + 1);
                 auto const nn = (n - j1 + 1);
-                auto const A2_offset = idx2D((j1 - 1), (j1 - 1), lda);
-                auto const T2_offset = idx2D(k1, k1, ldt);
+                auto const shift_A2 = shift_Amat + idx2F(j1, j1, ldA);
+                auto const shift_T2 = shift_Tmat + idx2F(j1, j1, ldT);
 
                 if(is_query)
                 {
                     I lwork_n2_bytes = -1;
-                    ROCBLAS_CHECK(rocsolver_rgeqr3_template<BATCHED, STRIDED, T>(
-                        handle, mm, nn, batch_count, A, shift_Amat + A2_offset, lda, stride_Amat,
-                        Tmat, shift_Tmat + T2_offset, ldt, stride_Tmat, Wmat, shift_Wmat, ldw,
-                        stride_Wmat, work, lwork_n2_bytes));
+                    // clang-format off
+                    ROCBLAS_CHECK(rocsolver_rgeqr3_template(
+                        handle,
+			mm, nn,
+			Amat, shift_A2, ldA, stride_Amat,
+                        Tmat, shift_T2, ldT, stride_Tmat,
+			Wmat, shift_Wmat, ldW, stride_Wmat,
+                        stride_Wmat, batch_count, work, lwork_n2_bytes));
+                    // clang-format on
 
                     total_bytes = max(total_bytes, lwork_n2_bytes);
                 }
                 else
                 {
-                    ROCBLAS_CHECK(rocsolver_rgeqr3_template<BATCHED, STRIDED, T>(
-                        handle, mm, nn, batch_count, A, shift_Amat + A2_offset, lda, stride_Amat,
-                        Tmat, shift_Tmat + T2_offset, ldt, stride_Tmat, Wmat, shift_Wmat, ldw,
-                        stride_Wmat, pfree, lwork_bytes));
+                    // clang-format off
+                    ROCBLAS_CHECK(rocsolver_rgeqr3_template(
+                        handle,
+			mm, nn,
+			Amat, shift_A2, ldA, stride_Amat,
+                        Tmat, shift_T2, ldT, stride_Tmat,
+			Wmat, shift_Wmat, ldW, stride_Wmat,
+                        stride_Wmat, batch_count, work, lwork_bytes));
+                    // clang-format on
                 }
             }
 
+            /*
+% ------------------------------------------
+% compute T3 = T(1:n1,j1:n) = -T1(Y1' Y2) T2
+% ------------------------------------------
+
+kk = size(Y1,1) - size(Y2,1);
+% T3 = -T1 * (Y1' * [ zeros(kk,1); Y2(:)]) * T2;
+T3 = formT3(  Y1, T1, Y2, T2 );
+%  T(1:n1,j1:n) = T3;
+*/
+
             {
                 // -------------------------------------------------------
-                // compute T3 = T(0:(n1-1), n1:n ) = -T1 * (Y1' * Y2) * T2
+                // compute T3 = T(1:n1,j1:n) = -T1(Y1' Y2) T2
                 //
                 // Note that
                 // Y1 is m by n1 unit lower trapezoidal,
                 // Y2 is (m-n1) by n2 lower trapezoidal
                 // ------------------------------------
-                auto Ymat = Amat;
-                auto const shiftY = shift_Amat;
-                auto const ldy = lda;
-                auto const strideY = stride_Amat;
+                auto const Ymat = Amat;
+                auto const shift_Y1 = shift_Ymat + idx2F(1, 1, ldY);
+                auto const shift_Y2 = shift_Ymat + idx2F(j1, j1, ldY);
+                auto const ldY = ldA;
+                auto const stride_Ymat = stride_Amat;
+
+                auto const shift_T1 = shift_Tmat + idx2F(1, 1, ldT);
+                auto const shift_T2 = shift_Tmat + idx2F(j1, j1, ldT);
+                auto const shift_T3 = shift_Tmat + idx2F(1, j1, ldT);
+
+                auto const kk1 = n1;
+                auto const kk2 = n2;
+                auto const mm = m;
+
+                // -------------------
+                // Note: reuse Wmat as T3
+                // Let T1 be n1 by n1
+                //     T2 be n2 by n2
+                // then T3 is n1 by n2
+                // -------------------
 
                 if(is_query)
                 {
                     I lwork_formT3_bytes = -1;
-                    ROCBLAS_CHECK(formT3<T, I, U, Istride>(handle, m, n1, n2, batch_count, Y, shiftY,
-                                                           ldy, strideY, Tmat, shift_Tmat, ldt,
-                                                           stride_Tmat, work, lwork_formT3_bytes));
+                    // clang-format off
+		    ROCBLAS_CHECK( formT3( handle,
+					    mm,  kk1, kk2,
+					    Ymat, shift_Y1, shift_Y2, ldY, stride_Ymat,
+					    Tmat, shift_T1, shift_T2, ldT, stride_Tmat,
+					    Wmat, shift_Wmat,         ldW, stride_Wmat,
+					    batch_count,
+					    work, lwork_formT3_bytes ));
+                    // clang-format on
+
                     total_bytes = max(total_bytes, lwork_formT3_bytes);
                 }
                 else
                 {
-                    ROCBLAS_CHECK(formT3<T, I, U, Istride>(handle, m, n1, n2, batch_count, Y,
-                                                           shiftY, ldy, strideY, Tmat, shift_Tmat,
-                                                           ldt, stride_Tmat, pfree, lwork_bytes));
+                    // clang-format off
+		    ROCBLAS_CHECK( formT3( handle,
+					    mm,  kk1, kk2,
+					    Ymat, shift_Y1, shift_Y2, ldY, stride_Ymat,
+					    Tmat, shift_T1, shift_T2, ldT, stride_Tmat,
+					    Wmat, shift_Wmat,         ldW, stride_Wmat,
+					    batch_count,
+					    work, lwork_bytes ));
+                    // clang-format on
+                }
+
+                // ------------
+                // copy T3 <- W
+                // ------------
+
+                {
+                    // clang-format off
+                char const trans = 'N';
+		auto const mm = n1;
+		auto const nn = n2;
+		T const alpha = 1;
+		T const beta = 0;
+
+	        geadd_template( stream,
+                    trans,
+                    mm,
+                    nn,
+                    alpha,
+                    Wmat, shift_Wmat, ldW, stride_Wmat,
+                    beta,
+                    Tmat, shift_T3, ldT, stride_Tmat,
+                    batch_count );
+                    // clang-format on
                 }
             }
 
@@ -1601,43 +1698,258 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
     return (rocblas_status_success);
 }
 
-#if(0)
-
-for(rocblas_int j = 0; j < dim; ++j)
+template <typename T, typename I, typename Istride>
+static void rocsolver_rgeqr3_getMemorySize(I const m, I const n, I const batch_count, size_t* work_size)
 {
-    // generate Householder reflector to work on column j
-    rocsolver_larfg_template(handle, m - j, A, shiftA + idx2D(j, j, lda), A,
-                             shiftA + idx2D(std::min(j + 1, m - 1), j, lda), 1, strideA, (ipiv + j),
-                             strideP, batch_count, (T*)work_workArr, Abyx_norms);
-
-    // insert one in A(j,j) tobuild/apply the householder matrix
-    ROCSOLVER_LAUNCH_KERNEL(set_diag<T>, dim3(batch_count, 1, 1), dim3(1, 1, 1), 0, stream, diag, 0,
-                            1, A, shiftA + idx2D(j, j, lda), lda, strideA, 1, true);
-
-    // conjugate tau
-    if(COMPLEX)
-        rocsolver_lacgv_template<T>(handle, 1, ipiv, j, 1, strideP, batch_count);
-
-    // Apply Householder reflector to the rest of matrix from the left
-    if(j < n - 1)
+    *work_size = 0;
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
     {
-        rocsolver_larf_template(handle, rocblas_side_left, m - j, n - j - 1, A,
-                                shiftA + idx2D(j, j, lda), 1, strideA, (ipiv + j), strideP, A,
-                                shiftA + idx2D(j, j + 1, lda), lda, strideA, batch_count, scalars,
-                                Abyx_norms, (T**)work_workArr);
+        return;
     }
 
-    // restore original value of A(j,j)
-    ROCSOLVER_LAUNCH_KERNEL(restore_diag<T>, dim3(batch_count, 1, 1), dim3(1, 1, 1), 0, stream,
-                            diag, 0, 1, A, shiftA + idx2D(j, j, lda), lda, strideA, 1);
+    auto min = [](auto x, auto y) { return ((x <= y) ? x : y); };
 
-    // restore tau
-    if(COMPLEX)
-        rocsolver_lacgv_template<T>(handle, 1, ipiv, j, 1, strideP, batch_count);
+    auto const nb = min(n, RGEQR3_BLOCKSIZE(T));
+    I lwork_bytes = -1;
+    void* const work = nullptr;
+
+    T* const Amat = nullptr;
+    Istride const shift_Amat = 0;
+    I const ldA = m;
+    Istride const stride_Amat = ldA * n;
+
+    T* const Tmat = nullptr;
+    Istride const shift_Tmat = 0;
+    I const ldT = nb;
+    Istride const stride_Tmat = ldT * nb;
+
+    T* const Wmat = nullptr;
+    Istride const shift_Wmat = 0;
+    I const ldW = nb;
+    Istride const stride_Wmat = ldW * nb;
+
+    // ---------------------------------
+    // call rocsolver_rgeqr3 to query the
+    // amount of work space required
+    // ---------------------------------
+
+    rocblas_handle handle;
+
+    // clang-format off
+    auto const  istat = rocsolver_rgeqr3_template(
+        handle,
+        m, n,
+	Amat, shift_Amat, ldA, stride_Amat,
+	Tmat, shift_Tmat, ldT, stride_Tmat,
+	Wmat, shift_Wmat, ldW, stride_Wmat,
+	batch_count,
+	work, lwork_bytes);
+    // clang-format on
+
+    if(istat == rocblas_status_success)
+    {
+        *work_size = lwork_bytes;
+    }
 }
 
-return rocblas_status_success;
+// ----------------------------------------------------------
+// perform recursive QR factorization but intended for m >= n
+// tall skinny matrix
+// ----------------------------------------------------------
+template <typename T, typename I, typename UA, typename Istride>
+static rocblas_status roclapack_rgeqrf_template(rocblas_handle handle,
+                                                I const m,
+                                                I const n,
+
+                                                UA Amat,
+                                                Istride const shift_Amat,
+                                                I const ldA,
+                                                Istride const stride_Amat,
+
+                                                T* tau_,
+                                                Istride const stride_tau,
+                                                void* work,
+                                                I& lwork_bytes)
+{
+    bool const is_query = (lwork_bytes <= 0);
+    if(is_query)
+    {
+        lwork_bytes = 0;
+    }
+    I total_bytes = 0;
+    I total_applyQtC_bytes = 0;
+    I total_rgeqr3_bytes = 0;
+
+    bool const has_work = (m >= 1) && (n >= 1);
+    if(has_work)
+    {
+        if(work == nullptr)
+        {
+            return (rocblas_status_invalid_pointer);
+        }
+    }
+
+    // 1-based matlab/Fortran indexing
+    auto idx2F
+        = [](auto i, auto j, auto ld) { return ((i - 1) + (j - 1) * static_cast<int64_t>(ld)); };
+
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+    auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
+
+    auto min = [](auto x, auto y) { return ((x <= y) ? x : y); };
+
+    auto const nb = RGEQR3_BLOCKSIZE(T);
+
+    std::byte* pfree = (std::byte*)work;
+
+    // -------------
+    // allocate Wmat
+    // -------------
+    I const ldW = nb;
+    size_t size_Wmat_bytes = (sizeof(T) * ldW * nb) * batch_count;
+    Istride const stride_Wmat = ldW * nb;
+    T* Wmat = (T*)pfree;
+    pfree += size_Wmat_bytes;
+
+    total_bytes += size_Wmat_bytes;
+
+    // -------------
+    // allocate Tmat
+    // -------------
+    I const ldT = nb;
+    size_t size_Tmat_bytes = (sizeof(T) * ldT * nb) * batch_count;
+    Istride const stride_Tmat = ldT * nb;
+    T* Tmat = (T*)pfree;
+    pfree += size_Wmat_bytes;
+
+    total_bytes += size_Tmat_bytes;
+
+    for(I j = 1; j <= n; j += nb)
+    {
+        auto const jb = min(n - j + 1, nb);
+        auto const mm = (m - j + 1);
+        auto const nn = jb;
+
+        // -------------------------------
+        // factorize column panel
+        //    [Y,R,T] = rgeqr3(  mm,nn,A(j:m, j:(j+jb-1) )  );
+        // -------------------------------
+
+        if(is_query)
+        {
+            I lwork_rgeqr3_bytes = -1;
+            // clang-format off
+		    auto const  istat = rocsolver_rgeqr3_template(
+				handle,
+				mm, nn,
+				Amat, shift_Amat + idx2F(jstart,jstart,ldA), ldA, stride_Amat,
+				Tmat, shift_Tmat, ldT, stride_Tmat,
+				Wmat, shift_Wmat, ldW, stride_Wmat,
+				batch_count,
+				pfree, lwork_geqr3_bytes);
+            // clang-format on
+            total_rgeqr3_bytes = max(total_rgeqr3_bytes, lwork_geqr3_bytes);
+        }
+        else
+        {
+            I lwork_remain_bytes = lwork_bytes - total_bytes;
+            if(lwork_remain_bytes <= 0)
+            {
+                return (rocblas_status_memory_error);
+            }
+
+            Istride const shift_A1 = shift_Amat + idx2F(jstart, jstart, ldA);
+            // clang-format off
+                  auto const  istat = rocsolver_rgeqr3_template(
+				handle,
+				mm, nn,
+				Amat, shift_A1,   ldA, stride_Amat,
+				Tmat, shift_Tmat, ldT, stride_Tmat,
+				Wmat, shift_Wmat, ldW, stride_Wmat,
+				batch_count,
+				pfree, lwork_remain_bytes);
+            // clang-format on
+        }
+
+        // ----------------------------------------------------
+        // copy diagonal entries from T matrix into "tau" array
+        // ----------------------------------------------------
+
+        copy_diagonal_template(stream, nn, Tmat, shift_Tmat, ldT, stride_Tmat, tau_, stride_tau,
+                               batch_count);
+
+        // -----------------------------------------------------------
+        // update A(j:m,(j+jb):n) = applyQtC( Y, T, A(j:m,(j+jb):n ) );
+        // -----------------------------------------------------------
+
+        {
+            auto const mm = (m - j + 1);
+            auto const nn = n - (j + jb) + 1;
+            auto const kk = jb;
+
+            auto Ymat = Amat;
+            auto const shift_Y1 = shift_Amat + idx2F(j, j, ldA);
+            auto const ldY = ldA;
+            auto const stride_Ymat = stride_Amat;
+
+            auto shift_T1 = shift_Tmat;
+
+            auto Cmat = Amat;
+            auto const shift_Cmat = shift_Amat + idx2F(j, (j + jb), ldA);
+            auto const ldC = ldA;
+            auto const stride_Cmat = stride_Amat;
+
+            if(is_query)
+            {
+                I lwork_applyQtC_bytes = -1;
+
+                // clang-format off
+	                ROCBLAS_CHECK( applyQtC( handle,
+				    mm, nn, kk,
+				    Ymat, shift_Y1, ldY, stride_Ymat,
+				    Tmat, shift_T1, ldT, stride_Tmat,
+				    Cmat, shift_Cmat, ldC, stride_Cmat,
+				    Wmat, shift_Wmat, ldW, stride_Wmat,
+				    batch_count,
+				    pfree,
+				    lwork_applyQtC_bytes
+				    ) );
+                // clang-format on
+
+                total_applyQtC_bytes = max(total_applyQtC_bytes, lwork_applyQtC_bytes);
+            }
+            else
+            {
+                I lwork_remain_bytes = lwork_bytes - total_bytes;
+                if(lwork_remain_bytes <= 0)
+                {
+                    return (rocblas_status_memory_error);
+                }
+
+                // clang-format off
+	                ROCBLAS_CHECK( applyQtC( handle,
+				    mm, nn, kk,
+				    Ymat, shift_Y1, ldY, stride_Ymat,
+				    Tmat, shift_T1, ldT, stride_Tmat,
+				    Cmat, shift_Cmat, ldC, stride_Cmat,
+				    Wmat, shift_Wmat, ldW, stride_Wmat,
+				    batch_count,
+				    pfree,
+				    lwork_remain_bytes
+				    ) );
+                // clang-format on
+            }
+        }
+
+    } // for jstart
+
+    if(is_query)
+    {
+        lwork_bytes = total_bytes + total_applyQtC_bytes + total_rgeqr3_bytes;
+    }
+    return (rocblas_status_success);
 }
-#endif
 
 ROCSOLVER_END_NAMESPACE
