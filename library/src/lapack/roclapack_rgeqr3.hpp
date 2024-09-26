@@ -793,6 +793,8 @@ static rocblas_status applyQtC(rocblas_handle handle,
 
     I total_bytes = 0;
     I max_total_bytes = 0;
+    I remain_bytes = 0;
+
     {
         bool const has_work = (m >= 1) && (n >= 1) && (k >= 1) && (batch_count >= 1);
         if(!has_work)
@@ -919,7 +921,16 @@ static rocblas_status applyQtC(rocblas_handle handle,
     total_bytes += size_Wmat_bytes;
     max_total_bytes = max(max_total_bytes, total_bytes);
 
-    assert(lwork_bytes >= max_total_bytes);
+    remain_bytes = lwork_bytes - total_bytes;
+
+    if(!is_query)
+    {
+        if(remain_bytes < 0)
+        {
+            assert(remain_bytes >= 0);
+            return (rocblas_status_memory_error);
+        }
+    }
 
     {
         // ----------
@@ -976,7 +987,15 @@ static rocblas_status applyQtC(rocblas_handle handle,
         total_bytes += size_trmm_bytes;
         max_total_bytes = max(max_total_bytes, total_bytes);
 
-        assert(lwork_bytes >= max_total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
+        if(!is_query)
+        {
+            if(remain_bytes < 0)
+            {
+                assert(remain_bytes >= 0);
+                return (rocblas_status_memory_error);
+            }
+        }
 
         if(!is_query)
         {
@@ -1036,7 +1055,15 @@ static rocblas_status applyQtC(rocblas_handle handle,
 
         max_total_bytes = max(max_total_bytes, total_bytes);
 
-        assert(lwork_bytes >= max_total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
+        if(!is_query)
+        {
+            if(remain_bytes < 0)
+            {
+                assert(remain_bytes >= 0);
+                return (rocblas_status_memory_error);
+            }
+        }
 
         if(!is_query)
         {
@@ -1100,7 +1127,15 @@ static rocblas_status applyQtC(rocblas_handle handle,
         total_bytes += size_trmm_bytes;
         max_total_bytes = max(max_total_bytes, total_bytes);
 
-        assert(lwork_bytes >= max_total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
+        if(!is_query)
+        {
+            if(remain_bytes < 0)
+            {
+                assert(remain_bytes >= 0);
+                return (rocblas_status_memory_error);
+            }
+        }
 
         if(!is_query)
         {
@@ -1157,7 +1192,15 @@ static rocblas_status applyQtC(rocblas_handle handle,
         total_bytes += size_workArr;
         max_total_bytes = max(max_total_bytes, total_bytes);
 
-        assert(lwork_bytes >= max_total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
+        if(!is_query)
+        {
+            if(remain_bytes < 0)
+            {
+                assert(remain_bytes >= 0);
+                return (rocblas_status_memory_error);
+            }
+        }
 
         if(!is_query)
         {
@@ -1219,7 +1262,15 @@ static rocblas_status applyQtC(rocblas_handle handle,
         total_bytes += size_trmm_bytes;
         max_total_bytes = max(max_total_bytes, total_bytes);
 
-        assert(lwork_bytes >= max_total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
+        if(!is_query)
+        {
+            if(remain_bytes < 0)
+            {
+                assert(remain_bytes >= 0);
+                return (rocblas_status_memory_error);
+            }
+        }
 
         if(!is_query)
         {
@@ -1270,7 +1321,7 @@ static rocblas_status applyQtC(rocblas_handle handle,
 
     if(is_query)
     {
-        lwork_bytes = max_total_bytes;
+        lwork_bytes = max_total_bytes + 1;
     }
 
     return (rocblas_status_success);
@@ -1374,6 +1425,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 
     I total_bytes = 0;
     I max_total_bytes = 0;
+    I remain_bytes = 0;
 
     // quick return
     {
@@ -1438,6 +1490,16 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
         Istride const stride_tau = 1;
 
         max_total_bytes = max(max_total_bytes, total_bytes);
+
+        remain_bytes = lwork_bytes - total_bytes;
+        if(!is_query)
+        {
+            assert(remain_bytes >= 0);
+            if(remain_bytes < 0)
+            {
+                return (rocblas_status_memory_error);
+            }
+        }
 
         auto alpha = Amat;
         I const shifta = shift_Amat;
@@ -1521,12 +1583,17 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 		work, lwork_n1_bytes));
             // clang-format on
 
+            void* dwork = pfree;
+            pfree += lwork_n1_bytes;
             total_bytes += lwork_n1_bytes;
+
             max_total_bytes = max(max_total_bytes, total_bytes);
+            remain_bytes = lwork_bytes - total_bytes;
 
             if(!is_query)
             {
-                if(lwork_bytes < max_total_bytes)
+                assert(remain_bytes >= 0);
+                if(remain_bytes < 0)
                 {
                     return (rocblas_status_memory_error);
                 }
@@ -1541,11 +1608,12 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 	        Amat, shift_Amat, ldA, stride_Amat,
 		Tmat, shift_Tmat, ldT, stride_Tmat,
 		batch_count,
-		work, lwork_bytes));
+		dwork, lwork_n1_bytes));
                 // clang-format on
             }
 
             total_bytes = total_bytes - lwork_n1_bytes;
+            pfree = pfree - lwork_n1_bytes;
         }
 
         // -----------------------------------------------------
@@ -1571,7 +1639,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
             auto const nn = (n - j1 + 1);
             auto const kk = n1;
 
-            I lwork_QtC_bytes = 0;
+            I lwork_QtC_bytes = -1;
             // clang-format off
 	      ROCBLAS_CHECK( applyQtC( handle,
 				    mm, nn, kk,
@@ -1583,12 +1651,17 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 				    lwork_QtC_bytes
 				    ) );
             // clang-format on
+            void* dwork = (void*)pfree;
+            pfree += lwork_QtC_bytes;
             total_bytes += lwork_QtC_bytes;
             max_total_bytes = max(max_total_bytes, total_bytes);
 
+            remain_bytes = lwork_bytes - total_bytes;
+
             if(!is_query)
             {
-                if(lwork_bytes < max_total_bytes)
+                assert(remain_bytes >= 0);
+                if(remain_bytes < 0)
                 {
                     return (rocblas_status_memory_error);
                 }
@@ -1603,12 +1676,13 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 				    Tmat, shift_T1, ldT, stride_Tmat,
 				    Cmat, shift_Cmat, ldC, stride_Cmat,
 				    batch_count,
-				    work,
-				    lwork_bytes
+				    dwork,
+				    lwork_QtC_bytes
 				    ) );
                 // clang-format on
             }
             total_bytes = total_bytes - lwork_QtC_bytes;
+            pfree = pfree - lwork_QtC_bytes;
 
             // -----------------------------------------
             // [Y2, R2, T2 ] = rgeqr3( A( j1:m, j1:n ) )
@@ -1634,12 +1708,16 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 			work, lwork_n2_bytes));
                 // clang-format on
 
+                void* dwork = (void*)pfree;
+                pfree += lwork_n2_bytes;
                 total_bytes += lwork_n2_bytes;
                 max_total_bytes = max(max_total_bytes, total_bytes);
 
+                remain_bytes = lwork_bytes - total_bytes;
                 if(!is_query)
                 {
-                    if(lwork_bytes < max_total_bytes)
+                    assert(remain_bytes >= 0);
+                    if(remain_bytes < 0)
                     {
                         return (rocblas_status_memory_error);
                     }
@@ -1653,11 +1731,12 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 			mm, nn,
 			Amat, shift_A2, ldA, stride_Amat,
                         Tmat, shift_T2, ldT, stride_Tmat,
-                        batch_count, work, lwork_bytes));
+                        batch_count, dwork, lwork_bytes));
                     // clang-format on
                 }
 
                 total_bytes = total_bytes - lwork_n2_bytes;
+                pfree = pfree - lwork_n2_bytes;
             }
 
             // % ------------------------------------------
@@ -1709,12 +1788,16 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 					    work, lwork_formT3_bytes ));
                 // clang-format on
 
+                void* dwork = (void*)pfree;
+                pfree += lwork_formT3_bytes;
                 total_bytes += lwork_formT3_bytes;
                 max_total_bytes = max(max_total_bytes, total_bytes);
+                remain_bytes = lwork_bytes - total_bytes;
 
                 if(!is_query)
                 {
-                    if(lwork_bytes < max_total_bytes)
+                    assert(remain_bytes >= 0);
+                    if(remain_bytes < 0)
                     {
                         return (rocblas_status_memory_error);
                     }
@@ -1728,10 +1811,11 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 					    Ymat, shift_Y1, shift_Y2, ldY, stride_Ymat,
 					    Tmat, shift_T1, shift_T2, ldT, stride_Tmat,
 					    batch_count,
-					    work, lwork_bytes ));
+					    dwork, lwork_bytes ));
                     // clang-format on
                 }
                 total_bytes = total_bytes - lwork_formT3_bytes;
+                pfree = pfree - lwork_formT3_bytes;
             }
 
             // --------------------------------------------------------------
@@ -1757,7 +1841,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 
     if(is_query)
     {
-        lwork_bytes = max_total_bytes;
+        lwork_bytes = max_total_bytes + 1;
     }
     return (rocblas_status_success);
 }
@@ -1813,6 +1897,7 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
     }
     I total_bytes = 0;
     I max_total_bytes = 0;
+    I remain_bytes = 0;
 
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
     if(!has_work)
@@ -1861,6 +1946,16 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
     total_bytes += size_Wmat_bytes;
     max_total_bytes = max(max_total_bytes, total_bytes);
 
+    remain_bytes = lwork_bytes - total_bytes;
+    if(!is_query)
+    {
+        assert(remain_bytes >= 0);
+        if(remain_bytes < 0)
+        {
+            return (rocblas_status_memory_error);
+        }
+    }
+
     // -------------
     // allocate Tmat
     // -------------
@@ -1873,10 +1968,12 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
 
     total_bytes += size_Tmat_bytes;
     max_total_bytes = max(max_total_bytes, total_bytes);
+    remain_bytes = lwork_bytes - total_bytes;
 
     if(!is_query)
     {
-        if(lwork_bytes < max_total_bytes)
+        assert(remain_bytes >= 0);
+        if(remain_bytes < 0)
         {
             return (rocblas_status_memory_error);
         }
@@ -1908,10 +2005,12 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
 
         total_bytes += lwork_rgeqr3_bytes;
         max_total_bytes = max(max_total_bytes, total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
 
         if(!is_query)
         {
-            if(lwork_bytes < max_total_bytes)
+            assert(remain_bytes >= 0);
+            if(remain_bytes < 0)
             {
                 return (rocblas_status_memory_error);
             }
@@ -1926,7 +2025,7 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
 				Amat, shift_Aj,   ldA, stride_Amat,
 				Tmat, shift_Tmat, ldT, stride_Tmat,
 				batch_count,
-				pfree, lwork_rgeqr3_bytes));
+				pfree, remain_bytes));
             // clang-format on
         }
         total_bytes = total_bytes - lwork_rgeqr3_bytes;
@@ -1976,9 +2075,12 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
             total_bytes += lwork_applyQtC_bytes;
             max_total_bytes = max(max_total_bytes, lwork_applyQtC_bytes);
 
+            remain_bytes = lwork_bytes - total_bytes;
+
             if(!is_query)
             {
-                if(lwork_bytes < max_total_bytes)
+                assert(remain_bytes >= 0);
+                if(remain_bytes < 0)
                 {
                     return (rocblas_status_memory_error);
                 }
@@ -1994,7 +2096,7 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
 				    Cmat, shift_Cmat, ldC, stride_Cmat,
 				    batch_count,
 				    pfree,
-				    lwork_applyQtC_bytes
+				    remain_bytes
 				    ) );
                 // clang-format on
             }
@@ -2006,7 +2108,7 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
 
     if(is_query)
     {
-        lwork_bytes = max_total_bytes;
+        lwork_bytes = max_total_bytes + 1;
     }
     return (rocblas_status_success);
 }
