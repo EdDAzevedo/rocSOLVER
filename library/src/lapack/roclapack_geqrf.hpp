@@ -51,14 +51,27 @@ void rocsolver_geqrf_getMemorySize(const rocblas_int m,
                                    size_t* size_diag_tmptr,
                                    size_t* size_workArr)
 {
+    *size_scalars = 0;
+    *size_work_workArr = 0;
+    *size_Abyx_norms_trfact = 0;
+    *size_diag_tmptr = 0;
+    *size_workArr = 0;
+
     // if quick return no workspace needed
-    if(m == 0 || n == 0 || batch_count == 0)
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
     {
-        *size_scalars = 0;
-        *size_work_workArr = 0;
-        *size_Abyx_norms_trfact = 0;
-        *size_diag_tmptr = 0;
-        *size_workArr = 0;
+        return;
+    }
+
+    bool const use_rgeqrf = (m >= n);
+    if(use_rgeqrf)
+    {
+        size_t size_rgeqrf = 0;
+        rocsolver_rgeqrf_getMemorySize<T, rocblas_int, rocblas_stride>(m, n, batch_count,
+                                                                       &size_rgeqrf);
+
+        *size_work_workArr = size_rgeqrf;
         return;
     }
 
@@ -124,6 +137,25 @@ rocblas_status rocsolver_geqrf_template(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
+    // ------------------------------------------
+    // recursive algorithm for tall skinny matrix
+    // ------------------------------------------
+    bool const use_rgeqrf = (m >= n);
+    if(use_rgeqrf)
+    {
+        size_t size_rgeqrf = 0;
+
+        rocsolver_rgeqrf_getMemorySize<T, rocblas_int, rocblas_stride>(m, n, batch_count,
+                                                                       &size_rgeqrf);
+
+        rocblas_int lwork_bytes = size_rgeqrf;
+        rocblas_stride lshiftA = shiftA;
+        auto const istat
+            = rocsolver_rgeqrf_template(handle, m, n, A, lshiftA, lda, strideA, ipiv, strideP,
+                                        batch_count, (void*)work_workArr, lwork_bytes);
+        return (istat);
+    }
+
     // if the matrix is small, use the unblocked (BLAS-levelII) variant of the
     // algorithm
     if(m <= GEQxF_GEQx2_SWITCHSIZE || n <= GEQxF_GEQx2_SWITCHSIZE)
@@ -140,23 +172,11 @@ rocblas_status rocsolver_geqrf_template(rocblas_handle handle,
     rocblas_int ldw = GEQxF_BLOCKSIZE;
     rocblas_stride strideW = rocblas_stride(ldw) * ldw;
 
-    bool const use_rgeqr3 = (m >= n);
-
     while(j < dim - GEQxF_GEQx2_SWITCHSIZE)
     {
         // Factor diagonal and subdiagonal blocks
         jb = std::min(dim - j, nb); // number of columns in the block
 
-        if(use_rgeqr3)
-        {
-            auto const mm = m - j;
-            auto const nn = jb;
-            auto const tau = (ipiv + j);
-            T* const work = (T*)work_workArr;
-            rocsolver_rgeqr3_template<T>(handle, mm, nn, A, shiftA + idx2D(j, j, lda), lda, strideA,
-                                         tau, strideP, batch_count, scalars, work, workArr);
-        }
-        else
         {
             rocsolver_geqr2_template<T>(handle, m - j, jb, A, shiftA + idx2D(j, j, lda), lda,
                                         strideA, (ipiv + j), strideP, batch_count, scalars,
