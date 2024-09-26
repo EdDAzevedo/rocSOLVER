@@ -54,6 +54,10 @@ static rocblas_status rocblasCall_trmm_mem(rocblas_side const side,
                                            I const batch_count,
                                            size_t* size_trmm_byte)
 {
+    // -------------------------------------------------
+    // TODO: check how much temporary storage is need by
+    // rocblasCall_trmm()
+    // -------------------------------------------------
     *size_trmm_byte = sizeof(T*) * std::max(1, batch_count);
     return (rocblas_status_success);
 }
@@ -361,6 +365,8 @@ static rocblas_status formT3(rocblas_handle handle,
     }
 
     I total_bytes = 0;
+    I max_total_bytes = 0;
+    I remain_bytes = 0;
 
     hipStream_t stream;
     if(!is_query)
@@ -412,48 +418,44 @@ static rocblas_status formT3(rocblas_handle handle,
 
     I const k = k1 + k2;
 
-    /*
-% -----------------------------------------
-% Y11 is unit lower triangular size k1 x k1
-% but Y11 is not used
-% -----------------------------------------
-Y11 = Y1(1:k1,1:k1);
-Y11 = Y11 - triu(Y11) + eye(k1,k1);
-*/
+    // % -----------------------------------------
+    // % Y11 is unit lower triangular size k1 x k1
+    // % but Y11 is not used
+    // % -----------------------------------------
+    // Y11 = Y1(1:k1,1:k1);
+    // Y11 = Y11 - triu(Y11) + eye(k1,k1);
+    // ---------------------------------------
 
     Istride const shift_Y11 = shift_Y1 + idx2F(1, 1, ldY);
     I const nrows_Y11 = k1;
     I const ncols_Y11 = k1;
 
-    /*
-% -----------------------------------------
-% Y12 is unit lower triangular size k2 x k2
-% -----------------------------------------
-Y12 = Y2( 1:k2, 1:k2);
-Y12 = Y12 - triu( Y12 ) + eye( k2,k2);
-*/
+    // % -----------------------------------------
+    // % Y12 is unit lower triangular size k2 x k2
+    // % -----------------------------------------
+    // Y12 = Y2( 1:k2, 1:k2);
+    // Y12 = Y12 - triu( Y12 ) + eye( k2,k2);
+    // ---------------------------------------
     Istride const shift_Y12 = shift_Y2 + idx2F(1, 1, ldY);
     I const nrows_Y12 = k2;
     I const ncols_Y12 = k2;
 
-    /*
-% -----------------
-% Y21 is k2 by k1
-% -----------------
-Y21 = Y1( (k1+1):(k1 + k2), 1:k1);
-*/
+    // % -----------------
+    // % Y21 is k2 by k1
+    // % -----------------
+    // Y21 = Y1( (k1+1):(k1 + k2), 1:k1);
+    // ----------------------------------
     Istride const shift_Y21 = shift_Y1 + idx2F((k1 + 1), 1, ldY);
     I const nrows_Y21 = k2;
     I const ncols_Y21 = k1;
 
-    /*
-% -----------------
-% Y31 is (m-k) by k1
-% -----------------
-i1 = (k1+k2 + 1);
-i2 = m;
-Y31 = Y1( i1:i2, 1:k1);
-*/
+    // % -----------------
+    // % Y31 is (m-k) by k1
+    // % -----------------
+    // i1 = (k1+k2 + 1);
+    // i2 = m;
+    // Y31 = Y1( i1:i2, 1:k1);
+    // -----------------------
     I i1 = (k1 + k2 + 1);
     I i2 = m;
 
@@ -486,7 +488,7 @@ Y31 = Y1( i1:i2, 1:k1);
         assert(nrows_W == ncols_Y21);
         assert(ncols_W == nrows_Y21);
 
-        char const trans = 'T';
+        char const trans = (rocblas_is_complex<T>) ? 'C' : 'T';
         I const mm = nrows_W;
         I const nn = ncols_W;
         T const alpha = 1;
@@ -545,11 +547,16 @@ Y31 = Y1( i1:i2, 1:k1);
 
         T** const workArr = (T**)pfree;
 
-        total_bytes = max(total_bytes, size_trmm_bytes);
+        pfree += size_trmm_bytes;
+        total_bytes += size_trmm_bytes;
+
+        max_total_bytes = max(max_total_bytes, total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
 
         if(!is_query)
         {
-            if(lwork_bytes < size_trmm_bytes)
+            assert(remain_bytes >= 0);
+            if(remain_bytes < 0)
             {
                 return (rocblas_status_memory_error);
             }
@@ -567,6 +574,9 @@ Y31 = Y1( i1:i2, 1:k1);
 			    batch_count, workArr ));
             // clang-format on
         }
+
+        total_bytes = total_bytes - size_trmm_bytes;
+        pfree = pfree - size_trmm_bytes;
     }
 
     // % -----------------------------
@@ -594,12 +604,18 @@ Y31 = Y1( i1:i2, 1:k1);
         T alpha = 1;
         T beta = 1;
 
+        size_t size_gemm = sizeof(T*) * batch_count;
         T** const workArr = (T**)pfree;
-        total_bytes = max(total_bytes, sizeof(T*) * batch_count);
+        pfree += size_gemm;
+        total_bytes += size_gemm;
+
+        max_total_bytes = max(max_total_bytes, total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
 
         if(!is_query)
         {
-            if(lwork_bytes < total_bytes)
+            assert(remain_bytes >= 0);
+            if(remain_bytes < 0)
             {
                 return (rocblas_status_memory_error);
             }
@@ -620,6 +636,8 @@ Y31 = Y1( i1:i2, 1:k1);
 			    workArr ));
             // clang-format on
         }
+        total_bytes = total_bytes - size_gemm;
+        pfree = pfree - size_gemm;
     }
 
     // % -----------------------
@@ -653,13 +671,18 @@ Y31 = Y1( i1:i2, 1:k1);
         size_t size_trmm_bytes = 0;
         ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_bytes));
         size_t const size_workArr = size_trmm_bytes;
-        T** const workArr = (T**)pfree;
 
-        total_bytes = max(total_bytes, size_workArr);
+        T** const workArr = (T**)pfree;
+        pfree += size_workArr;
+
+        total_bytes += size_workArr;
+        max_total_bytes = max(max_total_bytes, total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
 
         if(!is_query)
         {
-            if(lwork_bytes < total_bytes)
+            assert(remain_bytes >= 0);
+            if(remain_bytes < 0)
             {
                 return (rocblas_status_memory_error);
             }
@@ -678,6 +701,8 @@ Y31 = Y1( i1:i2, 1:k1);
 				    workArr ));
             // clang-format on
         }
+        total_bytes = total_bytes - size_workArr;
+        pfree = pfree - size_workArr;
     }
 
     // % ---------------------
@@ -707,13 +732,18 @@ Y31 = Y1( i1:i2, 1:k1);
         size_t size_trmm_bytes = 0;
         ROCBLAS_CHECK(rocblasCall_trmm_mem<T>(side, mm, nn, batch_count, &size_trmm_bytes));
         size_t const size_workArr = size_trmm_bytes;
-        T** const workArr = (T**)pfree;
 
-        total_bytes = max(total_bytes, size_workArr);
+        T** const workArr = (T**)pfree;
+        pfree += size_workArr;
+        total_bytes += size_workArr;
+
+        max_total_bytes = max(max_total_bytes, total_bytes);
+        remain_bytes = lwork_bytes - total_bytes;
 
         if(!is_query)
         {
-            if(lwork_bytes < total_bytes)
+            assert(remain_bytes >= 1);
+            if(remain_bytes < 0)
             {
                 return (rocblas_status_memory_error);
             }
@@ -732,11 +762,14 @@ Y31 = Y1( i1:i2, 1:k1);
 				    workArr ));
             // clang-format on
         }
+
+        total_bytes = total_bytes - size_workArr;
+        pfree = pfree - size_workArr;
     }
 
     if(is_query)
     {
-        lwork_bytes = total_bytes;
+        lwork_bytes = max_total_bytes + 1;
     }
 
     return (rocblas_status_success);
@@ -925,9 +958,9 @@ static rocblas_status applyQtC(rocblas_handle handle,
 
     if(!is_query)
     {
+        assert(remain_bytes >= 0);
         if(remain_bytes < 0)
         {
-            assert(remain_bytes >= 0);
             return (rocblas_status_memory_error);
         }
     }
@@ -990,9 +1023,9 @@ static rocblas_status applyQtC(rocblas_handle handle,
         remain_bytes = lwork_bytes - total_bytes;
         if(!is_query)
         {
+            assert(remain_bytes >= 0);
             if(remain_bytes < 0)
             {
-                assert(remain_bytes >= 0);
                 return (rocblas_status_memory_error);
             }
         }
@@ -1058,9 +1091,9 @@ static rocblas_status applyQtC(rocblas_handle handle,
         remain_bytes = lwork_bytes - total_bytes;
         if(!is_query)
         {
+            assert(remain_bytes >= 0);
             if(remain_bytes < 0)
             {
-                assert(remain_bytes >= 0);
                 return (rocblas_status_memory_error);
             }
         }
@@ -1130,9 +1163,9 @@ static rocblas_status applyQtC(rocblas_handle handle,
         remain_bytes = lwork_bytes - total_bytes;
         if(!is_query)
         {
+            assert(remain_bytes >= 0);
             if(remain_bytes < 0)
             {
-                assert(remain_bytes >= 0);
                 return (rocblas_status_memory_error);
             }
         }
@@ -1195,9 +1228,9 @@ static rocblas_status applyQtC(rocblas_handle handle,
         remain_bytes = lwork_bytes - total_bytes;
         if(!is_query)
         {
+            assert(remain_bytes >= 0);
             if(remain_bytes < 0)
             {
-                assert(remain_bytes >= 0);
                 return (rocblas_status_memory_error);
             }
         }
@@ -1265,9 +1298,9 @@ static rocblas_status applyQtC(rocblas_handle handle,
         remain_bytes = lwork_bytes - total_bytes;
         if(!is_query)
         {
+            assert(remain_bytes >= 0);
             if(remain_bytes < 0)
             {
-                assert(remain_bytes >= 0);
                 return (rocblas_status_memory_error);
             }
         }
@@ -2073,7 +2106,7 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
             // clang-format on
 
             total_bytes += lwork_applyQtC_bytes;
-            max_total_bytes = max(max_total_bytes, lwork_applyQtC_bytes);
+            max_total_bytes = max(max_total_bytes, total_bytes);
 
             remain_bytes = lwork_bytes - total_bytes;
 
