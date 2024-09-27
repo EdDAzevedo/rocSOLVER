@@ -68,8 +68,7 @@ void rocsolver_geqrf_getMemorySize(const rocblas_int m,
     if(use_rgeqrf)
     {
         size_t size_rgeqrf = 0;
-        rocsolver_rgeqrf_getMemorySize<T, rocblas_int, rocblas_stride>(m, n, batch_count,
-                                                                       &size_rgeqrf);
+        rocsolver_rgeqrf_getMemorySize<T, rocblas_int>(m, n, batch_count, &size_rgeqrf);
 
         *size_work_workArr = size_rgeqrf;
         return;
@@ -145,14 +144,17 @@ rocblas_status rocsolver_geqrf_template(rocblas_handle handle,
     {
         size_t size_rgeqrf = 0;
 
-        rocsolver_rgeqrf_getMemorySize<T, rocblas_int, rocblas_stride>(m, n, batch_count,
-                                                                       &size_rgeqrf);
+        rocsolver_rgeqrf_getMemorySize<T, rocblas_int>(m, n, batch_count, &size_rgeqrf);
+
+        T* tau = static_cast<T*>(ipiv);
+        rocblas_stride const stride_tau = static_cast<rocblas_stride>(strideP);
 
         rocblas_int lwork_bytes = size_rgeqrf;
-        rocblas_stride lshiftA = shiftA;
-        auto const istat
-            = rocsolver_rgeqrf_template(handle, m, n, A, lshiftA, lda, strideA, ipiv, strideP,
-                                        batch_count, (void*)work_workArr, lwork_bytes);
+        rocblas_stride const lshiftA = shiftA;
+
+        void* const work = static_cast<void*>(work_workArr);
+        auto const istat = rocsolver_rgeqrf_template(handle, m, n, A, lshiftA, lda, strideA, tau,
+                                                     stride_tau, batch_count, work, lwork_bytes);
         return (istat);
     }
 

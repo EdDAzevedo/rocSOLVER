@@ -42,7 +42,7 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
-constexpr int idebug = 1;
+constexpr int idebug = 0;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
