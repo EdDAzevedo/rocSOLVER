@@ -46,7 +46,7 @@ constexpr int idebug = 0;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
-    ((sizeof(T) == 4) ? 256 : (sizeof(T) == 8) ? 128 : (sizeof(T) == 16) ? 64 : 32)
+    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 64 : (sizeof(T) == 16) ? 64 : 32)
 #endif
 
 template <typename T, typename I>
@@ -1857,7 +1857,7 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
             {
                 if(idebug >= 1)
                 {
-                    printf("regqrf: before applyQtC, j=%d, mm=%d,nn=%d,kk=%d%d\n", (int)j, (int)mm,
+                    printf("regqrf: before applyQtC, j=%d, mm=%d,nn=%d,kk=%d\n", (int)j, (int)mm,
                            (int)nn, (int)kk);
                 }
 
