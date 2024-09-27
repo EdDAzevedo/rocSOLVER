@@ -1793,6 +1793,9 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
         return (rocblas_status_memory_error);
     }
 
+    double time_rgeqr3 = 0;
+    double time_applyQtC = 0;
+
     for(I j = 1; j <= n; j += nb)
     {
         I const jb = min(n - j + 1, nb);
@@ -1815,6 +1818,12 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
         }
 
         {
+            if(idebug >= 1)
+            {
+                HIP_CHECK(hipStreamSynchronize(stream));
+                auto tstart = std::chrono::system_clock::now();
+            }
+
             // clang-format off
                   ROCBLAS_CHECK(rocsolver_rgeqr3_template(
 				handle,
@@ -1824,6 +1833,14 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
 				batch_count,
 				pfree, remain_bytes));
             // clang-format on
+
+            if(idebug >= 1)
+            {
+                HIP_CHECK(hipStreamSynchronize(stream));
+                auto tend = std::chrono::system_clock::now();
+                std::chrono::duration<double> elapsed_sec = (tend - tstart);
+                time_rgeqr3 += elapsed_sec.count();
+            }
         }
 
         // ----------------------------------------------------
@@ -1855,12 +1872,17 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
             Istride const stride_Cmat = stride_Amat;
 
             {
-                if(idebug >= 1)
+                if(idebug >= 2)
                 {
                     printf("regqrf: before applyQtC, j=%d, mm=%d,nn=%d,kk=%d\n", (int)j, (int)mm,
                            (int)nn, (int)kk);
                 }
 
+                if(idebug >= 1)
+                {
+                    HIP_CHECK(hipStreamSynchronize(stream));
+                    auto tstart = std::chrono::system_clock::now();
+                }
                 // clang-format off
 	                ROCBLAS_CHECK( applyQtC( handle,
 				    mm, nn, kk,
@@ -1872,10 +1894,22 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
 				    remain_bytes
 				    ) );
                 // clang-format on
+                if(idebug >= 1)
+                {
+                    HIP_CHECK(hipStreamSynchronize(stream));
+                    auto tend = std::chrono::system_clock::now();
+                    std::chrono::duration<double> elapsed_sec = (tend - tstart);
+                    time_applyQtC += elapsed_sec.count();
+                }
             }
         }
 
     } // for j
+
+    if(idebug >= 1)
+    {
+        printf("time_rgeqr3=%le, time_applyQtC=%le\n", time_rgeqr3, time_applyQtC);
+    }
 
     return (rocblas_status_success);
 }
