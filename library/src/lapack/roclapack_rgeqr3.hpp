@@ -49,6 +49,156 @@ constexpr int idebug = 0;
     ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 64 : (sizeof(T) == 16) ? 64 : 32)
 #endif
 
+template <typename T, typename I, typename Istride, typename UA, typename UB, typename UC>
+static rocblas_status gemm_gemv(rocblas_handle handle,
+                                rocblas_operation transA,
+                                rocblas_operation transB,
+                                I m,
+                                I n,
+                                I k,
+
+                                T* alpha,
+
+                                UA Amat,
+                                Istride shift_Amat,
+                                I ldA,
+                                Istride stride_Amat,
+
+                                UB Bmat,
+                                Istride shift_Bmat,
+                                I ldB,
+                                Istride stride_Bmat,
+
+                                T* beta,
+                                UC Cmat,
+                                Istride shift_Cmat,
+                                I ldC,
+                                Istride stride_Cmat,
+
+                                I batch_count,
+                                T** workArr)
+{
+    //  ------------------------------------
+    //  C = beta * C + alpha * op(A) * op(B)
+    //  ------------------------------------
+
+    bool const has_work = (m >= 1) && (n >= 1) && (k >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return (rocblas_status_success);
+    }
+
+    bool const is_no_transpose_B = (transB == rocblas_operation_none);
+    bool const is_transpose_B = (transB == rocblas_operation_transpose);
+    bool const is_conj_transpose_B = (transB == rocblas_operation_conjugate_transpose);
+
+    bool const is_no_transpose_A = (transA == rocblas_operation_none);
+    bool const is_transpose_A = (transA == rocblas_operation_transpose);
+    bool const is_conj_transpose_A = (transA == rocblas_operation_conjugate_transpose);
+
+    I const nrows_A = (is_no_transpose_A) ? m : k;
+    I const ncols_A = (is_no_transpose_A) ? k : m;
+
+    if((n == 1) && (!is_conj_transpose_B))
+    {
+        if(idebug >= 1)
+        {
+            char const c_transA = (is_no_transpose_A) ? 'N'
+                : (is_transpose_A)                    ? 'T'
+                : (is_conj_transpose_A)               ? 'C'
+                                                      : 'X';
+
+            char const c_transB = (is_no_transpose_B) ? 'N'
+                : (is_transpose_B)                    ? 'T'
+                : (is_conj_transpose_B)               ? 'C'
+                                                      : 'X';
+            printf("gemm_gemv: m=%d,n=%d,k=%d,transA=%c, transB=%c\n", m, n, k, c_transA, c_transB);
+        }
+
+        // -----------------------------------
+        // [c1] = beta * [c1] + alpha * [op(A)]  * [b1]
+        // [.]           [.]                       [.]
+        // [cm]          [cm]                      [bm]
+        // -----------------------------------
+
+        auto x = Bmat;
+        Istride const offsetx = shift_Bmat;
+        I const incx = (is_no_transpose_B) ? 1 : ldB;
+        Istride const stridex = stride_Bmat;
+
+        auto y = Cmat;
+        Istride const offsety = shift_Cmat;
+        I const incy = 1;
+        Istride const stridey = stride_Cmat;
+
+        Istride const stride_alpha = 0;
+        Istride const stride_beta = 0;
+        I const mm = nrows_A;
+        I const nn = ncols_A;
+
+        ROCBLAS_CHECK(rocblasCall_gemv(handle, transA, mm, nn, alpha, stride_alpha,
+
+                                       Amat, shift_Amat, ldA, stride_Amat,
+
+                                       x, offsetx, incx, stridex,
+
+                                       beta, stride_beta,
+
+                                       y, offsety, incy, stridey,
+
+                                       batch_count, workArr));
+    }
+#if(0)
+    else if(m == 1)
+    {
+        // ---------------------------------------------------------------------------
+        // [c1, .., cn] = beta * [c1, ..., cn] + alpha * [a1 ... ak ] * op([B1 |  ... | Bn])
+        // ---------------------------------------------------------------------------
+        // or
+        // [c1] = beta [c1] + alpha * op2( B ) * [a1]
+        // [.]         [.]                       [.]
+        // [cn]        [cn]                      [an]
+        // ------------------------------------------------------------------------------
+
+        auto x = Bmat;
+        Istride offsetx = shift_Bmat;
+        I incx = (is_no_transpose_B) ? ldB : 1;
+        Istride stridex = stride_Bmat;
+
+        auto y = Cmat;
+        Istride offsety = shift_Cmat;
+        I incy = ldC;
+        Istride stridey = stride_Cmat;
+
+        ROCBLAS_CHECK(rocblasCall_gemv(handle, transA, mm, nn, alpha, stride_alpha,
+
+                                       Amat, shift_Amat, ldA, stride_Amat,
+
+                                       x, offsetx, incx, stridex,
+
+                                       beta, stride_beta,
+
+                                       y, offsety, incy, stridey,
+
+                                       batch_count, workArr));
+    }
+}
+#endif
+else
+{
+    ROCBLAS_CHECK(rocblasCall_gemm(handle, transA, transB, m, n, k, alpha,
+
+                                   Amat, shift_Amat, ldA, stride_Amat, Bmat, shift_Bmat, ldB,
+                                   stride_Bmat,
+
+                                   beta, Cmat, shift_Cmat, ldC, stride_Cmat,
+
+                                   batch_count, workArr));
+}
+
+return (rocblas_status_success);
+}
+
 template <typename T, typename I>
 static void rocblasCall_trmm_mem(rocblas_side const side,
                                  I const mm,
@@ -56,10 +206,6 @@ static void rocblasCall_trmm_mem(rocblas_side const side,
                                  I const batch_count,
                                  size_t* size_trmm_byte)
 {
-    // -------------------------------------------------
-    // TODO: check how much temporary storage is need by
-    // rocblasCall_trmm()
-    // -------------------------------------------------
     *size_trmm_byte = 2 * sizeof(T*) * std::max(1, batch_count);
 }
 
@@ -344,6 +490,7 @@ static rocblas_status formT3(rocblas_handle handle,
 {
     ROCSOLVER_ENTER("formT3", "m:", m, "k1:", k1, "k2:", k2, "shift_Y1:", shift_Y1, "ldY:", ldY,
                     "bc:", batch_count);
+
     // 0-based C indexing
     auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
@@ -619,6 +766,23 @@ static rocblas_status formT3(rocblas_handle handle,
             }
         }
 
+        bool const use_gemm_gemv = (mm == 1) || (nn == 1);
+        if(use_gemm_gemv)
+        {
+            // clang-format off
+	    ROCBLAS_CHECK( gemm_gemv( handle,
+			    transA, transB,
+			    mm, nn, kk,
+			    &alpha,
+			    Ymat, shift_Y31, ldY, stride_Ymat,
+			    Ymat, shift_Y22, ldY, stride_Ymat,
+			    &beta,
+			    Wmat, shift_Wmat, ldW, stride_Wmat,
+			    batch_count,
+			    workArr ));
+            // clang-format on
+        }
+        else
         {
             // clang-format off
 	    ROCBLAS_CHECK( rocblasCall_gemm( handle,
@@ -1072,6 +1236,23 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
+        bool const use_gemm_gemv = (mm == 1) || (nn == 1);
+        if(use_gemm_gemv)
+        {
+            // clang-format off
+            ROCBLAS_CHECK( gemm_gemv( handle,
+                            transA, transB,
+                            mm, nn, kk,
+                            &alpha,
+                            Ymat, shift_Y2, ldY, stride_Ymat,
+                            Cmat, shift_C2, ldC, stride_Cmat,
+                            &beta,
+                            Wmat, shift_Wmat, ldW, stride_Wmat,
+                            batch_count,
+                            workArr ));
+            // clang-format on
+        }
+        else
         {
             // clang-format off
             ROCBLAS_CHECK( rocblasCall_gemm( handle,
@@ -1203,6 +1384,23 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
+        bool const use_gemm_gemv = (mm == 1) || (nn == 1);
+        if(use_gemm_gemv)
+        {
+            // clang-format off
+            ROCBLAS_CHECK( gemm_gemv( handle,
+                            transA, transB,
+                            mm, nn, kk,
+                            &alpha,
+                            Ymat, shift_Y2,   ldY, stride_Ymat,
+                            Wmat, shift_Wmat, ldW, stride_Wmat,
+                            &beta,
+                            Cmat, shift_C2, ldC, stride_Cmat,
+                            batch_count,
+                            workArr ));
+            // clang-format on
+        }
+        else
         {
             // clang-format off
             ROCBLAS_CHECK( rocblasCall_gemm( handle,
@@ -1442,7 +1640,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 
     auto sign = [](auto x) { return ((x > 0) ? 1 : (x < 0) ? -1 : 0); };
 
-    I const n_small = 8;
+    I const n_small = 1;
     bool const is_n_small = (n <= n_small);
 
     if(idebug >= 1)
