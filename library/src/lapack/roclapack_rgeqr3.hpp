@@ -1361,6 +1361,22 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
+        if(use_trmm_outofplace)
+        {
+            // clang-format off
+	    ROCBLAS_CHECK(rocblasCall_trmm<T>(handle,
+			    side, uplo, transA, diag,
+			    mm,nn,
+			    &alpha, stride_alpha,
+			    Tmat, shift_Tmat, ldT, stride_Tmat,
+			    Wmat,  shift_Wmat, ldW, stride_Wmat,
+			    Wmat2, shift_Wmat, ldW, stride_Wmat,
+			    batch_count, workArr ));
+            // clang-format on
+
+            swap(Wmat, Wmat2);
+        }
+        else
         {
             // clang-format off
 	    ROCBLAS_CHECK(rocblasCall_trmm<T>(handle,
