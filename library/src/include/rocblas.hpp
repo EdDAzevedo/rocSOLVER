@@ -1573,14 +1573,14 @@ rocblas_status rocblasCall_trmm(rocblas_handle handle,
     if(is_all_strided)
     {
         // clang-format off
-       return rocblas_internal_trmm_batched_template(
+       return rocblas_internal_trmm_template(
         handle,
 	side, uplo, transA, diag,
 	m, n,
 	alpha, stride_alpha,
-	A, offsetA, lda, strideA,
-        B, offsetB, ldb, strideB,
-	C, offsetC, ldc, strideC,
+	(const T*) A, offsetA, lda, strideA,
+        (const T*) B, offsetB, ldb, strideB,
+	(T*) C, offsetC, ldc, strideC,
 	batch_count);
         // clang-format on
     }
@@ -1598,8 +1598,8 @@ rocblas_status rocblasCall_trmm(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    T const** Ap = (T**)A;
-    T const** Bp = (T**)B;
+    T** Ap = (T**)A;
+    T** Bp = (T**)B;
     T** Cp = (T**)C;
 
     if(is_strided_array(A))
@@ -1607,16 +1607,16 @@ rocblas_status rocblasCall_trmm(rocblas_handle handle,
         Ap = (T**)pfree;
         pfree += sizeof(T*) * batch_count;
         auto const blocks = (batch_count - 1) / 256 + 1;
-        ROCSOLVER_LAUNCH_KERNEL(get_array, dim3(blocks), dim3(256), 0, stream, Ap, A, strideA,
-                                batch_count);
+        ROCSOLVER_LAUNCH_KERNEL(get_array<T>, dim3(blocks), dim3(256), 0, stream, Ap, (T*)A,
+                                strideA, batch_count);
     }
     if(is_strided_array(B))
     {
         Bp = (T**)pfree;
         pfree += sizeof(T*) * batch_count;
         auto const blocks = (batch_count - 1) / 256 + 1;
-        ROCSOLVER_LAUNCH_KERNEL(get_array, dim3(blocks), dim3(256), 0, stream, Bp, B, strideB,
-                                batch_count);
+        ROCSOLVER_LAUNCH_KERNEL(get_array<T>, dim3(blocks), dim3(256), 0, stream, Bp, (T*)B,
+                                strideB, batch_count);
     }
 
     if(is_strided_array(C))
@@ -1624,8 +1624,8 @@ rocblas_status rocblasCall_trmm(rocblas_handle handle,
         Cp = (T**)pfree;
         pfree += sizeof(T*) * batch_count;
         auto const blocks = (batch_count - 1) / 256 + 1;
-        ROCSOLVER_LAUNCH_KERNEL(get_array, dim3(blocks), dim3(256), 0, stream, Cp, C, strideC,
-                                batch_count);
+        ROCSOLVER_LAUNCH_KERNEL(get_array<T>, dim3(blocks), dim3(256), 0, stream, Cp, (T*)C,
+                                strideC, batch_count);
     }
 
     // clang-format off
@@ -1634,9 +1634,9 @@ rocblas_status rocblasCall_trmm(rocblas_handle handle,
 	side, uplo, transA, diag,
 	m, n,
 	alpha, stride_alpha,
-	Ap, offsetA, lda, strideA,
-        Bp, offsetB, ldb, strideB,
-	Cp, offsetC, ldc, strideC,
+	(const T* const*) Ap, offsetA, lda, strideA,
+        (const T* const*) Bp, offsetB, ldb, strideB,
+	(T* const*) Cp, offsetC, ldc, strideC,
 	batch_count);
     // clang-format on
 }

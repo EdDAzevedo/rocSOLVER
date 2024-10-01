@@ -43,6 +43,7 @@
 ROCSOLVER_BEGIN_NAMESPACE
 
 constexpr int idebug = 0;
+constexpr bool use_trmm_outofplace = true;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
@@ -979,6 +980,12 @@ static rocblas_status applyQtC(rocblas_handle handle,
 
     auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
 
+    auto swap = [](auto& x, auto& y) {
+        auto t = x;
+        x = y;
+        y = t;
+    };
+
     if(idebug >= 1)
     {
         printf("applyQtC: m=%d, n=%d, k=%d,  lwork_bytes=%d\n", (int)m, (int)n, (int)k,
@@ -1106,8 +1113,15 @@ static rocblas_status applyQtC(rocblas_handle handle,
     size_t size_Wmat_bytes = (sizeof(T) * ldW * ncols_W) * batch_count;
     T* Wmat = (T*)pfree;
     pfree += size_Wmat_bytes;
-
     total_bytes += size_Wmat_bytes;
+
+    T* Wmat2 = nullptr;
+    if(use_trmm_outofplace)
+    {
+        Wmat2 = (T*)pfree;
+        pfree += size_Wmat_bytes;
+        total_bytes += size_Wmat_bytes;
+    }
 
     remain_bytes = lwork_bytes - total_bytes;
 
@@ -1181,6 +1195,22 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
+        if(use_trmm_outofplace)
+        {
+            // clang-format off
+	    ROCBLAS_CHECK(rocblasCall_trmm(handle,
+			    side, uplo, trans, diag,
+			    mm,nn,
+			    &alpha, stride_alpha,
+			    Ymat, shift_Y1, ldY, stride_Ymat,
+			    Wmat,  shift_Wmat, ldW, stride_Wmat,
+			    Wmat2, shift_Wmat, ldW, stride_Wmat,
+			    batch_count, workArr ));
+            // clang-format on
+
+            swap(Wmat, Wmat2);
+        }
+        else
         {
             // clang-format off
 	    ROCBLAS_CHECK(rocblasCall_trmm(handle,
@@ -1563,6 +1593,11 @@ static void rocsolver_applyQtC_getMemorySize(I const m,
     size_t const size_Wmat_byte = (sizeof(T) * max(k, nb) * max(n, nb)) * batch_count;
 
     *size_applyQtC = size_trmm_byte + size_rocblas_byte + size_Wmat_byte;
+
+    if(use_trmm_outofplace)
+    {
+        *size_applyQtC += size_Wmat_byte;
+    }
 
     if(idebug >= 1)
     {
