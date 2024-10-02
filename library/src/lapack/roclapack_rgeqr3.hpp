@@ -47,8 +47,20 @@ constexpr bool use_trmm_outofplace = true;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
-    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 64 : (sizeof(T) == 16) ? 64 : 32)
+    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 48 : (sizeof(T) == 16) ? 32 : 32)
 #endif
+
+// Is power of two
+static __device__ __host__ constexpr bool rocblas_is_po2(rocblas_int x)
+{
+    return (x && !(x & (x - 1)));
+}
+
+// Return previous power of two
+static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_int x)
+{
+    return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
+}
 
 template <typename T, typename I, typename Istride, typename UA, typename UB, typename UC>
 static rocblas_status gemm_gemv(rocblas_handle handle,
@@ -556,10 +568,32 @@ static rocblas_status formT3(rocblas_handle handle,
 
     Istride const shift_T3 = shift_T1 + idx2F(1, k1 + 1, ldT);
 
-    auto Wmat = Tmat;
+    T* Wmat = Tmat;
     Istride const shift_Wmat = shift_T3;
     I const ldW = ldT;
     Istride const stride_Wmat = stride_Tmat;
+
+    I const nrows_W2 = nrows_W;
+    I const ncols_W2 = ncols_W;
+    I const ldW2 = nrows_W2;
+    Istride const stride_Wmat2 = ldW2 * ncols_W2;
+    Istride const shift_Wmat2 = 0;
+    size_t const size_Wmat2 = (sizeof(T) * ldW2 * ncols_W2) * batch_count;
+
+    T* Wmat2 = nullptr;
+    if(use_trmm_outofplace)
+    {
+        Wmat2 = (T*)pfree;
+        pfree += size_Wmat2;
+        total_bytes += size_Wmat2;
+    }
+
+    remain_bytes = lwork_bytes - total_bytes;
+    assert(remain_bytes >= 0);
+    if(remain_bytes < 0)
+    {
+        return (rocblas_status_memory_error);
+    }
 
     // Y1 is m by k1
     // Y2 is (m-k1) by k2
@@ -720,6 +754,43 @@ static rocblas_status formT3(rocblas_handle handle,
             }
         }
 
+        if(use_trmm_outofplace)
+        {
+            // clang-format off
+	    ROCBLAS_CHECK(rocblasCall_trmm(handle,
+			    side, uplo, trans, diag,
+			    mm,nn,
+			    &alpha, stride_alpha,
+			    Ymat, shift_Y12, ldY, stride_Ymat,
+			    Wmat, shift_Wmat, ldW, stride_Wmat,
+			    Wmat2, shift_Wmat2, ldW2, stride_Wmat2,
+			    batch_count, workArr ));
+            // clang-format on
+
+            {
+                // ------------------
+                // copy Wmat2 -> Wmat
+                // ------------------
+                T const alpha = 1;
+                T const beta = 0;
+                char const trans = 'N';
+                I const mm = nrows_W;
+                I const nn = ncols_W;
+
+                // clang-format off
+            geadd_template( handle,
+		    trans,
+		    mm,
+		    nn,
+		    alpha,
+		    Wmat2, shift_Wmat2, ldW2, stride_Wmat2,
+		    beta,
+		    Wmat, shift_Wmat, ldW, stride_Wmat,
+		    batch_count );
+                // clang-format on
+            }
+        }
+        else
         {
             // clang-format off
 	    ROCBLAS_CHECK(rocblasCall_trmm(handle,
@@ -1116,6 +1187,7 @@ static rocblas_status applyQtC(rocblas_handle handle,
     total_bytes += size_Wmat_bytes;
 
     T* Wmat2 = nullptr;
+
     if(use_trmm_outofplace)
     {
         Wmat2 = (T*)pfree;
@@ -1523,6 +1595,23 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
+        if(use_trmm_outofplace)
+        {
+            // clang-format off
+		    ROCBLAS_CHECK( rocblasCall_trmm<T>( handle,
+				    side, uplo, transA, diag,
+				    mm, nn,
+				    &alpha, stride_alpha,
+				    Ymat,  shift_Y1,    ldY, stride_Ymat,
+				    Wmat,  shift_Wmat,  ldW, stride_Wmat,
+				    Wmat2, shift_Wmat,  ldW, stride_Wmat,
+				    batch_count,
+				    workArr ));
+            // clang-format on
+
+            swap(Wmat, Wmat2);
+        }
+        else
         {
             // clang-format off
 		    ROCBLAS_CHECK( rocblasCall_trmm<T>( handle,
@@ -1578,18 +1667,19 @@ static void rocsolver_applyQtC_getMemorySize(I const m,
                                              I const batch_count,
                                              size_t* size_applyQtC)
 {
+    assert(size_applyQtC != nullptr);
+    *size_applyQtC = 0;
+
     if(idebug >= 1)
     {
         printf("applyQtC_getMem: begin m=%d,n=%d,k=%d,batch_count=%d,size_applyQtC=%d\n", (int)m,
                (int)n, (int)k, (int)batch_count, (int)*size_applyQtC);
     }
 
-    assert(size_applyQtC != nullptr);
-
-    *size_applyQtC = 0;
     bool const has_work = (m >= 1) && (n >= 1) && (k >= 1) && (batch_count >= 1);
     if(!has_work)
     {
+        *size_applyQtC = 0;
         return;
     }
 
@@ -1975,8 +2065,13 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
             // -----------------
             // perform recursion
             // -----------------
-            auto const n1 = n / 2;
+            // auto const n1 = n / 2;
+            auto const n1 = rocblas_previous_po2(n - 1);
             auto const n2 = n - n1;
+
+            assert(n1 >= 1);
+            assert(n2 >= 1);
+
             auto const j1 = n1 + 1;
             auto const m2 = (m - j1 + 1);
 
@@ -2448,6 +2543,16 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
     static void rocsolver_rgeqrf_getMemorySize(I const m, I const n, I const batch_count,
                                                size_t* size_rgeqrf)
     {
+        assert(size_rgeqrf != nullptr);
+        *size_rgeqrf = 0;
+
+        bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+        if(!has_work)
+        {
+            *size_rgeqrf = 0;
+            return;
+        }
+
         auto const max = [](auto x, auto y) { return ((x >= y) ? x : y); };
 
         auto const nb = RGEQR3_BLOCKSIZE(T);
@@ -2459,6 +2564,10 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
         rocsolver_rgeqr3_getMemorySize<T>(m, nb, batch_count, &size_rgeqr3);
 
         *size_rgeqrf = size_Wmat + size_Tmat + size_rocblas + size_rgeqr3;
+        if(use_trmm_outofplace)
+        {
+            *size_rgeqrf += size_Wmat;
+        }
     }
 
     ROCSOLVER_END_NAMESPACE
