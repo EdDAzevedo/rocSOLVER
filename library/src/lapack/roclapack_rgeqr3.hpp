@@ -64,6 +64,250 @@ static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_in
     return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
 }
 
+//  -----------------------------------------------------------------------------------
+//  Generalization of GEMV to compute multiple vectors
+//  compute  Y(:,1:nrhs) = beta * Y(:,1:nrhs) + alpha * op( A(1:m, 1:n) ) * X(:,1:nrhs)
+//
+//  launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
+//  -----------------------------------------------------------------------------------
+template <typename T, typename I, typename Istride, typename UA, typename UX, typename UY>
+static __global__ void gemvm_kernel(char trans,
+                                    I const m,
+                                    I const n,
+                                    I const nrhs,
+                                    T const alpha,
+                                    UA Amat,
+                                    Istride const shift_Amat,
+                                    I const ldA,
+                                    Istride const stride_Amat,
+                                    UX Xmat,
+                                    Istride const shift_Xmat,
+                                    I const ldX,
+                                    Istride const stride_Xmat,
+                                    T const beta,
+                                    UY Ymat,
+                                    Istride const shift_Ymat,
+                                    I const ldY,
+                                    Istride const stride_Ymat,
+                                    I const batch_count)
+{
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1) && (nrhs >= 1);
+    if(!has_work)
+    {
+        return;
+    }
+
+    auto merge = [](bool cond, auto t_value, auto f_value) { return ((cond) ? t_value : f_value); };
+
+    auto ceil = [](auto n, auto nb) { return (((n - 1) / nb) + 1); };
+
+    bool const is_trans = (trans == 'T');
+    bool const is_conj_trans = (trans == 'C');
+    bool const is_no_trans = ((!is_trans) && (!is_conj_trans));
+
+    constexpr auto max_lds = 64 * 1024;
+    constexpr I nb_k = 8;
+
+    constexpr I nb = (sizeof(T) == 4) ? (32 + 64) : (sizeof(T) == 8) ? 64 : (32 + 16);
+    constexpr I mb = nb;
+
+    auto const nrows_A = m;
+    auto const ncols_A = n;
+
+    auto const ncols_X = nrhs;
+    auto const nrows_X = merge(is_no_trans, ncols_A, nrows_A);
+
+    auto const ncols_Y = nrhs;
+    auto const nrows_Y = merge(is_no_trans, nrows_A, ncols_A);
+
+    auto const mblocks = ceil(nrows_A, mb);
+    auto const nblocks = ceil(ncols_A, nb);
+    auto const mb_last = nrows_A - (mblocks - 1) * mb;
+    auto const nb_last = ncols_A - (nblocks - 1) * nb;
+
+    auto const kblocks = ceil(nrhs, nb_k);
+    auto const kb_last = nrhs - (kblocks - 1) * nb_k;
+
+    bool const use_Ash = false;
+
+    auto const bid_start = hipBlockIdx_z;
+    auto const bid_inc = hipGridDim_z;
+
+    auto const ib_start = hipBlockIdx_x;
+    auto const kb_start = hipBlockIdx_y;
+
+    auto const ib_inc = hipGridDim_x;
+    auto const kb_inc = hipGridDim_y;
+
+    auto const i_start = hipThreadIdx_x;
+    auto const j_start = hipThreadIdx_y;
+    auto const i_inc = hipBlockDim_x;
+    auto const j_inc = hipBlockDim_y;
+
+    auto const k_start = j_start;
+    auto const k_inc = j_inc;
+
+    // -------------------------------
+    // 1-based matlab/Fortran indexing
+    // -------------------------------
+    auto idx2F
+        = [](auto i, auto j, auto ld) { return ((i - 1) + (j - 1) * static_cast<int64_t>(ld)); };
+
+    extern __shared__ double lmem[];
+
+    std::byte* pfree = (std::byte*)&(lmem[0]);
+    size_t total_bytes = 0;
+
+    auto const ldYsh = mb;
+    size_t const size_Ysh = sizeof(T) * ldYsh * std::min(nrhs, nb_k);
+    T* const Ysh_ = (T*)pfree;
+    pfree += size_Ysh;
+    total_bytes += size_Ysh;
+
+    auto Ysh = [=](auto i, auto j) -> T& { return (Ysh_[(i - 1) + (j - 1) * ldYsh]); };
+
+    auto ldAsh = mb;
+    size_t const size_Ash = sizeof(T) * ldAsh * nb;
+    T* const Ash_ = (use_Ash) ? (T*)pfree : nullptr;
+    pfree = (use_Ash) ? pfree + size_Ash : pfree;
+    total_bytes = (use_Ash) ? total_bytes + size_Ash : total_bytes;
+
+    assert(total_bytes <= max_lds);
+
+    auto Ash = [=](auto i, auto j) -> T& { return (Ash_[(i - 1) + (j - 1) * ldAsh]); };
+
+    bool const is_beta_zero = (beta == 0);
+
+    for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        __restrict__ T const* const A_ = load_ptr(Amat, bid, shift_Amat, stride_Amat);
+        __restrict__ T const* const X_ = load_ptr(Xmat, bid, shift_Xmat, stride_Xmat);
+        __restrict__ T* const Y_ = load_ptr(Ymat, bid, shift_Ymat, stride_Ymat);
+
+        auto A = [=](auto i, auto j) -> const T { return (A_[idx2F(i, j, ldA)]); };
+        auto X = [=](auto i, auto j) -> const T { return (X_[idx2F(i, j, ldX)]); };
+        auto Y = [=](auto i, auto j) -> T& { return (Y_[idx2F(i, j, ldY)]); };
+
+        for(auto kb = 1 + kb_start; kb <= kblocks; kb += kb_inc)
+        {
+            auto const k1 = 1 + (kb - 1) * nb_k;
+            auto const k2 = std::min(nrhs, k1 + nb_k - 1);
+            auto const ksize = (k2 - k1 + 1);
+
+            auto const yblocks = ceil(nrows_Y, nb);
+            for(auto ib = 1 + ib_start; ib <= yblocks; ib += ib_inc)
+            {
+                auto const i1 = 1 + (ib - 1) * nb;
+                auto const i2 = std::min(nrows_Y, i1 + nb - 1);
+                auto const isize = (i2 - i1 + 1);
+
+                auto const nrows_Ysh = isize;
+                auto const ncols_Ysh = ksize;
+                //  ---------------------------------
+                //  Ysh(1:nrows_Ysh, 1:ncols_Ysh) = 0
+                //  ---------------------------------
+                for(auto j = 1 + j_start; j <= ncols_Ysh; j += j_inc)
+                {
+                    for(auto i = 1 + i_start; i <= nrows_Ysh; i += i_inc)
+                    {
+                        Ysh(i, j) = 0;
+                    }
+                }
+
+                __syncthreads();
+
+                auto const nblocks = merge(is_no_trans, ceil(ncols_A, nb), ceil(nrows_A, mb));
+                auto const jb_start = 0;
+                auto const jb_inc = 1;
+
+                for(auto jb = 1 + jb_start; jb <= nblocks; jb += jb_inc)
+                {
+                    auto const ia1 = merge(is_no_trans, i1, 1 + (jb - 1) * nb);
+                    auto const ia2 = merge(is_no_trans, i2, std::min(nrows_A, ia1 + nb - 1));
+                    auto const ja1 = merge(is_no_trans, 1 + (jb - 1) * nb, i1);
+                    auto const ja2 = merge(is_no_trans, std::min(ncols_A, ja1 + nb - 1), i2);
+
+                    auto const ix1 = merge(is_no_trans, ja1, ia1);
+                    auto const ix2 = merge(is_no_trans, ja2, ia2);
+
+                    auto const isize = ia2 - ia1 + 1;
+                    auto const jsize = ja2 - ja1 + 1;
+
+                    auto const nrows_Ash = isize;
+                    auto const ncols_Ash = jsize;
+
+                    if(use_Ash)
+                    {
+                        // ------------------------------------------------------
+                        // Ash( 1:nrows_Ash, 1:ncols_Ash) = A( ia1:ia2, ja1:ja2 );
+                        // ------------------------------------------------------
+                        for(auto j = 1 + j_start; j <= ncols_Ash; j += j_inc)
+                        {
+                            for(auto i = 1 + i_start; i <= nrows_Ash; i += i_inc)
+                            {
+                                Ash(i, j) = A((ia1 - 1) + i, (ja1 - 1) + j);
+                            }
+                        }
+                        __syncthreads();
+                    }
+
+                    auto const nj = merge(is_no_trans, ncols_Ash, nrows_Ash);
+                    for(auto i = 1 + i_start; i <= nrows_Ysh; i += i_inc)
+                    {
+                        for(auto k = 1 + k_start; i <= ncols_Ysh; k += k_inc)
+                        {
+                            T Ysh_i_k = 0;
+                            for(auto j = 1; j <= nj; j++)
+                            {
+                                T aij;
+                                if(use_Ash)
+                                {
+                                    aij = merge(is_no_trans, Ash(i, j),
+                                                merge(is_trans, Ash(j, i), conj(Ash(j, i))));
+                                }
+                                else
+                                {
+                                    auto const ia = (ia1 - 1) + i;
+                                    auto const ja = (ja1 - 1) + j;
+                                    aij = merge(is_no_trans, A(ia, ja),
+                                                merge(is_trans, A(ja, ia), conj(A(ja, ia))));
+                                }
+
+                                {
+                                    auto const jx = (ix1 - 1) + j;
+                                    auto const kx = (k1 - 1) + k;
+                                    auto const xjk = X(jx, kx);
+                                    Ysh_i_k += aij * xjk;
+                                }
+                            } // end for j
+
+                            Ysh(i, k) += Ysh_i_k;
+                        } // end for k
+                    } // end for i
+                    __syncthreads();
+
+                    // -------------------------------------------------
+                    // Y(i1:i2,  k1:k2) = Ysh(1:nrows_Ysh,  1:ncols_Ysh);
+                    // -------------------------------------------------
+
+                    for(auto k = 1 + k_start; k <= ncols_Ysh; k += k_inc)
+                    {
+                        for(auto i = 1 + i_start; i <= nrows_Ysh; i += i_inc)
+                        {
+                            auto const iy = (i1 - 1) + i;
+                            auto const ky = (k1 - 1) + k;
+
+                            Y(iy, ky) = (is_beta_zero ? 0 : beta * Y(iy, ky)) + alpha * Ysh(i, k);
+                        }
+                    }
+                    __syncthreads();
+
+                } // for jb
+            } // for ib
+        } // for kb
+    } // for bid
+}
+
 template <typename T, typename I, typename Istride, typename UA, typename UB, typename UC>
 static rocblas_status gemm_gemv(rocblas_handle handle,
                                 rocblas_operation transA,
