@@ -478,6 +478,9 @@ void testing_bdsqr(Arguments& argus)
     rocblas_fill uplo = char2rocblas_fill(uploC);
     rocblas_int hot_calls = argus.iters;
 
+    if(argus.hybrid)
+        rocsolver_enable_hybrid_mode(handle, true);
+
     // check non-supported values
     if(uplo != rocblas_fill_upper && uplo != rocblas_fill_lower)
     {

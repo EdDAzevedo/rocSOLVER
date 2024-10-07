@@ -143,6 +143,34 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_log_flush_profile(void);
 
 /*
  * ===========================================================================
+ *      Hybrid algorithm enablement
+ * ===========================================================================
+ */
+
+/*! \brief ENABLE_HYBRID_MODE enables or disables the use of hybrid (CPU+GPU) algorithms.
+    Hybrid algorithms are disabled by default.
+
+    @param[in]
+    handle      rocblas_handle.
+    @param[in]
+    enabled     bool.
+                True if hybrid algorithms should be enabled; false if they should be disabled.
+    *************************************************************************/
+
+ROCSOLVER_EXPORT rocblas_status rocsolver_enable_hybrid_mode(rocblas_handle handle,
+                                                             const bool enabled);
+
+/*! \brief IS_HYBRID_MODE_ENABLED returns true if hybrid (CPU+GPU) algorithms are enabled;
+    false otherwise.
+
+    @param[in]
+    handle      rocblas_handle.
+    *************************************************************************/
+
+ROCSOLVER_EXPORT bool rocsolver_is_hybrid_mode_enabled(rocblas_handle handle);
+
+/*
+ * ===========================================================================
  *      Auxiliary functions
  * ===========================================================================
  */
@@ -3707,6 +3735,10 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zunmtr(rocblas_handle handle,
     \note
     In order to carry out calculations, this method may synchronize the stream contained within the
     rocblas_handle.
+
+    \note
+    A hybrid (CPU+GPU) approach is available for BDSQR. Use \ref rocsolver_enable_hybrid_mode "ENABLE_HYBRID_MODE"
+    to enable it.
 
     @param[in]
     handle      rocblas_handle.
@@ -12443,8 +12475,12 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zpotri_strided_batched(rocblas_handle 
     the "Tuning rocSOLVER performance" and "Memory model" sections of the documentation.
 
     \note
-    In order to carry out calculations, this method may synchronize the stream contained within the
-    rocblas_handle.
+    In order to carry out calculations, this method may synchronize the stream contained
+    within the rocblas_handle.
+
+    \note
+    A hybrid (CPU+GPU) approach is available for GESVD. Use \ref rocsolver_enable_hybrid_mode "ENABLE_HYBRID_MODE"
+    to enable it.
 
     @param[in]
     handle      rocblas_handle.
@@ -12620,8 +12656,12 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zgesvd(rocblas_handle handle,
     and "Memory model" sections of the documentation.
 
     \note
-    In order to carry out calculations, this method may synchronize the stream contained within the
-    rocblas_handle.
+    In order to carry out calculations, this method may synchronize the stream contained
+    within the rocblas_handle.
+
+    \note
+    A hybrid (CPU+GPU) approach is available for GESVD_BATCHED. Use \ref rocsolver_enable_hybrid_mode "ENABLE_HYBRID_MODE"
+    to enable it.
 
     @param[in]
     handle      rocblas_handle.
@@ -12838,8 +12878,12 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zgesvd_batched(rocblas_handle handle,
     and "Memory model" sections of the documentation.
 
     \note
-    In order to carry out calculations, this method may synchronize the stream contained within the
-    rocblas_handle.
+    In order to carry out calculations, this method may synchronize the stream contained
+    within the rocblas_handle.
+
+    \note
+    A hybrid (CPU+GPU) approach is available for GESVD_STRIDED_BATCHED. Use \ref rocsolver_enable_hybrid_mode "ENABLE_HYBRID_MODE"
+    to enable it.
 
     @param[in]
     handle      rocblas_handle.

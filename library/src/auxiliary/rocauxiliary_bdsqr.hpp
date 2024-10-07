@@ -1251,12 +1251,11 @@ rocblas_status rocsolver_bdsqr_template(rocblas_handle handle,
     ROCSOLVER_LAUNCH_KERNEL((bdsqr_init<T>), gridBasic, threadsBasic, 0, stream, n, D, strideD, E,
                             strideE, info, maxiter, sfm, tol, splits_map, work, strideW, completed);
 
-    bool const use_bdsqr_host = true;
-    if(use_bdsqr_host)
+    if(rocsolver_is_hybrid_mode_enabled(handle))
     {
-            ROCBLAS_CHECK(rocsolver_bdsqr_host_batch_template<T, S, W1, W2, W3, rocblas_int>(
-                handle, uplo, n, nv, nu, nc, D, strideD, E, strideE, V, shiftV, ldv, strideV, U,
-                shiftU, ldu, strideU, C, shiftC, ldc, strideC, info, batch_count, splits_map, work));
+        ROCBLAS_CHECK(rocsolver_bdsqr_host_batch_template<T, S, W1, W2, W3, rocblas_int>(
+            handle, uplo, n, nv, nu, nc, D, strideD, E, strideE, V, shiftV, ldv, strideV, U, shiftU,
+            ldu, strideU, C, shiftC, ldc, strideC, info, batch_count, splits_map, work));
     }
     else
     {

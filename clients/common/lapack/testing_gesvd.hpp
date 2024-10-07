@@ -548,6 +548,9 @@ void testing_gesvd(Arguments& argus)
     rocblas_int bc = argus.batch_count;
     rocblas_int hot_calls = argus.iters;
 
+    if(argus.hybrid)
+        rocsolver_enable_hybrid_mode(handle, true);
+
     // check non-supported values
     if(rightv == rocblas_svect_overwrite && leftv == rocblas_svect_overwrite)
     {
