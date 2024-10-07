@@ -64,6 +64,77 @@ static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_in
     return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
 }
 
+// -------------------------------------------
+// lacgm_kernel conjugate a m by n complex matrix
+//
+// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// -------------------------------------------
+template <typename T, typename I, typename Istride, typename UA>
+static __global__ void lacgm_kernel(I const m,
+                                    I const n,
+                                    UA Amat,
+                                    Istride shift_Amat,
+                                    I ldA,
+                                    Istride stride_Amat,
+                                    I batch_count)
+{
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipGridDim_x;
+    I const i_inc = hipGridDim_x * hipBlockDim_x;
+
+    I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipGridDim_y;
+    I const j_inc = hipGridDim_y * hipBlockDim_y;
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T* const A_ = load_ptr(Amat, bid, shift_Amat, stride_Amat);
+
+        auto A = [=](auto i, auto j) -> T& { return (A_[i + j * static_cast<int64_t>(ldA)]); };
+
+        for(I j = j_start; j < n; j += j_inc)
+        {
+            for(I i = i_start; i < m; i += i_inc)
+            {
+                A(i, j) = conj(A(i, j));
+            }
+        }
+    }
+}
+
+// -------------------------------------------
+// lacgm_template conjugate a m by n complex matrix
+//
+// -------------------------------------------
+template <typename T, typename I, typename Istride, typename UA>
+static void lacgm_template(rocblas_handle handle,
+                           I const m,
+                           I const n,
+                           UA Amat,
+                           Istride shift_Amat,
+                           I ldA,
+                           Istride stride_Amat,
+                           I batch_count)
+{
+    I const max_blocks = 64 * 1000;
+    I const max_threads = 1024;
+    I const nx = 64;
+    I const ny = max_threads / nx;
+
+    auto ceil = [](auto n, auto nb) { return (1 + (n - 1) / nb); };
+
+    I const nby = std::min(max_blocks, ceil(n, ny));
+    I const nbx = std::min(max_blocks, ceil(m, nx));
+    I const nbz = std::min(max_blocks, batch_count);
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    ROCSOLVER_LAUNCH_KERNEL((lacgm_kernel<T, I, Istride, UA>), dim3(nbx, nby, nbz), dim3(nx, ny, 1),
+                            0, stream, m, n, Amat, shift_Amat, ldA, stride_Amat, batch_count);
+}
+
 //  -----------------------------------------------------------------------------------
 //  Generalization of GEMV to compute multiple vectors
 //  compute  Y(:,1:nrhs) = beta * Y(:,1:nrhs) + alpha * op( A(1:m, 1:n) ) * X(:,1:nrhs)
