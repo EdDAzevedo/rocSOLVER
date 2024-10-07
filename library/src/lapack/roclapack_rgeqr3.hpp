@@ -64,6 +64,109 @@ static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_in
     return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
 }
 
+// -----------------------------------------------
+// trcpy_kernel copy and initialize a triangular matrix
+//
+// C(1:n,1:n) = tril( A(1:n,1:n) )  if uplo == 'U'
+// C(1:n,1:n) = triu( A(1:n,1:n) )  if uplo == 'L'
+//
+// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// -----------------------------------------------
+template <typename T, typename I, typename Istride, typename UA, typename UC>
+static __global__ void trcpy_kernel(char const uplo,
+                                    I const n,
+                                    UA Amat,
+                                    Istride const shift_Amat,
+                                    I const ldA,
+                                    Istride const stride_Amat,
+                                    UC Cmat,
+                                    Istride const shift_Cmat,
+                                    I const ldC,
+                                    Istride const stride_Cmat,
+                                    I const batch_count)
+{
+    bool const has_work = (n >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return;
+    };
+
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipGridDim_x;
+    I const i_inc = hipGridDim_x * hipBlockDim_x;
+
+    I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipGridDim_y;
+    I const j_inc = hipGridDim_y * hipBlockDim_y;
+
+    bool const use_upper = (uplo == 'U') || (uplo == 'u');
+    bool const use_lower = (uplo == 'L') || (uplo == 'l');
+    bool const is_ok = (use_upper || use_lower);
+    assert(is_ok);
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T const* const A_ = load_ptr(Amat, bid, shift_Amat, stride_Amat);
+        T* const C_ = load_ptr(Cmat, bid, shift_Cmat, stride_Cmat);
+
+        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+        auto A = [=](auto i, auto j) -> const T& { return (A_[idx2D(i, j, ldA)]); };
+        auto C = [=](auto i, auto j) -> T& { return (C_[idx2D(i, j, ldC)]); };
+
+        for(I j = j_start; j < n; j += j_inc)
+        {
+            for(I i = i_start; i < n; i += i_inc)
+            {
+                bool const is_lower = (i >= j);
+                bool const is_upper = (i <= j);
+                C(i, j) = (use_upper && is_upper) || (use_lower && is_lower) ? A(i, j) : 0;
+            }
+        }
+    }
+}
+
+//  ----------------------------------------------
+//  copy and assign triangular matrix
+//
+//  C(1:n,1:n) = triu( A(1:n,1:n)) for uplo == 'U'
+//  C(1:n,1:n) = tril( A(1:n,1:n)) for uplo == 'L'
+//
+//  ----------------------------------------------
+template <typename T, typename I, typename Istride, typename UA, typename UC>
+static void trcpy_kernel(rocblas_handle handle,
+                         char uplo,
+                         I const n,
+                         UA Amat,
+                         Istride const shift_Amat,
+                         I const ldA,
+                         Istride const stride_Amat,
+                         UC Cmat,
+                         Istride const shift_Cmat,
+                         I const ldC,
+                         Istride const stride_Cmat,
+                         I const batch_count)
+{
+    I const max_blocks = 64 * 1000;
+    I const max_threads = 1024;
+    I const nx = 64;
+    I const ny = max_threads / nx;
+
+    auto ceil = [](auto n, auto nb) { return (1 + (n - 1) / nb); };
+
+    I const nby = std::min(max_blocks, ceil(n, ny));
+    I const nbx = std::min(max_blocks, ceil(n, nx));
+    I const nbz = std::min(max_blocks, batch_count);
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    ROCSOLVER_LAUNCH_KERNEL((trcpy_kernel<T, I, Istride, UA, UC>), dim3(nbx, nby, nbz),
+                            dim3(nx, ny, 1), 0, stream, n, Amat, shift_Amat, ldA, stride_Amat, Cmat,
+                            shift_Cmat, ldC, stride_Cmat, batch_count);
+}
+
 // -------------------------------------------
 // lacgm_kernel conjugate a m by n complex matrix
 //
