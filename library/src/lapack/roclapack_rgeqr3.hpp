@@ -64,6 +64,56 @@ static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_in
     return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
 }
 
+// ----------------------------------------------
+// determine block sizes for simple_gemm_kernel()
+// try to fit submatrices in LDS
+// ----------------------------------------------
+template <typename T, typename I>
+__device__ static void get_gemm_nb(char const transA,
+                                   char const transB,
+                                   I const m,
+                                   I const n,
+                                   I const k,
+                                   I* p_nb_m,
+                                   I* p_nb_n,
+                                   I* p_nb_k)
+{
+    I const max_lds = (64 * 1024) / sizeof(T);
+    I const nb = (sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 48 : 32;
+
+    I nb_m = std::min(m, nb);
+    I nb_n = std::min(n, nb);
+    I nb_k = std::min(k, nb);
+
+    // need to fit
+    // nb_m * nb_n + nb_m * nb_k + nb_k * nb_n <= max_lds
+    // nb_k * (nb_m + nb_n) <= (max_lds - nb_m * nb_n)
+    // nb_k = (max_lds - nb_m * nb_n)/(nb_m + nb_n);
+
+    nb_k = (max_lds - nb_m * nb_n) / (nb_m + nb_n);
+    I const n_mult16 = std::max(1, nb_k / 16);
+    nb_k = 16 * n_mult16;
+
+    if(idebug >= 1)
+    {
+        printf("get_gemm_nb:m=%d,n=%d,k=%d,  nb_m=%d,nb_n=%d,nb_k=%d \n", m, n, k, nb_m, nb_n, nb_k);
+
+        auto const size_A = nb_m * nb_k;
+        auto const size_B = nb_k * nb_n;
+        auto const size_C = nb_m * nb_n;
+
+        assert((size_A + size_B + size_C) <= max_lds);
+    }
+
+    assert(p_nb_m != nullptr);
+    assert(p_nb_n != nullptr);
+    assert(p_nb_k != nullptr);
+
+    *p_nb_m = nb_m;
+    *p_nb_n = nb_n;
+    *p_nb_k = nb_k;
+}
+
 // ------------------------------------------
 // scale_beta_kernel to scale a matrix by beta
 //
