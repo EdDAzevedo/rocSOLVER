@@ -64,6 +64,114 @@ static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_in
     return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
 }
 
+// ------------------------------------------
+// scale_beta_kernel to scale a matrix by beta
+//
+// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// ------------------------------------------
+
+template <typename T, typename I, typename Istride, typename UA>
+static __global__ void scale_beta_kernel(I const m,
+                                         I const n,
+                                         T const beta,
+                                         UA Amat,
+                                         Istride const shift_Amat,
+                                         I const ldA,
+                                         Istride const stride_Amat,
+                                         I const batch_count)
+{
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return;
+    };
+
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipGridDim_x;
+    I const i_inc = hipGridDim_x * hipBlockDim_x;
+
+    I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipGridDim_y;
+    I const j_inc = hipGridDim_y * hipBlockDim_y;
+
+    bool const is_beta_zero = (beta == 0);
+    T const zero = 0;
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T const* const A_ = load_ptr(Amat, bid, shift_Amat, stride_Amat);
+
+        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+        auto A = [=](auto i, auto j) -> const T& { return (A_[idx2D(i, j, ldA)]); };
+
+        if(is_beta_zero)
+        {
+            // -----------
+            // assign zero
+            // -----------
+
+            for(I j = j_start; j < n; j += j_inc)
+            {
+                for(I i = i_start; i < m; i += i_inc)
+                {
+                    A(i, j) = zero;
+                }
+            }
+        }
+        else
+        {
+            // ----------------
+            // multiply by beta
+            // ----------------
+
+            for(I j = j_start; j < n; j += j_inc)
+            {
+                for(I i = i_start; i < m; i += i_inc)
+                {
+                    A(i, j) *= beta;
+                }
+            }
+        }
+    } // end for bid
+}
+
+template <typename T, typename I, typename Istride, typename UA>
+static void scale_beta_kernel(rocblas_handle handle,
+                              I const m,
+                              I const n,
+                              T const beta,
+                              UA Amat,
+                              Istride const shift_Amat,
+                              I const ldA,
+                              Istride const stride_Amat,
+                              I const batch_count)
+{
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return;
+    };
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+    auto const nx = 16;
+    auto const ny = 16;
+
+    auto const max_blocks = 1024;
+    auto const nbx = std::min(max_blocks, ceil(m, nx));
+    auto const nby = std::min(max_blocks, ceil(n, ny));
+    auto const nbz = std::min(max_blocks, batch_count);
+
+    ROCSOLVER_LAUNCH_KERNEL((scale_beta_kernel<T, I, Istride, UA>), dim3(nbx, nby, nbz),
+                            dim3(nx, ny, 1), 0, stream, m, n, Amat, shift_Amat, ldA, stride_Amat,
+                            batch_count);
+}
+
 // -----------------------------------------------
 // trcpy_kernel copy and initialize a triangular matrix
 //
