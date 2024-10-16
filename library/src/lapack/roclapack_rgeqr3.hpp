@@ -49,7 +49,7 @@ constexpr bool use_trmm_outofplace = true;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
-    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 48 : (sizeof(T) == 16) ? 32 : 32)
+    ((sizeof(T) == 4) ? 128 : (sizeof(T) == 8) ? 64 : (sizeof(T) == 16) ? 64 : 32)
 #endif
 
 // Is power of two
@@ -64,605 +64,7 @@ static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_in
     return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
 }
 
-// ----------------------------------------------
-// determine block sizes for simple_gemm_kernel()
-// try to fit submatrices in LDS
-// ----------------------------------------------
-template <typename T, typename I>
-__device__ static void get_gemm_nb(char const transA,
-                                   char const transB,
-                                   I const m,
-                                   I const n,
-                                   I const k,
-                                   I* p_nb_m,
-                                   I* p_nb_n,
-                                   I* p_nb_k)
-{
-    assert(p_nb_m != nullptr);
-    assert(p_nb_n != nullptr);
-    assert(p_nb_k != nullptr);
-
-    I const max_lds = (64 * 1024) / sizeof(T);
-    I const nb = (sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 48 : 32;
-
-    assert((3 * nb * nb) <= max_lds);
-
-    *p_nb_m = nb;
-    *p_nb_n = nb;
-    *p_nb_k = nb;
-
-    bool const has_work = (m >= 1) && (n >= 1) && (k >= 1);
-    if(!has_work)
-    {
-        return;
-    }
-
-    I nb_m = std::min(m, nb);
-    I nb_n = std::min(n, nb);
-    I nb_k = std::min(k, nb);
-
-    // need to fit
-    // nb_m * nb_n + nb_m * nb_k + nb_k * nb_n <= max_lds
-    // nb_k * (nb_m + nb_n) <= (max_lds - nb_m * nb_n)
-    // nb_k = (max_lds - nb_m * nb_n)/(nb_m + nb_n);
-
-    auto const max_mnk = std::max(m, std::max(n, k));
-
-    // ------------------------------
-    // try to increase the block size
-    // ------------------------------
-    if(m == max_mnk)
-    {
-        nb_m = (max_lds - nb_k * nb_n) / (nb_n + nb_k);
-        auto const n16 = (nb_m / 16);
-        nb_m = n16 * 16;
-    }
-    else if(n == max_mnk)
-    {
-        nb_n = (max_lds - nb_m * nb_k) / (nb_m + nb_k);
-        auto const n16 = (nb_n / 16);
-        nb_n = n16 * 16;
-    }
-    else if(k == max_mnk)
-    {
-        nb_k = (max_lds - nb_m * nb_n) / (nb_m + nb_n);
-        auto const n16 = (nb_k / 16);
-        nb_k = n16 * 16;
-    }
-
-    if(idebug >= 1)
-    {
-        printf("get_gemm_nb:m=%d,n=%d,k=%d,  nb_m=%d,nb_n=%d,nb_k=%d \n", m, n, k, nb_m, nb_n, nb_k);
-    }
-
-    assert(nb_m >= 1);
-    assert(nb_n >= 1);
-    assert(nb_k >= 1);
-
-    {
-        auto const size_A = nb_m * nb_k;
-        auto const size_B = nb_k * nb_n;
-        auto const size_C = nb_m * nb_n;
-
-        assert((size_A + size_B + size_C) <= max_lds);
-    }
-
-    *p_nb_m = nb_m;
-    *p_nb_n = nb_n;
-    *p_nb_k = nb_k;
-}
-
-// ------------------------------------------
-// scale_beta_kernel to scale a matrix by beta
-//
-// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
-// ------------------------------------------
-
-template <typename T, typename I, typename Istride, typename UA>
-static __global__ void scale_beta_kernel(I const m,
-                                         I const n,
-                                         T const beta,
-                                         UA Amat,
-                                         Istride const shift_Amat,
-                                         I const ldA,
-                                         Istride const stride_Amat,
-                                         I const batch_count)
-{
-    bool const has_work = (m >= 1) && (n >= 1);
-    if(!has_work)
-    {
-        return;
-    };
-
-    if(beta == 1)
-    {
-        return;
-    }
-
-    I const bid_start = hipBlockIdx_z;
-    I const bid_inc = hipGridDim_z;
-
-    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipGridDim_x;
-    I const i_inc = hipGridDim_x * hipBlockDim_x;
-
-    I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipGridDim_y;
-    I const j_inc = hipGridDim_y * hipBlockDim_y;
-
-    bool const is_beta_zero = (beta == 0);
-    T const zero = 0;
-
-    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
-    {
-        T* const A_ = load_ptr_batch(Amat, bid, shift_Amat, stride_Amat);
-
-        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
-
-        auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, ldA)]); };
-
-        if(is_beta_zero)
-        {
-            // -----------
-            // assign zero
-            // -----------
-
-            for(I j = j_start; j < n; j += j_inc)
-            {
-                for(I i = i_start; i < m; i += i_inc)
-                {
-                    A(i, j) = zero;
-                }
-            }
-        }
-        else
-        {
-            // ----------------
-            // multiply by beta
-            // ----------------
-
-            for(I j = j_start; j < n; j += j_inc)
-            {
-                for(I i = i_start; i < m; i += i_inc)
-                {
-                    A(i, j) *= beta;
-                }
-            }
-        }
-    } // end for bid
-}
-
-template <typename T, typename I, typename Istride, typename UA>
-static void scale_beta_template(rocblas_handle handle,
-                                I const m,
-                                I const n,
-                                T const beta,
-                                UA Amat,
-                                Istride const shift_Amat,
-                                I const ldA,
-                                Istride const stride_Amat,
-                                I const batch_count)
-{
-    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
-    if(!has_work)
-    {
-        return;
-    }
-
-    if(beta == 1)
-    {
-        return;
-    }
-
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
-
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-
-    auto const nx = 32;
-    auto const ny = 32;
-
-    auto const max_blocks = 64 * 1000;
-    auto const nbx = std::min(max_blocks, ceil(m, nx));
-    auto const nby = std::min(max_blocks, ceil(n, ny));
-    auto const nbz = std::min(max_blocks, batch_count);
-
-    ROCSOLVER_LAUNCH_KERNEL((scale_beta_kernel<T, I, Istride, UA>), dim3(nbx, nby, nbz),
-                            dim3(nx, ny, 1), 0, stream, m, n, beta, Amat, shift_Amat, ldA,
-                            stride_Amat, batch_count);
-}
-
-// ------------------------------------------
-// simple_gemm_kernel
-//
-// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
-// ------------------------------------------
-
-template <typename T, typename I, typename Istride, typename UA, typename UB, typename UC>
-static __global__ void simple_gemm_kernel(char const transA,
-                                          char const transB,
-                                          I const m,
-                                          I const n,
-                                          I const k,
-
-                                          T const alpha,
-                                          UA Amat,
-                                          Istride const shift_Amat,
-                                          I const ldA,
-                                          Istride const stride_Amat,
-                                          UB Bmat,
-                                          Istride const shift_Bmat,
-                                          I const ldB,
-                                          Istride const stride_Bmat,
-
-                                          // note no beta
-
-                                          UC Cmat,
-                                          Istride const shift_Cmat,
-                                          I const ldC,
-                                          Istride const stride_Cmat,
-                                          I const batch_count)
-{
-    bool const has_work = (m >= 1) && (n >= 1) && (k >= 1);
-    if(!has_work)
-    {
-        return;
-    };
-
-    bool const is_transpose_A = (transA == 'T') || (transA == 't');
-    bool const is_conj_transpose_A = (transA == 'C') || (transA == 'c');
-    bool const is_no_transpose_A = (!is_transpose_A) && (!is_conj_transpose_A);
-
-    bool const is_transpose_B = (transB == 'T') || (transB == 't');
-    bool const is_conj_transpose_B = (transB == 'C') || (transB == 'c');
-    bool const is_no_transpose_B = (!is_transpose_B) && (!is_conj_transpose_B);
-
-    I const nbx = hipGridDim_x;
-    I const nby = hipGridDim_y;
-    I const nbz = hipGridDim_z;
-
-    I const ib_inc = nbx;
-    I const ib_start = hipBlockIdx_x;
-
-    I const jb_inc = nby;
-    I const jb_start = hipBlockIdx_y;
-
-    // ---------------------------------------------
-    // use only 1 thread block in k-dimension
-    // for simplicity
-    // ---------------------------------------------
-    I bid_inc = nbz;
-    I bid_start = hipBlockIdx_z;
-    I kb_start = 0;
-    I kb_inc = 1;
-
-    I const nx = hipBlockDim_x;
-    I const ny = hipBlockDim_y;
-
-    I const i_inc = nx;
-    I const j_inc = ny;
-
-    I const i_start = hipThreadIdx_x;
-    I const j_start = hipThreadIdx_y;
-
-    I nb_m = 32;
-    I nb_n = 32;
-    I nb_k = 32;
-    get_gemm_nb<T>(transA, transB, m, n, k, &nb_m, &nb_n, &nb_k);
-
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-
-    auto idx2F
-        = [](auto i, auto j, auto ld) { return ((i - 1) + (j - 1) * static_cast<int64_t>(ld)); };
-
-    auto merge = [](auto lcond, auto t_value, auto f_value) { return ((lcond) ? t_value : f_value); };
-
-    size_t const max_lds = 64 * 1024;
-    size_t const lmem_size = max_lds / sizeof(T);
-    __shared__ T lmem[lmem_size];
-
-    I const mblocks = ceil(m, nb_m);
-    I const nblocks = ceil(n, nb_n);
-    I const kblocks = ceil(k, nb_k);
-
-#if(0)
-    if(batch_count == 1)
-    {
-        kb_start = hipBlockIdx_z;
-        kb_inc = hipGridDim_z;
-        bid_start = 0;
-        bid_inc = 1;
-    }
-    else if(kblocks == 1)
-    {
-        kb_start = 0;
-        kb_inc = 1;
-        bid_start = hipBlockIdx_z;
-        bid_inc = hipGridDim_z;
-    }
-    else
-    {
-        // ----------------
-        // split nbz blocks
-        // ----------------
-
-        I ni = (kblocks < batch_count) ? kblocks : batch_count;
-        while((nbz % ni) > 0)
-        {
-            ni--;
-        }
-        auto const nj = nbz / ni;
-        assert(ni >= 1);
-        assert(nj >= 1);
-        assert((ni * nj) == nbz);
-
-        auto const min_ni_nj = std::min(ni, nj);
-        auto const max_ni_nj = std::max(ni, nj);
-
-        kb_inc = (kblocks > batch_count) ? max_ni_nj : min_ni_nj;
-        bid_inc = (kblocks > batch_count) ? min_ni_nj : max_ni_nj;
-
-        // ---------------------------------------------
-        // partition nbz blocks as  kb_inc by bid_inc
-        // hipBlockIdx_z = kb_start + bid_start * kb_inc
-        // ---------------------------------------------
-        kb_start = (hipBlockIdx_z % kb_inc);
-        bid_start = (hipBlockIdx_z - kb_start) / kb_inc;
-    }
-#endif
-    T* pfree = (T*)&(lmem[0]);
-
-    T* const Csh_ = pfree;
-    pfree += nb_m * nb_n;
-
-    T* const Ash_ = pfree;
-    pfree += nb_m * nb_k;
-
-    T* const Bsh_ = pfree;
-    pfree += nb_k * nb_n;
-
-    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
-    {
-        T const* const __restrict__ A_ = load_ptr_batch(Amat, bid, shift_Amat, stride_Amat);
-        T const* const __restrict__ B_ = load_ptr_batch(Bmat, bid, shift_Bmat, stride_Bmat);
-        T* const __restrict__ C_ = load_ptr_batch(Cmat, bid, shift_Cmat, stride_Cmat);
-
-        auto A = [=](auto i, auto j) -> const T& { return (A_[idx2F(i, j, ldA)]); };
-        auto B = [=](auto i, auto j) -> const T& { return (B_[idx2F(i, j, ldB)]); };
-        auto C = [=](auto i, auto j) -> T& { return (C_[idx2F(i, j, ldC)]); };
-
-        for(I jb = 1 + jb_start; jb <= nblocks; jb += jb_inc)
-        {
-            for(I ib = 1 + ib_start; ib <= mblocks; ib += ib_inc)
-            {
-                auto const ic_start = 1 + (ib - 1) * nb_m;
-                auto const ic_end = std::min(m, ic_start + nb_m - 1);
-                auto const jc_start = 1 + (jb - 1) * nb_n;
-                auto const jc_end = std::min(n, jc_start + nb_n - 1);
-
-                auto const ic1 = ic_start;
-                auto const ic2 = ic_end;
-                auto const jc1 = jc_start;
-                auto const jc2 = jc_end;
-
-                auto const nrows_C = (ic2 - ic1 + 1);
-                auto const ncols_C = (jc2 - jc1 + 1);
-
-                auto Csh = [=](auto i, auto j) -> T& { return (Csh_[(i - 1) + (j - 1) * nrows_C]); };
-
-                // --------------------------------
-                // Csh( 1:nrows_C, 1:ncols_C ) = 0;
-                // --------------------------------
-
-                for(auto j = 1 + j_start; j <= ncols_C; j += j_inc)
-                {
-                    for(auto i = 1 + i_start; i <= nrows_C; i += i_inc)
-                    {
-                        Csh(i, j) = 0;
-                    }
-                }
-
-                __syncthreads();
-
-                for(auto kb = 1 + kb_start; kb <= kblocks; kb += kb_inc)
-                {
-                    auto const ik_start = 1 + (kb - 1) * nb_k;
-                    auto const ik_end = std::min(k, ik_start + nb_k - 1);
-
-                    auto const ik1 = ik_start;
-                    auto const ik2 = ik_end;
-
-                    // -----------------------------------------------------------------
-                    // C(ic1:ic2, jc1:jc2) <- op(A(ia1:ia2, ja1:ja2)) * op(B( ib1:ib2, jb1:jb2))
-                    // -----------------------------------------------------------------
-
-                    auto const ia1 = merge(is_no_transpose_A, ic1, ik1);
-                    auto const ia2 = merge(is_no_transpose_A, ic2, ik2);
-                    auto const ja1 = merge(is_no_transpose_A, ik1, ic1);
-                    auto const ja2 = merge(is_no_transpose_A, ik2, ic2);
-
-                    auto const ib1 = merge(is_no_transpose_B, ik1, jc1);
-                    auto const ib2 = merge(is_no_transpose_B, ik2, jc2);
-                    auto const jb1 = merge(is_no_transpose_B, jc1, ik1);
-                    auto const jb2 = merge(is_no_transpose_B, jc2, ik2);
-
-                    auto const nrows_A = (ia2 - ia1 + 1);
-                    auto const ncols_A = (ja2 - ja1 + 1);
-
-                    // ---------------------------------------------------
-                    // Ash( 1:nrows_A, 1:ncols_A ) = A( ia1:ia2, ja1:ja2 );
-                    // ---------------------------------------------------
-
-                    auto Ash
-                        = [=](auto i, auto j) -> T& { return (Ash_[(i - 1) + (j - 1) * nrows_A]); };
-
-                    __syncthreads();
-
-                    for(auto j = 1 + j_start; j <= ncols_A; j += j_inc)
-                    {
-                        for(auto i = 1 + i_start; i <= nrows_A; i += i_inc)
-                        {
-                            auto const ia = (ia1 - 1) + i;
-                            auto const ja = (ja1 - 1) + j;
-                            Ash(i, j) = A(ia, ja);
-                        }
-                    }
-                    __syncthreads();
-
-                    auto const nrows_B = (ib2 - ib1 + 1);
-                    auto const ncols_B = (jb2 - jb1 + 1);
-
-                    // -----------------------------------------------
-                    // Bsh(1:nrows_B, 1:ncols_B) = B(ib1:ib2, jb1:jb2);
-                    // -----------------------------------------------
-                    auto Bsh
-                        = [=](auto i, auto j) -> T& { return (Bsh_[(i - 1) + (j - 1) * nrows_B]); };
-
-                    __syncthreads();
-
-                    for(auto j = 1 + j_start; j <= ncols_B; j += j_inc)
-                    {
-                        for(auto i = 1 + i_start; i <= nrows_B; i += i_inc)
-                        {
-                            auto const ib = (ib1 - 1) + i;
-                            auto const jb = (jb1 - 1) + j;
-                            Bsh(i, j) = B(ib, jb);
-                        }
-                    }
-                    __syncthreads();
-
-                    for(auto j = 1 + j_start; j <= ncols_C; j += j_inc)
-                    {
-                        for(auto i = 1 + i_start; i <= nrows_C; i += i_inc)
-                        {
-                            T cij = 0;
-                            auto const nk = merge(is_no_transpose_A, ncols_A, nrows_A);
-                            for(auto kk = 1; kk <= nk; kk++)
-                            {
-                                T const aik
-                                    = merge(is_no_transpose_A, Ash(i, kk),
-                                            merge(is_transpose_A, Ash(kk, i), conj(Ash(kk, i))));
-
-                                T const bkj
-                                    = merge(is_no_transpose_B, Bsh(kk, j),
-                                            merge(is_transpose_B, Bsh(j, kk), conj(Bsh(j, kk))));
-
-                                cij += aik * bkj;
-                            }
-
-                            Csh(i, j) += cij;
-                        }
-                    }
-
-                } // for kb
-
-                // -----------------------------------------------------------
-                // C(ic1:ic2, jc1:jc2) +=  alpha * Csh( 1:nrows_C, 1:ncols_C );
-                // -----------------------------------------------------------
-
-                __syncthreads();
-                for(auto j = 1 + j_start; j <= ncols_C; j += j_inc)
-                {
-                    for(auto i = 1 + i_start; i <= nrows_C; i += i_inc)
-                    {
-                        auto const ic = (ic1 - 1) + i;
-                        auto const jc = (jc1 - 1) + j;
-
-                        C(ic, jc) += alpha * Csh(i, j);
-                    }
-                }
-                __syncthreads();
-
-            } // for ib
-        } // for jb
-
-    } // end for bid
-}
-
-template <typename T, typename I, typename Istride, typename UA, typename UB, typename UC>
-static rocblas_status simple_gemm_template(rocblas_handle handle,
-                                           char const transA,
-                                           char const transB,
-                                           I const m,
-                                           I const n,
-                                           I const k,
-
-                                           T* const p_alpha,
-                                           UA Amat,
-                                           Istride const shift_Amat,
-                                           I const ldA,
-                                           Istride const stride_Amat,
-                                           UB Bmat,
-                                           Istride const shift_Bmat,
-                                           I const ldB,
-                                           Istride const stride_Bmat,
-
-                                           T* const p_beta,
-
-                                           UC Cmat,
-                                           Istride const shift_Cmat,
-                                           I const ldC,
-                                           Istride const stride_Cmat,
-                                           I const batch_count,
-                                           void* workArr = nullptr)
-{
-#ifdef NDEBUG
-#else
-    if(idebug >= 1)
-    {
-        char const c_transA = (transA == rocblas_operation_none) ? 'N'
-            : (transA == rocblas_operation_transpose)            ? 'T'
-                                                                 : 'C';
-
-        char const c_transB = (transB == rocblas_operation_none) ? 'N'
-            : (transB == rocblas_operation_transpose)            ? 'T'
-                                                                 : 'C';
-        printf("simple_gemm:transA=%c,transB=%c,m=%d,n=%d,k=%d \n", c_transA, c_transB, m, n, k);
-    }
-#endif
-
-    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
-    if(!has_work)
-    {
-        return (rocblas_status_success);
-    }
-
-    assert(p_beta != nullptr);
-    assert(p_alpha != nullptr);
-
-    T const beta = *p_beta;
-    T const alpha = *p_alpha;
-
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-
-    // scale_beta_template<T,I,Istride, UC>(handle, m, n, beta, Cmat, shift_Cmat, ldC, stride_Cmat, batch_count);
-    scale_beta_template<T, I, Istride, UC>(handle, m, n, beta, Cmat, shift_Cmat, ldC, stride_Cmat,
-                                           batch_count);
-
-    I const max_blocks = 256;
-    I const nx = 16;
-    I const ny = 16;
-    I const nbx = std::min(max_blocks, ceil(m, nx));
-    I const nby = std::min(max_blocks, ceil(n, ny));
-    I const nbz = std::min(max_blocks, batch_count);
-
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
-
-    ROCSOLVER_LAUNCH_KERNEL((simple_gemm_kernel<T, I, Istride, UA, UB, UC>),
-
-                            dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-
-                            transA, transB, m, n, k, alpha,
-
-                            Amat, shift_Amat, ldA, stride_Amat,
-
-                            Bmat, shift_Bmat, ldB, stride_Bmat,
-
-                            // note no beta
-
-                            Cmat, shift_Cmat, ldC, stride_Cmat, batch_count);
-
-    return (rocblas_status_success);
-}
+#include "specialized/roclapack_simple_gemm.hpp"
 
 // -----------------------------------------------
 // trcpy_kernel copy and initialize a triangular matrix
@@ -1117,13 +519,15 @@ static rocblas_status gemm_gemv(rocblas_handle handle,
 #else
     if(idebug >= 1)
     {
-        char const ctransA = (transA == rocblas_operation_none) ? 'N'
-            : (transA == rocblas_operation_transpose)           ? 'T'
-                                                                : 'C';
+        auto op2char = [](rocblas_operation transA) -> char {
+            char const c_transA = (transA == rocblas_operation_none) ? 'N'
+                : (transA == rocblas_operation_transpose)            ? 'T'
+                                                                     : 'C';
+            return (c_transA);
+        };
 
-        char const ctransB = (transB == rocblas_operation_none) ? 'N'
-            : (transB == rocblas_operation_transpose)           ? 'T'
-                                                                : 'C';
+        char const ctransA = op2char(transA);
+        char const ctransB = op2char(transB);
         printf("gemm_gemv:transA=%c,transB=%c,m=%d,n=%d,k=%d \n", ctransA, ctransB, m, n, k);
     }
 #endif
@@ -1199,20 +603,6 @@ static rocblas_status gemm_gemv(rocblas_handle handle,
         // [.]         [.]                       [.]
         // [cn]        [cn]                      [an]
         // ------------------------------------------------------------------------------
-#ifdef NDEBUG
-#else
-        if(idebug >= 1)
-        {
-            char const c_transA = (transA == rocblas_operation_none) ? 'N'
-                : (transA == rocblas_operation_transpose)            ? 'T'
-                                                                     : 'C';
-
-            char const c_transB = (transB == rocblas_operation_none) ? 'N'
-                : (transB == rocblas_operation_transpose)            ? 'T'
-                                                                     : 'C';
-            printf("gemm_gemv: m=%d,n=%d,k=%d,transA=%c, transB=%c\n", m, n, k, c_transA, c_transB);
-        }
-#endif
 
         auto x = Amat;
         Istride offsetx = shift_Amat;
@@ -1246,25 +636,35 @@ static rocblas_status gemm_gemv(rocblas_handle handle,
     }
     else
     {
-        bool const use_simple_gemm = true;
+        I const mn_small = 16;
+        bool const is_small_mn = (m <= mn_small) || (n <= mn_small);
+        bool const use_simple_gemm = (is_small_mn);
 
         if(use_simple_gemm)
         {
-            ROCBLAS_CHECK(simple_gemm_template(handle, transA, transB, m, n, k, alpha,
+            ROCBLAS_CHECK(roclapack_simple_gemm_template(handle,
 
-                                               Amat, shift_Amat, ldA, stride_Amat, Bmat, shift_Bmat,
-                                               ldB, stride_Bmat,
+                                                         transA, transB, m, n, k, alpha,
 
-                                               beta, Cmat, shift_Cmat, ldC, stride_Cmat,
+                                                         Amat, shift_Amat, ldA, stride_Amat,
 
-                                               batch_count, workArr));
+                                                         Bmat, shift_Bmat, ldB, stride_Bmat,
+
+                                                         beta,
+
+                                                         Cmat, shift_Cmat, ldC, stride_Cmat,
+
+                                                         batch_count, workArr));
         }
         else
         {
-            ROCBLAS_CHECK(rocblasCall_gemm(handle, transA, transB, m, n, k, alpha,
+            ROCBLAS_CHECK(rocblasCall_gemm(handle,
 
-                                           Amat, shift_Amat, ldA, stride_Amat, Bmat, shift_Bmat,
-                                           ldB, stride_Bmat,
+                                           transA, transB, m, n, k, alpha,
+
+                                           Amat, shift_Amat, ldA, stride_Amat,
+
+                                           Bmat, shift_Bmat, ldB, stride_Bmat,
 
                                            beta, Cmat, shift_Cmat, ldC, stride_Cmat,
 
@@ -1449,7 +849,7 @@ static __global__ void geadd_kernel(char const trans,
         T const* const A_ = load_ptr_batch(AA, bid, shiftA, strideA);
         T* const C_ = load_ptr_batch(CC, bid, shiftC, strideC);
 
-        auto A = [=](auto i, auto j) { return (A_[idx2D(i, j, ldA)]); };
+        auto A = [=](auto i, auto j) -> const T& { return (A_[idx2D(i, j, ldA)]); };
 
         auto C = [=](auto i, auto j) -> T& { return (C_[idx2D(i, j, ldC)]); };
 
@@ -1458,20 +858,57 @@ static __global__ void geadd_kernel(char const trans,
             // ------------------
             // just copy matrices
             // ------------------
-            for(auto j = j_start; j < n; j += j_inc)
+            if(is_beta_zero && is_alpha_one)
             {
-                for(auto i = i_start; i < m; i += i_inc)
+                auto const i = i_start;
+                auto const j = j_start;
+                T const* ap_j = &(A(i, j));
+                T* cp_j = &(C(i, j));
+
+                for(auto j = j_start; j < n; j += j_inc)
                 {
-                    auto const aij = A(i, j);
-                    if(is_beta_zero && is_alpha_one)
+                    T const* __restrict__ ap = ap_j;
+                    T* __restrict__ cp = cp_j;
+
+                    for(auto i = i_start; i < m; i += i_inc)
                     {
-                        C(i, j) = aij;
+                        // ------------------
+                        // C(i, j) = A(i, j);
+                        // ------------------
+                        *cp = *ap;
+                        cp += i_inc;
+                        ap += i_inc;
                     }
-                    else
+
+                    ap_j += (ldA * j_inc);
+                    cp_j += (ldC * j_inc);
+                }
+            }
+            else
+            {
+                auto const i = i_start;
+                auto const j = j_start;
+                T const* ap_j = &(A(i, j));
+                T* cp_j = &(C(i, j));
+
+                for(auto j = j_start; j < n; j += j_inc)
+                {
+                    T const* __restrict__ ap = ap_j;
+                    T* __restrict__ cp = cp_j;
+
+                    for(auto i = i_start; i < m; i += i_inc)
                     {
-                        auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
-                        C(i, j) = beta_cij + alpha * aij;
+                        // auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
+                        // C(i, j) = beta_cij + alpha * A(i, j);
+                        auto const beta_cij = (is_beta_zero) ? zero : beta * (*cp);
+                        *cp = beta_cij + alpha * (*ap);
+
+                        cp += i_inc;
+                        ap += i_inc;
                     }
+
+                    ap_j += (ldA * j_inc);
+                    cp_j += (ldC * j_inc);
                 }
             }
         }
@@ -1931,7 +1368,8 @@ static rocblas_status formT3(rocblas_handle handle,
             }
         }
 
-        bool const use_gemm_gemv = (mm == 1) || (nn == 1);
+        I const mn_small = 16;
+        bool const use_gemm_gemv = (mm <= mn_small) || (nn <= mn_small);
         if(use_gemm_gemv)
         {
             // clang-format off
@@ -2434,7 +1872,8 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
-        bool const use_gemm_gemv = (mm == 1) || (nn == 1);
+        I const mn_small = 16;
+        bool const use_gemm_gemv = (mm <= mn_small) || (nn <= mn_small);
         if(use_gemm_gemv)
         {
             // clang-format off
@@ -2598,7 +2037,8 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
-        bool const use_gemm_gemv = (mm <= 4) || (nn <= 4);
+        I const mn_small = 16;
+        bool const use_gemm_gemv = (mm <= mn_small) || (nn <= mn_small);
         if(use_gemm_gemv)
         {
             // clang-format off
@@ -2884,15 +2324,6 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 
     auto sign = [](auto x) { return ((x > 0) ? 1 : (x < 0) ? -1 : 0); };
 
-    I const n_small = 16;
-    bool const is_n_small = (n <= n_small);
-
-    if(idebug >= 1)
-    {
-        printf("rgeqr3:entry: is_n_small=%d, n=%d, m=%d, batch_count=%d\n", (int)is_n_small, (int)n,
-               (int)m, (int)batch_count);
-    }
-
     if(n == 1)
     {
         // ------------------------------------------------------
@@ -2956,8 +2387,17 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
         // -----------------
         // perform recursion
         // -----------------
-        auto const n1 = rocblas_previous_po2(n - 1);
-        // auto const n1 = (is_n_small) ? n - 1 : rocblas_previous_po2(n - 1);
+
+        I const n_small = 8;
+        bool const is_n_small = (n <= n_small);
+
+        if(idebug >= 1)
+        {
+            printf("rgeqr3:entry: is_n_small=%d, n=%d, m=%d, batch_count=%d\n", (int)is_n_small,
+                   (int)n, (int)m, (int)batch_count);
+        }
+        // auto const n1 = rocblas_previous_po2(n - 1);
+        auto const n1 = (is_n_small) ? n - 1 : (n / 2);
         auto const n2 = n - n1;
 
         assert(n1 >= 1);

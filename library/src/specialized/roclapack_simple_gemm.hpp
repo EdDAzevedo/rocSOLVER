@@ -199,13 +199,14 @@ static void scale_beta_template(rocblas_handle handle,
     auto const nby = std::min(max_blocks, ceil(n, ny));
     auto const nbz = std::min(max_blocks, batch_count);
 
-    scale_beta_kernel<T, I, Istride, UC><<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(
+    ROCSOLVER_LAUNCH_KERNEL((scale_beta_kernel<T, I, Istride, UC>), dim3(nbx, nby, nbz),
+                            dim3(nx, ny, 1), 0, stream,
 
-        m, n, beta,
+                            m, n, beta,
 
-        Cmat, shift_Cmat, ldC, stride_Cmat,
+                            Cmat, shift_Cmat, ldC, stride_Cmat,
 
-        batch_count);
+                            batch_count);
 }
 
 // ------------------------------------------
@@ -689,18 +690,18 @@ static rocblas_status roclapack_simple_gemm_template(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    simple_gemm_kernel<T, I, Istride, UA, UB, UC>
-        <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(
+    ROCSOLVER_LAUNCH_KERNEL((simple_gemm_kernel<T, I, Istride, UA, UB, UC>), dim3(nbx, nby, nbz),
+                            dim3(nx, ny, 1), 0, stream,
 
-            c_transA, c_transB, m, n, k, alpha,
+                            c_transA, c_transB, m, n, k, alpha,
 
-            Amat, shift_Amat, ldA, stride_Amat,
+                            Amat, shift_Amat, ldA, stride_Amat,
 
-            Bmat, shift_Bmat, ldB, stride_Bmat,
+                            Bmat, shift_Bmat, ldB, stride_Bmat,
 
-            // note no beta
+                            // note no beta
 
-            Cmat, shift_Cmat, ldC, stride_Cmat, batch_count);
+                            Cmat, shift_Cmat, ldC, stride_Cmat, batch_count);
 
     return (rocblas_status_success);
 }
