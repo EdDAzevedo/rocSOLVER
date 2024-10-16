@@ -862,8 +862,8 @@ static __global__ void geadd_kernel(char const trans,
             {
                 auto const i = i_start;
                 auto const j = j_start;
-                T const* ap_j = &(A(i, j));
-                T* cp_j = &(C(i, j));
+                T const* __restrict__ ap_j = &(A(i, j));
+                T* __restrict__ cp_j = &(C(i, j));
 
                 for(auto j = j_start; j < n; j += j_inc)
                 {
@@ -888,8 +888,8 @@ static __global__ void geadd_kernel(char const trans,
             {
                 auto const i = i_start;
                 auto const j = j_start;
-                T const* ap_j = &(A(i, j));
-                T* cp_j = &(C(i, j));
+                T const* __restrict__ ap_j = &(A(i, j));
+                T* __restrict__ cp_j = &(C(i, j));
 
                 for(auto j = j_start; j < n; j += j_inc)
                 {
@@ -914,16 +914,35 @@ static __global__ void geadd_kernel(char const trans,
         }
         else
         {
+            I const i = i_start;
+            I const j = j_start;
+
+            T const* __restrict__ ap_j = (is_no_transpose) ? &(A(i, j)) : &(A(j, i));
+            I const ap_j_inc = (is_no_transpose) ? ldA * j_inc : j_inc;
+            I const ap_inc = (is_no_transpose) ? i_inc : ldC * i_inc;
+
+            T* __restrict__ cp_j = &(C(i, j));
+            I const cp_j_in = ldC * j_inc;
+
             for(auto j = j_start; j < n; j += j_inc)
             {
+                T const* __restrict__ ap = ap_j;
+                T* __restrict__ cp = cp_j;
+
                 for(auto i = i_start; i < m; i += i_inc)
                 {
-                    auto const aij = (is_transpose) ? A(j, i)
-                        : (is_conj_transpose)       ? dconj(A(j, i))
-                                                    : A(i, j);
+                    //                     auto const aij = (is_transpose) ? A(j, i)
+                    //                         : (is_conj_transpose)       ? dconj(A(j, i))
+                    //                                                     : A(i, j);
+                    //                     auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
+                    //                     C(i, j) = beta_cij + alpha * aij;
 
-                    auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
-                    C(i, j) = beta_cij + alpha * aij;
+                    auto const aij = (is_conj_transpose) ? conj(*ap) : (*ap);
+                    auto const beta_cij = (is_beta_zero) ? zero : beta * (*cp);
+                    *cp = beta_cij + alpha * aij;
+
+                    cp += i_inc;
+                    ap += ap_inc;
                 }
             }
         }
