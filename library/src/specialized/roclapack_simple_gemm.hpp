@@ -1,7 +1,17 @@
+#pragma once
 // ----------------------------------------------
 // determine block sizes for simple_gemm_kernel()
 // try to fit submatrices in LDS
 // ----------------------------------------------
+
+static int get_num_cu(int deviceId = 0)
+{
+    int ival = 0;
+    auto const attr = hipDeviceAttributeMultiprocessorCount;
+    HIP_CHECK(hipDeviceGetAttribute(&ival, attr, deviceId));
+    return (ival);
+}
+
 template <typename T, typename I>
 __host__ __device__ static void get_gemm_nb(char const transA,
                                             char const transB,
@@ -683,9 +693,11 @@ static rocblas_status roclapack_simple_gemm_template(rocblas_handle handle,
     I const nx = std::max(1, std::min(max_threads, nb_m));
     I const ny = std::max(1, max_threads / nx);
 
+    auto const num_cu = get_num_cu();
+
     I const nbx = std::min(max_blocks, ceil(m, nx));
     I const nby = std::min(max_blocks, ceil(n, ny));
-    I const nbz = std::min(max_blocks, std::min(32, kblocks) * batch_count);
+    I const nbz = std::min(max_blocks, std::min(num_cu, kblocks) * batch_count);
 
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
