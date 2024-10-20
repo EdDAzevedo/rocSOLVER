@@ -45,11 +45,11 @@
 ROCSOLVER_BEGIN_NAMESPACE
 
 constexpr int idebug = 0;
-constexpr bool use_trmm_outofplace = true;
+constexpr bool use_trmm_outofplace = false;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
-    ((sizeof(T) == 4) ? 128 : (sizeof(T) == 8) ? 64 : (sizeof(T) == 16) ? 64 : 32)
+    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 64 : (sizeof(T) == 16) ? 64 : 32)
 #endif
 
 // Is power of two
@@ -896,15 +896,26 @@ static __global__ void geadd_kernel(char const trans,
                     T const* __restrict__ ap = ap_j;
                     T* __restrict__ cp = cp_j;
 
-                    for(auto i = i_start; i < m; i += i_inc)
-                    {
-                        // auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
-                        // C(i, j) = beta_cij + alpha * A(i, j);
-                        auto const beta_cij = (is_beta_zero) ? zero : beta * (*cp);
-                        *cp = beta_cij + alpha * (*ap);
+                    // auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
+                    // C(i, j) = beta_cij + alpha * A(i, j);
 
-                        cp += i_inc;
-                        ap += i_inc;
+                    if(is_beta_zero)
+                    {
+                        for(auto i = i_start; i < m; i += i_inc)
+                        {
+                            *cp = alpha * (*ap);
+                            cp += i_inc;
+                            ap += i_inc;
+                        }
+                    }
+                    else
+                    {
+                        for(auto i = i_start; i < m; i += i_inc)
+                        {
+                            *cp = (*cp) * beta + alpha * (*ap);
+                            cp += i_inc;
+                            ap += i_inc;
+                        }
                     }
 
                     ap_j += (ldA * j_inc);
@@ -929,20 +940,25 @@ static __global__ void geadd_kernel(char const trans,
                 T const* __restrict__ ap = ap_j;
                 T* __restrict__ cp = cp_j;
 
-                for(auto i = i_start; i < m; i += i_inc)
+                if(is_beta_zero)
                 {
-                    //                     auto const aij = (is_transpose) ? A(j, i)
-                    //                         : (is_conj_transpose)       ? dconj(A(j, i))
-                    //                                                     : A(i, j);
-                    //                     auto const beta_cij = (is_beta_zero) ? zero : beta * C(i, j);
-                    //                     C(i, j) = beta_cij + alpha * aij;
-
-                    auto const aij = (is_conj_transpose) ? conj(*ap) : (*ap);
-                    auto const beta_cij = (is_beta_zero) ? zero : beta * (*cp);
-                    *cp = beta_cij + alpha * aij;
-
-                    cp += i_inc;
-                    ap += ap_inc;
+                    for(auto i = i_start; i < m; i += i_inc)
+                    {
+                        auto const aij = (is_conj_transpose) ? conj(*ap) : (*ap);
+                        *cp = alpha * aij;
+                        cp += i_inc;
+                        ap += ap_inc;
+                    }
+                }
+                else
+                {
+                    for(auto i = i_start; i < m; i += i_inc)
+                    {
+                        auto const aij = (is_conj_transpose) ? conj(*ap) : (*ap);
+                        *cp = beta * (*cp) + alpha * aij;
+                        cp += i_inc;
+                        ap += ap_inc;
+                    }
                 }
             }
         }
@@ -1057,6 +1073,12 @@ static rocblas_status formT3(rocblas_handle handle,
     auto idx2F = [=](auto i, auto j, auto ld) { return (idx2D((i - 1), (j - 1), ld)); };
 
     auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
+
+    auto swap = [](auto& x, auto& y) {
+        auto t = x;
+        x = y;
+        y = t;
+    };
 
     bool const has_work = (m >= 1) && (k1 >= 1) && (k2 >= 1) && (batch_count >= 1);
     if(!has_work)
@@ -1318,7 +1340,7 @@ static rocblas_status formT3(rocblas_handle handle,
                 I const nn = ncols_W;
 
                 // clang-format off
-            geadd_template( handle,
+                  geadd_template( handle,
 		    trans,
 		    mm,
 		    nn,
@@ -2407,7 +2429,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
         // perform recursion
         // -----------------
 
-        I const n_small = 8;
+        I const n_small = 32;
         bool const is_n_small = (n <= n_small);
 
         if(idebug >= 1)
@@ -2416,7 +2438,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
                    (int)n, (int)m, (int)batch_count);
         }
         // auto const n1 = rocblas_previous_po2(n - 1);
-        auto const n1 = (is_n_small) ? n - 1 : (n / 2);
+        auto const n1 = (is_n_small) ? (n - 1) : (n / 2);
         auto const n2 = n - n1;
 
         assert(n1 >= 1);
