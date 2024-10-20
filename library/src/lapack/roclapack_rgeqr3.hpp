@@ -49,7 +49,7 @@ constexpr bool use_trmm_outofplace = false;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
-    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 64 : (sizeof(T) == 16) ? 64 : 32)
+    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 48 : (sizeof(T) == 64) ? 32 : 32)
 #endif
 
 // Is power of two
@@ -636,8 +636,8 @@ static rocblas_status gemm_gemv(rocblas_handle handle,
     }
     else
     {
-        I const mn_small = 16;
-        bool const is_small_mn = (m <= mn_small) || (n <= mn_small);
+        I const mn_small = 32;
+        bool const is_small_mn = (m < mn_small) || (n < mn_small);
         bool const use_simple_gemm = (is_small_mn);
 
         if(use_simple_gemm)
@@ -1409,11 +1409,7 @@ static rocblas_status formT3(rocblas_handle handle,
             }
         }
 
-        I const mn_small = 16;
-        bool const use_gemm_gemv = (mm <= mn_small) || (nn <= mn_small);
-        if(use_gemm_gemv)
-        {
-            // clang-format off
+        // clang-format off
 	    ROCBLAS_CHECK( gemm_gemv( handle,
 			    transA, transB,
 			    mm, nn, kk,
@@ -1424,23 +1420,7 @@ static rocblas_status formT3(rocblas_handle handle,
 			    Wmat, shift_Wmat, ldW, stride_Wmat,
 			    batch_count,
 			    workArr ));
-            // clang-format on
-        }
-        else
-        {
-            // clang-format off
-	    ROCBLAS_CHECK( rocblasCall_gemm( handle,
-			    transA, transB,
-			    mm, nn, kk,
-			    &alpha,
-			    Ymat, shift_Y31, ldY, stride_Ymat,
-			    Ymat, shift_Y22, ldY, stride_Ymat,
-			    &beta,
-			    Wmat, shift_Wmat, ldW, stride_Wmat,
-			    batch_count,
-			    workArr ));
-            // clang-format on
-        }
+        // clang-format on
         total_bytes = total_bytes - size_gemm;
         pfree = pfree - size_gemm;
     }
@@ -1913,11 +1893,7 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
-        I const mn_small = 16;
-        bool const use_gemm_gemv = (mm <= mn_small) || (nn <= mn_small);
-        if(use_gemm_gemv)
-        {
-            // clang-format off
+        // clang-format off
             ROCBLAS_CHECK( gemm_gemv( handle,
                             transA, transB,
                             mm, nn, kk,
@@ -1928,23 +1904,7 @@ static rocblas_status applyQtC(rocblas_handle handle,
                             Wmat, shift_Wmat, ldW, stride_Wmat,
                             batch_count,
                             workArr ));
-            // clang-format on
-        }
-        else
-        {
-            // clang-format off
-            ROCBLAS_CHECK( rocblasCall_gemm( handle,
-                            transA, transB,
-                            mm, nn, kk,
-                            &alpha,
-                            Ymat, shift_Y2, ldY, stride_Ymat,
-                            Cmat, shift_C2, ldC, stride_Cmat,
-                            &beta,
-                            Wmat, shift_Wmat, ldW, stride_Wmat,
-                            batch_count,
-                            workArr ));
-            // clang-format on
-        }
+        // clang-format on
 
         pfree = pfree - size_workArr;
         total_bytes = total_bytes - size_workArr;
@@ -2078,11 +2038,7 @@ static rocblas_status applyQtC(rocblas_handle handle,
             }
         }
 
-        I const mn_small = 16;
-        bool const use_gemm_gemv = (mm <= mn_small) || (nn <= mn_small);
-        if(use_gemm_gemv)
-        {
-            // clang-format off
+        // clang-format off
             ROCBLAS_CHECK( gemm_gemv( handle,
                             transA, transB,
                             mm, nn, kk,
@@ -2093,23 +2049,7 @@ static rocblas_status applyQtC(rocblas_handle handle,
                             Cmat, shift_C2, ldC, stride_Cmat,
                             batch_count,
                             workArr ));
-            // clang-format on
-        }
-        else
-        {
-            // clang-format off
-            ROCBLAS_CHECK( rocblasCall_gemm( handle,
-                            transA, transB,
-                            mm, nn, kk,
-                            &alpha,
-                            Ymat, shift_Y2,   ldY, stride_Ymat,
-                            Wmat, shift_Wmat, ldW, stride_Wmat,
-                            &beta,
-                            Cmat, shift_C2, ldC, stride_Cmat,
-                            batch_count,
-                            workArr ));
-            // clang-format on
-        }
+        // clang-format on
 
         pfree = pfree - size_workArr;
         total_bytes = total_bytes - size_workArr;
@@ -2429,7 +2369,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
         // perform recursion
         // -----------------
 
-        I const n_small = 32;
+        I const n_small = 16;
         bool const is_n_small = (n <= n_small);
 
         if(idebug >= 1)
