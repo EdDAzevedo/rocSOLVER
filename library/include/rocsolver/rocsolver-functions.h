@@ -147,27 +147,38 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_log_flush_profile(void);
  * ===========================================================================
  */
 
-/*! \brief ENABLE_HYBRID_MODE enables or disables the use of hybrid (CPU+GPU) algorithms.
-    Hybrid algorithms are disabled by default.
+/*! \brief SET_ALG_MODE sets the algorithm mode to be used by a specific function.
 
     @param[in]
     handle      rocblas_handle.
     @param[in]
-    enabled     bool.
-                True if hybrid algorithms should be enabled; false if they should be disabled.
+    func        #rocsolver_function.
+                The function that will use the selected algorithm mode.
+    @param[in]
+    mode        #rocsolver_alg_mode.
+                The algorithm mode that will be used by the specified function.
     *************************************************************************/
 
-ROCSOLVER_EXPORT rocblas_status rocsolver_enable_hybrid_mode(rocblas_handle handle,
-                                                             const bool enabled);
+ROCSOLVER_EXPORT rocblas_status rocsolver_set_alg_mode(rocblas_handle handle,
+                                                       const rocsolver_function func,
+                                                       const rocsolver_alg_mode mode);
 
-/*! \brief IS_HYBRID_MODE_ENABLED returns true if hybrid (CPU+GPU) algorithms are enabled;
-    false otherwise.
+/*! \brief GET_ALG_MODE gets the algorithm mode selected for use by a specific function.
 
     @param[in]
     handle      rocblas_handle.
+    @param[in]
+    func        #rocsolver_function.
+                A function.
+    @param[out]
+    mode        pointer to #rocsolver_alg_mode.
+                On exit, the value is overwritten by the algorithm mode that will
+                be used by the specified function.
     *************************************************************************/
 
-ROCSOLVER_EXPORT bool rocsolver_is_hybrid_mode_enabled(rocblas_handle handle);
+ROCSOLVER_EXPORT rocblas_status rocsolver_get_alg_mode(rocblas_handle handle,
+                                                       const rocsolver_function func,
+                                                       rocsolver_alg_mode* mode);
 
 /*
  * ===========================================================================

@@ -112,7 +112,7 @@ Arguments bdsqr_setup_arguments(bdsqr_tuple tup)
     return arg;
 }
 
-template <bool HYBRID>
+template <rocsolver_alg_mode MODE>
 class BDSQR_BASE : public ::TestWithParam<bdsqr_tuple>
 {
 protected:
@@ -125,7 +125,7 @@ protected:
     void run_tests()
     {
         Arguments arg = bdsqr_setup_arguments(GetParam());
-        arg.hybrid = HYBRID;
+        arg.alg_mode = MODE;
 
         if(arg.peek<rocblas_int>("n") == 0 && arg.peek<char>("uplo") == 'L')
             testing_bdsqr_bad_arg<T>();
@@ -134,11 +134,11 @@ protected:
     }
 };
 
-class BDSQR : public BDSQR_BASE<false>
+class BDSQR : public BDSQR_BASE<rocsolver_alg_mode_gpu>
 {
 };
 
-class BDSQR_HYBRID : public BDSQR_BASE<true>
+class BDSQR_HYBRID : public BDSQR_BASE<rocsolver_alg_mode_hybrid>
 {
 };
 

@@ -32,7 +32,9 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
-rocblas_status rocsolver_enable_hybrid_mode_impl(rocblas_handle handle, const bool enabled)
+rocblas_status rocsolver_set_alg_mode_impl(rocblas_handle handle,
+                                           const rocsolver_function func,
+                                           const rocsolver_alg_mode mode)
 {
     if(!handle)
         return rocblas_status_invalid_handle;
@@ -46,43 +48,71 @@ rocblas_status rocsolver_enable_hybrid_mode_impl(rocblas_handle handle, const bo
     }
 
     rocsolver_handle_data handle_data = (rocsolver_handle_data)handle_ptr.get();
-    handle_data->hybrid_mode_enabled = enabled;
-    return rocblas_status_success;
+    switch(func)
+    {
+    case rocsolver_function_bdsqr:
+        if(mode == rocsolver_alg_mode_gpu || mode == rocsolver_alg_mode_hybrid)
+        {
+            handle_data->bdsqr_mode = mode;
+            return rocblas_status_success;
+        }
+    }
+
+    return rocblas_status_invalid_value;
 }
 
-bool rocsolver_is_hybrid_mode_enabled_impl(rocblas_handle handle)
+rocblas_status rocsolver_get_alg_mode_impl(rocblas_handle handle,
+                                           const rocsolver_function func,
+                                           rocsolver_alg_mode* mode)
 {
     if(!handle)
-        return false;
+        return rocblas_status_invalid_handle;
 
     std::shared_ptr<void> handle_ptr;
     ROCBLAS_CHECK(rocblas_internal_get_data_ptr(handle, handle_ptr));
 
     rocsolver_handle_data handle_data = (rocsolver_handle_data)handle_ptr.get();
-    return handle_data != nullptr && handle_data->hybrid_mode_enabled;
+    if(handle_data == nullptr)
+    {
+        *mode = rocsolver_alg_mode_gpu;
+    }
+    else
+    {
+        switch(func)
+        {
+        case rocsolver_function_bdsqr: *mode = handle_data->bdsqr_mode; break;
+        default: return rocblas_status_invalid_value;
+        }
+    }
+
+    return rocblas_status_success;
 }
 
 ROCSOLVER_END_NAMESPACE
 
 extern "C" {
 
-rocblas_status rocsolver_enable_hybrid_mode(rocblas_handle handle, const bool enabled)
+rocblas_status rocsolver_set_alg_mode(rocblas_handle handle,
+                                      const rocsolver_function func,
+                                      const rocsolver_alg_mode mode)
 try
 {
-    return rocsolver::rocsolver_enable_hybrid_mode_impl(handle, enabled);
+    return rocsolver::rocsolver_set_alg_mode_impl(handle, func, mode);
 }
 catch(...)
 {
     return rocsolver::exception_to_rocblas_status();
 }
 
-bool rocsolver_is_hybrid_mode_enabled(rocblas_handle handle)
+rocblas_status rocsolver_get_alg_mode(rocblas_handle handle,
+                                      const rocsolver_function func,
+                                      rocsolver_alg_mode* mode)
 try
 {
-    return rocsolver::rocsolver_is_hybrid_mode_enabled_impl(handle);
+    return rocsolver::rocsolver_get_alg_mode_impl(handle, func, mode);
 }
 catch(...)
 {
-    return false;
+    return rocsolver::exception_to_rocblas_status();
 }
 }

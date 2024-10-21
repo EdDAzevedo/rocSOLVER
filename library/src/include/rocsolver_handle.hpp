@@ -34,7 +34,7 @@ ROCSOLVER_BEGIN_NAMESPACE
 
 struct rocsolver_handle_data_
 {
-    bool hybrid_mode_enabled;
+    rocsolver_alg_mode bdsqr_mode;
 };
 
 typedef struct rocsolver_handle_data_* rocsolver_handle_data;

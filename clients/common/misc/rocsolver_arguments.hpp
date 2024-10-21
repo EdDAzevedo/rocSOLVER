@@ -33,6 +33,7 @@
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
 #include <rocblas/rocblas.h>
+#include <rocsolver/rocsolver.h>
 
 #include "program_options.hpp"
 
@@ -52,13 +53,14 @@ public:
     rocblas_int unit_check = 1;
     rocblas_int timing = 0;
     rocblas_int perf = 0;
-    rocblas_int hybrid = 0;
     rocblas_int singular = 0;
     rocblas_int iters = 5;
     rocblas_int mem_query = 0;
     rocblas_int profile = 0;
     rocblas_int profile_kernels = 0;
     rocblas_int batch_count = 1;
+
+    rocsolver_alg_mode alg_mode;
 
     // get and set function arguments
     template <typename T>

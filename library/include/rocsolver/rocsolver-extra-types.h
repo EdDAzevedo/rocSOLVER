@@ -1,5 +1,5 @@
 /* **************************************************************************
- * Copyright (C) 2019-2023 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Advanced Micro Devices, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -163,5 +163,21 @@ typedef enum rocsolver_rfinfo_mode_
     rocsolver_rfinfo_mode_cholesky
     = 272, /**< To work with Cholesky factorization (for symmetric positive definite sparse matrices). */
 } rocsolver_rfinfo_mode;
+
+/*! \brief Used by specific functions to specify the algorithm mode.
+ ********************************************************************************/
+typedef enum rocsolver_alg_mode_
+{
+    rocsolver_alg_mode_gpu
+    = 281, /**< Computations are all performed on the GPU. This is the default mode. */
+    rocsolver_alg_mode_hybrid = 282, /**< Computations are performed on the CPU and GPU. */
+} rocsolver_alg_mode;
+
+/*! \brief Used to specify a function with multiple supported algorithm modes.
+ ********************************************************************************/
+typedef enum rocsolver_function_
+{
+    rocsolver_function_bdsqr = 401,
+} rocsolver_function;
 
 #endif /* ROCSOLVER_EXTRA_TYPES_H */

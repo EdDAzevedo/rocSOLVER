@@ -158,7 +158,7 @@ Arguments gesvd_setup_arguments(gesvd_tuple tup)
     return arg;
 }
 
-template <bool HYBRID>
+template <rocsolver_alg_mode MODE>
 class GESVD_BASE : public ::TestWithParam<gesvd_tuple>
 {
 protected:
@@ -171,7 +171,7 @@ protected:
     void run_tests()
     {
         Arguments arg = gesvd_setup_arguments(GetParam());
-        arg.hybrid = HYBRID;
+        arg.alg_mode = MODE;
 
         if(arg.peek<rocblas_int>("m") == 0 && arg.peek<rocblas_int>("n") == 0
            && arg.peek<char>("left_svect") == 'N' && arg.peek<char>("right_svect") == 'N')
@@ -182,11 +182,11 @@ protected:
     }
 };
 
-class GESVD : public GESVD_BASE<false>
+class GESVD : public GESVD_BASE<rocsolver_alg_mode_gpu>
 {
 };
 
-class GESVD_HYBRID : public GESVD_BASE<true>
+class GESVD_HYBRID : public GESVD_BASE<rocsolver_alg_mode_hybrid>
 {
 };
 

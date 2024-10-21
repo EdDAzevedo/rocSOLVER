@@ -1209,6 +1209,9 @@ rocblas_status rocsolver_bdsqr_template(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
+    rocsolver_alg_mode alg_mode;
+    ROCBLAS_CHECK(rocsolver_get_alg_mode(handle, rocsolver_function_bdsqr, &alg_mode));
+
     // set tolerance and max number of iterations:
     // machine precision (considering rounding strategy)
     S eps = get_epsilon<S>() / 2;
@@ -1251,7 +1254,7 @@ rocblas_status rocsolver_bdsqr_template(rocblas_handle handle,
     ROCSOLVER_LAUNCH_KERNEL((bdsqr_init<T>), gridBasic, threadsBasic, 0, stream, n, D, strideD, E,
                             strideE, info, maxiter, sfm, tol, splits_map, work, strideW, completed);
 
-    if(rocsolver_is_hybrid_mode_enabled(handle))
+    if(alg_mode == rocsolver_alg_mode_hybrid)
     {
         ROCBLAS_CHECK(rocsolver_bdsqr_host_batch_template<T, S, W1, W2, W3, rocblas_int>(
             handle, uplo, n, nv, nu, nc, D, strideD, E, strideE, V, shiftV, ldv, strideV, U, shiftU,
