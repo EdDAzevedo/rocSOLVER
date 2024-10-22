@@ -548,9 +548,10 @@ void testing_gesvd(Arguments& argus)
     rocblas_int bc = argus.batch_count;
     rocblas_int hot_calls = argus.iters;
 
-    if(argus.alg_mode != rocsolver_alg_mode_gpu)
-        EXPECT_ROCBLAS_STATUS(rocsolver_set_alg_mode(handle, rocsolver_function_bdsqr, argus.alg_mode),
-                              rocblas_status_success);
+    if(argus.alg_mode)
+        EXPECT_ROCBLAS_STATUS(
+            rocsolver_set_alg_mode(handle, rocsolver_function_bdsqr, rocsolver_alg_mode_hybrid),
+            rocblas_status_success);
 
     // check non-supported values
     if(rightv == rocblas_svect_overwrite && leftv == rocblas_svect_overwrite)

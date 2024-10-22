@@ -158,7 +158,7 @@ Arguments gesvd_setup_arguments(gesvd_tuple tup)
     return arg;
 }
 
-template <rocsolver_alg_mode MODE>
+template <rocblas_int MODE>
 class GESVD_BASE : public ::TestWithParam<gesvd_tuple>
 {
 protected:
@@ -182,11 +182,11 @@ protected:
     }
 };
 
-class GESVD : public GESVD_BASE<rocsolver_alg_mode_gpu>
+class GESVD : public GESVD_BASE<0>
 {
 };
 
-class GESVD_HYBRID : public GESVD_BASE<rocsolver_alg_mode_hybrid>
+class GESVD_HYBRID : public GESVD_BASE<1>
 {
 };
 

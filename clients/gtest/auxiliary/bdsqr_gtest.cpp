@@ -112,7 +112,7 @@ Arguments bdsqr_setup_arguments(bdsqr_tuple tup)
     return arg;
 }
 
-template <rocsolver_alg_mode MODE>
+template <rocblas_int MODE>
 class BDSQR_BASE : public ::TestWithParam<bdsqr_tuple>
 {
 protected:
@@ -134,11 +134,11 @@ protected:
     }
 };
 
-class BDSQR : public BDSQR_BASE<rocsolver_alg_mode_gpu>
+class BDSQR : public BDSQR_BASE<0>
 {
 };
 
-class BDSQR_HYBRID : public BDSQR_BASE<rocsolver_alg_mode_hybrid>
+class BDSQR_HYBRID : public BDSQR_BASE<1>
 {
 };
 
