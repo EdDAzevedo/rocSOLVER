@@ -50,6 +50,7 @@ rocblas_status rocsolver_set_alg_mode_impl(rocblas_handle handle,
     rocsolver_handle_data handle_data = (rocsolver_handle_data)handle_ptr.get();
     switch(func)
     {
+    case rocsolver_function_gesvd:
     case rocsolver_function_bdsqr:
         if(mode == rocsolver_alg_mode_gpu || mode == rocsolver_alg_mode_hybrid)
         {
@@ -80,6 +81,7 @@ rocblas_status rocsolver_get_alg_mode_impl(rocblas_handle handle,
     {
         switch(func)
         {
+        case rocsolver_function_gesvd:
         case rocsolver_function_bdsqr: *mode = handle_data->bdsqr_mode; break;
         default: return rocblas_status_invalid_value;
         }

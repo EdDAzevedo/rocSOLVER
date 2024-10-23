@@ -550,7 +550,7 @@ void testing_gesvd(Arguments& argus)
 
     if(argus.alg_mode)
         EXPECT_ROCBLAS_STATUS(
-            rocsolver_set_alg_mode(handle, rocsolver_function_bdsqr, rocsolver_alg_mode_hybrid),
+            rocsolver_set_alg_mode(handle, rocsolver_function_gesvd, rocsolver_alg_mode_hybrid),
             rocblas_status_success);
 
     // check non-supported values

@@ -178,6 +178,7 @@ typedef enum rocsolver_alg_mode_
 typedef enum rocsolver_function_
 {
     rocsolver_function_bdsqr = 401,
+    rocsolver_function_gesvd = 402,
 } rocsolver_function;
 
 #endif /* ROCSOLVER_EXTRA_TYPES_H */
