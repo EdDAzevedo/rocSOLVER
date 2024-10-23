@@ -428,6 +428,7 @@ static int get_num_cu(int deviceId = 0)
         swap(lstride_Atmp, lstride_Vtmp);                         \
         swap(ldatmp, ldvtmp);                                     \
         swap(shift_Atmp, shift_Vtmp);                             \
+        HIP_CHECK(hipStreamSynchronize(stream));                  \
     }
 
 #define SWAP_A_Atmp()                                          \
@@ -467,7 +468,6 @@ static int get_num_cu(int deviceId = 0)
     }
 
 #define SWAP_AJ_VJ()                            \
-    HIP_CHECK(hipStreamSynchronize(stream));    \
     swap(Vj, Aj);                               \
     swap(Vj_last, Aj_last);                     \
     swap(Vj_ptr_array, Aj_ptr_array);           \
@@ -4444,7 +4444,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         //  -------------
         bool constexpr use_swap_kernel = false;
         bool constexpr do_overwrite_A_with_V = false;
-        bool constexpr use_swap_Atmp_Vtmp = false;
+        bool use_swap_Atmp_Vtmp = true;
         bool constexpr use_swap_aj_vj = true;
         bool constexpr use_gather2D = false;
 
@@ -5253,6 +5253,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             TRACE(2);
 
                             {
+                                use_swap_Atmp_Vtmp = true;
                                 if(use_swap_Atmp_Vtmp)
                                 {
                                     SWAP_Atmp_Vtmp();
@@ -5957,6 +5958,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         // clang-format on
 
                         {
+                            use_swap_Atmp_Vtmp = true;
                             if(use_swap_Atmp_Vtmp)
                             {
                                 SWAP_Atmp_Vtmp();
@@ -6005,6 +6007,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             // swap or copy Vtmp <- Atmp
                             // -------------------------
 
+                            use_swap_Atmp_Vtmp = false;
                             if(use_swap_Atmp_Vtmp)
                             {
                                 SWAP_Atmp_Vtmp();
