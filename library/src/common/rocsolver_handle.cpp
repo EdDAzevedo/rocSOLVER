@@ -41,13 +41,22 @@ rocblas_status rocsolver_set_alg_mode_impl(rocblas_handle handle,
 
     std::shared_ptr<void> handle_ptr;
     ROCBLAS_CHECK(rocblas_internal_get_data_ptr(handle, handle_ptr));
-    if(handle_ptr.get() == nullptr)
+    rocsolver_handle_data handle_data = (rocsolver_handle_data)handle_ptr.get();
+
+    if(handle_data == nullptr)
     {
         handle_ptr = std::make_shared<rocsolver_handle_data_>();
+        handle_data = (rocsolver_handle_data)handle_ptr.get();
+        handle_data->checksum = sizeof(rocsolver_handle_data_);
+
         ROCBLAS_CHECK(rocblas_internal_set_data_ptr(handle, handle_ptr));
     }
+    else
+    {
+        if(handle_data->checksum != sizeof(rocsolver_handle_data_))
+            return rocblas_status_internal_error;
+    }
 
-    rocsolver_handle_data handle_data = (rocsolver_handle_data)handle_ptr.get();
     switch(func)
     {
     case rocsolver_function_gesvd:
@@ -71,14 +80,17 @@ rocblas_status rocsolver_get_alg_mode_impl(rocblas_handle handle,
 
     std::shared_ptr<void> handle_ptr;
     ROCBLAS_CHECK(rocblas_internal_get_data_ptr(handle, handle_ptr));
-
     rocsolver_handle_data handle_data = (rocsolver_handle_data)handle_ptr.get();
+
     if(handle_data == nullptr)
     {
         *mode = rocsolver_alg_mode_gpu;
     }
     else
     {
+        if(handle_data->checksum != sizeof(rocsolver_handle_data_))
+            return rocblas_status_internal_error;
+
         switch(func)
         {
         case rocsolver_function_gesvd:

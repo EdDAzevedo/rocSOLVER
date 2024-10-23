@@ -34,6 +34,8 @@ ROCSOLVER_BEGIN_NAMESPACE
 
 struct rocsolver_handle_data_
 {
+    rocblas_int checksum;
+
     rocsolver_alg_mode bdsqr_mode;
 };
 
