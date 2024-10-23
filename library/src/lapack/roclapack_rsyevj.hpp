@@ -39,6 +39,14 @@
 ROCSOLVER_BEGIN_NAMESPACE
 static constexpr int idebug = 0;
 
+static int get_num_cu(int deviceId = 0)
+{
+    int ival = 0;
+    auto const attr = hipDeviceAttributeMultiprocessorCount;
+    HIP_CHECK(hipDeviceGetAttribute(&ival, attr, deviceId));
+    return (ival);
+}
+
 #define TRACE(ival)                                       \
     {                                                     \
         if(idebug >= ival)                                \
@@ -990,7 +998,12 @@ static I get_nb(I const n, bool const need_V)
     auto is_odd = [](auto n) { return ((n % 2) != 0); };
 
     I const nb0 = RSYEVJ_BLOCKED_SWITCH(T, need_V) / 2;
-    I nb = nb0;
+    I const nb_min = std::max(1, nb0 / 4);
+
+    I const num_cu = get_num_cu();
+    I const nb1 = (n / (2 * num_cu));
+
+    I nb = std::max(nb_min, std::min(nb1, nb0));
     while(is_odd(ceil(n, nb)))
     {
         nb--;
@@ -1279,7 +1292,9 @@ static void check_symmetry(I const n,
     auto const istat = hipMemsetAsync(&(n_unsymmetric[0]), 0, sizeof(I) * batch_count, stream);
     assert(istat == HIP_SUCCESS);
 
-    auto const max_thread_blocks = 64 * 1000;
+    auto const num_cu = get_num_cu();
+
+    auto const max_thread_blocks = num_cu;
     auto const nx = NX_THREADS;
     auto const ny = NY_THREADS;
     auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
@@ -1383,9 +1398,9 @@ template <typename T, typename I>
 static __device__ void lacpy_body(char const uplo,
                                   I const m,
                                   I const n,
-                                  T const* const A_,
+                                  T const* const __restrict__ A_,
                                   I const lda,
-                                  T* B_,
+                                  T* __restrict__ B_,
                                   I const ldb,
                                   I const i_start,
                                   I const i_inc,
@@ -1402,7 +1417,7 @@ static __device__ void lacpy_body(char const uplo,
 
     auto B = [=](auto i, auto j) -> T& { return (B_[idx2D(i, j, ldb)]); };
 
-    bool constexpr use_pointers = true;
+    bool constexpr use_pointers = false;
     if(use_full)
     {
         if(use_pointers)
@@ -1440,20 +1455,24 @@ static __device__ void lacpy_body(char const uplo,
             }
         }
     }
-    else
+    else if(use_upper)
     {
         for(auto j = j_start; j < n; j += j_inc)
         {
-            for(auto i = i_start; i < m; i += i_inc)
+            auto const mm = std::min(m, j + 1);
+            for(auto i = i_start; i < mm; i += i_inc)
             {
-                bool const is_upper = (i <= j);
-                bool const is_lower = (i >= j);
-
-                bool const do_assignment = (use_upper && is_upper) || (use_lower && is_lower);
-                if(do_assignment)
-                {
-                    B(i, j) = A(i, j);
-                }
+                B(i, j) = A(i, j);
+            }
+        }
+    }
+    else if(use_lower)
+    {
+        for(auto j = j_start; j < n; j += j_inc)
+        {
+            for(auto i = j + i_start; i < m; i += i_inc)
+            {
+                B(i, j) = A(i, j);
             }
         }
     }
@@ -1874,6 +1893,7 @@ __global__ static void copy_diagonal_kernel(I const n,
 // launch as
 // dim3(nbx,nby,nbz), dim3(nx,ny,1)
 // ---------------------------------
+
 template <typename T, typename I, typename AA, typename CC, typename Istride>
 __global__ static void lacpy_kernel(char const uplo,
                                     I const m,
@@ -1888,6 +1908,12 @@ __global__ static void lacpy_kernel(char const uplo,
                                     Istride strideC,
                                     I const batch_count)
 {
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return;
+    }
+
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
 
@@ -1899,8 +1925,8 @@ __global__ static void lacpy_kernel(char const uplo,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        T const* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+        T const* const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        T* const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
         bool const use_upper = (uplo == 'U') || (uplo == 'u');
         bool const use_lower = (uplo == 'L') || (uplo == 'l');
@@ -1908,7 +1934,7 @@ __global__ static void lacpy_kernel(char const uplo,
 
         auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
 
-        auto A = [=](auto i, auto j) { return (Ap[idx2D(i, j, lda)]); };
+        auto A = [=](auto i, auto j) -> const T& { return (Ap[idx2D(i, j, lda)]); };
 
         auto C = [=](auto i, auto j) -> T& { return (Cp[idx2D(i, j, ldc)]); };
 
@@ -1922,25 +1948,111 @@ __global__ static void lacpy_kernel(char const uplo,
                 }
             }
         }
-        else
+        else if(use_upper)
         {
             for(I j = j_start; j < n; j += j_inc)
             {
-                for(I i = i_start; i < m; i += i_inc)
+                auto const mm = std::min(m, j + 1);
+                for(I i = i_start; i < mm; i += i_inc)
                 {
-                    bool const is_upper = (i <= j);
-                    bool const is_lower = (i >= j);
-
-                    bool const do_assignment = (use_upper && is_upper) || (use_lower && is_lower);
-                    if(do_assignment)
+                    C(i, j) = A(i, j);
+                }
+            }
+        }
+        else if(use_lower)
+        {
+            for(auto j = j_start; j < n; j += j_inc)
+            {
+                for(auto i = j + i_start; i < m; i += i_inc)
+                {
                     {
                         C(i, j) = A(i, j);
-                    };
-                } // end for i
-            } // end for j
+                    }
+                }
+            }
         }
     }
 }
+
+#if(0)
+template <typename T, typename I, typename AA, typename CC, typename Istride>
+__global__ static void lacpy_kernel(char const uplo,
+                                    I const m,
+                                    I const n,
+                                    AA A,
+                                    Istride const shiftA,
+                                    I const lda,
+                                    Istride strideA,
+                                    CC C,
+                                    Istride const shiftC,
+                                    I const ldc,
+                                    Istride strideC,
+                                    I const batch_count)
+{
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(has_work)
+    {
+        return;
+    }
+
+    auto const nbx = hipGridDim_x;
+    auto const nby = hipGridDim_y;
+    auto const nbz = hipGridDim_z;
+
+    auto const nx = hipBlockDim_x;
+    auto const ny = hipBlockDim_y;
+
+    // bool const use_lacpy_kernel_general = !((nbx * nx >= m) && (nby * ny >= n) && (nbz >= batch_count));
+    bool const use_lacpy_kernel_general = true;
+    if(use_lacpy_kernel_general)
+    {
+        lacpy_kernel_general<T, I, AA, CC, Istride>(uplo, m, n,
+
+                                                    A, shiftA, lda, strideA,
+
+                                                    C, shiftC, ldc, strideC,
+
+                                                    batch_count);
+    }
+    else
+    {
+        auto const ix = hipThreadIdx_x;
+        auto const iy = hipThreadIdx_y;
+
+        auto const ibx = hipBlockIdx_x;
+        auto const iby = hipBlockIdx_y;
+        auto const ibz = hipBlockIdx_z;
+
+        auto const ii = ix + ibx * nx;
+        auto const jj = iy + iby * ny;
+
+        auto const bid = ibz;
+
+        bool const is_in_range = (ii < m) && (jj < n) && (bid < batch_count);
+        if(is_in_range)
+        {
+            T const* const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
+            T* const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
+
+            bool const use_upper = (uplo == 'U') || (uplo == 'u');
+            bool const use_lower = (uplo == 'L') || (uplo == 'l');
+            bool const use_full = (!use_upper) && (!use_lower);
+
+            bool const is_upper = (ii <= jj);
+            bool const is_lower = (ii >= jj);
+
+            bool const do_assignment
+                = (use_full) || (use_upper && is_upper) || (use_lower && is_lower);
+            if(do_assignment)
+            {
+                auto const ip_c = ii + jj * static_cast<int64_t>(ldc);
+                auto const ip_a = ii + jj * static_cast<int64_t>(lda);
+                Cp[ip_c] = Ap[ip_a];
+            }
+        }
+    }
+}
+#endif
 
 // ---------------------------------
 // swap m by n submatrix between A and C
@@ -2352,12 +2464,13 @@ static __device__ void
         auto taylor = [=](double t2) {
             // if t is small, consider Taylor expansion
             // 1 + t^2/2 - t^4/8 + t^6/16 - (5 t^8)/128 + (7 t^10)/256 (Taylor series)
-            auto const ans
-                = (((((7.0 / 256.0) * t2 + (-5.0 / 128.0)) * t2 + (1.0 / 16.0)) * t2 + (-1.0 / 8.0))
-                       * t2
-                   + (1.0 / 2.0))
-                    * t2
-                + 1.0;
+            auto constexpr c10 = 7.0 / 256.0;
+            auto constexpr c8 = -5.0 / 128.0;
+            auto constexpr c6 = 1.0 / 16.0;
+            auto constexpr c4 = -1.0 / 8.0;
+            auto constexpr c2 = 1.0 / 2.0;
+
+            auto const ans = 1.0 + ((((c10 * t2 + c8) * t2 + c6) * t2 + c4) * t2 + c2) * t2;
             return (ans);
         };
 
@@ -4410,7 +4523,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
 		size_t const lmem_size = sizeof(S)*nb;
                 ROCSOLVER_LAUNCH_KERNEL((cal_Gmat_kernel<T, I, S, Istride, U>),
-				dim3(1, 1, nbz), dim3(nx, ny, 1), lmem_size, stream,
+				dim3(nbx, nby, nbz), dim3(nx, ny, 1), lmem_size, stream,
 				n, nb,
 				A, shiftA, lda, strideA,
 				Gmat,
@@ -5430,7 +5543,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 // no need for too many sweeps
                                 // since the blocks will be over-written
                                 // ---------------------------
-                                I const rsyevj_max_sweeps = std::min(max_sweeps, 30);
+                                I const small_max_sweeps = 30;
+                                I const rsyevj_max_sweeps = std::min(max_sweeps, small_max_sweeps);
                                 auto const rsyevj_atol = atol / nblocks;
 
                                 // -----------------------------------------
