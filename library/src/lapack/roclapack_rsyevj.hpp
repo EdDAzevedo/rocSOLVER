@@ -5543,7 +5543,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 // no need for too many sweeps
                                 // since the blocks will be over-written
                                 // ---------------------------
-                                I const small_max_sweeps = 30;
+                                I const small_max_sweeps = 3;
                                 I const rsyevj_max_sweeps = std::min(max_sweeps, small_max_sweeps);
                                 auto const rsyevj_atol = atol / nblocks;
 
