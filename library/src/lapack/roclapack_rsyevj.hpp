@@ -1294,7 +1294,7 @@ static void check_symmetry(I const n,
 
     auto const num_cu = get_num_cu();
 
-    auto const max_thread_blocks = num_cu;
+    auto const max_thread_blocks = 4 * num_cu;
     auto const nx = NX_THREADS;
     auto const ny = NY_THREADS;
     auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
@@ -4476,7 +4476,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             // -------------------------------------------
             auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
-            auto const max_thread_blocks = 1024;
+            auto const num_cu = get_num_cu();
+            auto const max_thread_blocks = 4 * num_cu;
             auto const nx = 32;
             auto const ny = 32;
             auto const nbx = std::min(max_thread_blocks, ceil(n, nx));
@@ -5346,14 +5347,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             Istride const strideA_diag = (2 * nb) * (2 * nb);
 
-                            // clang-format off
+                            {
+                                auto const nbx1 = std::min(max_thread_blocks, ceil(m1, nx));
+                                auto const nby1 = std::min(max_thread_blocks, ceil(n1, ny));
+                                // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
-				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+				    dim3(nbx1, nby1, nbz2), dim3(nx, ny, 1), 0, stream,
 				    cl_uplo, m1, n1,
 				    Atmp_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 				    Aj_ptr_array, shift_Aj, ldaj, lstride_Aj,
 				    lbatch_count);
-                            // clang-format on
+                                // clang-format on
+                            }
 
                             TRACE(2);
 
@@ -5364,14 +5369,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             I const m2 = (nb + nb_last);
                             I const n2 = (nb + nb_last);
 
-                            // clang-format off
+                            {
+                                auto const nbx2 = std::min(max_thread_blocks, ceil(m2, nx));
+                                auto const nby2 = std::min(max_thread_blocks, ceil(n2, ny));
+                                // clang-format off
                             ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
-					    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+					    dim3(nbx2, nby2, nbz), dim3(nx, ny, 1), 0, stream,
 					    cl_uplo, m2, n2,
 					    Atmp_last_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					    Aj_last_ptr_array, shift_Aj, ldaj_last, lstride_Aj_last,
 					    batch_count_remain);
-                            // clang-format on
+                                // clang-format on
+                            }
 #ifdef NDEBUG
 #else
                             if(idebug >= 2)
@@ -5544,7 +5553,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 // no need for too many sweeps
                                 // since the blocks will be over-written
                                 // ---------------------------
-                                I const small_max_sweeps = 3;
+                                I const small_max_sweeps = 5;
                                 I const rsyevj_max_sweeps = std::min(max_sweeps, small_max_sweeps);
                                 auto const rsyevj_atol = atol / nblocks;
 
@@ -5817,14 +5826,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         I const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
-                        // clang-format off
+                        {
+                            auto const nbx1 = std::min(max_thread_blocks, ceil(m1, nx));
+                            auto const nby1 = std::min(max_thread_blocks, ceil(n1, ny));
+                            // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, T**, Istride>),
-					dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
+					dim3(nbx1, nby1, nbz2), dim3(nx, ny, 1), 0, stream,
 					cl_uplo, m1, n1,
 					Aj, shift_Aj, ldaj, lstride_Aj,
 					Atmp_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					lbatch_count);
-                        // clang-format on
+                            // clang-format on
+                        }
 
                         // ------------------------------------------------------
                         // copy the last diagonal blocks from Aj_last back to Atmp
@@ -5833,14 +5846,18 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         I const m2 = (nb + nb_last);
                         I const n2 = (nb + nb_last);
 
-                        // clang-format off
+                        {
+                            auto const nbx2 = std::min(max_thread_blocks, ceil(m2, nx));
+                            auto const nby2 = std::min(max_thread_blocks, ceil(n2, ny));
+                            // clang-format off
                         ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, T**, Istride>),
-					dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+					dim3(nbx2, nby2, nbz), dim3(nx, ny, 1), 0, stream,
 					cl_uplo, m2, n2,
 					Aj_last, shift_Aj_last, ldaj_last, lstride_Aj_last,
 					Atmp_last_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					batch_count_remain);
-                        // clang-format on
+                            // clang-format on
+                        }
                     }
 
                     TRACE(2);
