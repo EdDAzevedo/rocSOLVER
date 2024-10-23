@@ -4445,7 +4445,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         bool constexpr use_swap_kernel = false;
         bool constexpr do_overwrite_A_with_V = false;
         bool constexpr use_swap_Atmp_Vtmp = false;
-        bool constexpr use_swap_aj_vj = false;
+        bool constexpr use_swap_aj_vj = true;
         bool constexpr use_gather2D = false;
 
         std::vector<T*> h_A_ptr_array(batch_count);
