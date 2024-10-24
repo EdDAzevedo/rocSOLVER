@@ -3,7 +3,16 @@
 Full documentation for rocSOLVER is available at the [rocSOLVER documentation](https://rocm.docs.amd.com/projects/rocSOLVER/en/latest/index.html).
 
 ## (Unreleased) rocSOLVER
+
 ### Added
+
+* Algorithm selection APIs for hybrid computation
+* SVD of bidiagonal matrices routine:
+    - BDSQR now supports hybrid computation
+* SVD of general matrices routine:
+    - GESVD now supports hybrid computation
+
+### Optimized
 ### Changed
 ### Removed
 ### Optimized
