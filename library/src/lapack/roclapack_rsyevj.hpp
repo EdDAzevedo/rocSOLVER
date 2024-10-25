@@ -1932,9 +1932,9 @@ __global__ static void lacpy_kernel(char const uplo,
         bool const use_lower = (uplo == 'L') || (uplo == 'l');
         bool const use_all = (!use_upper) && (!use_lower);
 
-        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
+        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
-        auto A = [=](auto i, auto j) -> const T& { return (Ap[idx2D(i, j, lda)]); };
+        auto A = [=](auto i, auto j) -> T { return (Ap[idx2D(i, j, lda)]); };
 
         auto C = [=](auto i, auto j) -> T& { return (Cp[idx2D(i, j, ldc)]); };
 
@@ -1961,98 +1961,16 @@ __global__ static void lacpy_kernel(char const uplo,
         }
         else if(use_lower)
         {
-            for(auto j = j_start; j < n; j += j_inc)
+            for(I j = j_start; j < n; j += j_inc)
             {
-                for(auto i = j + i_start; i < m; i += i_inc)
+                for(I i = j + i_start; i < m; i += i_inc)
                 {
-                    {
-                        C(i, j) = A(i, j);
-                    }
+                    C(i, j) = A(i, j);
                 }
             }
         }
     }
 }
-
-#if(0)
-template <typename T, typename I, typename AA, typename CC, typename Istride>
-__global__ static void lacpy_kernel(char const uplo,
-                                    I const m,
-                                    I const n,
-                                    AA A,
-                                    Istride const shiftA,
-                                    I const lda,
-                                    Istride strideA,
-                                    CC C,
-                                    Istride const shiftC,
-                                    I const ldc,
-                                    Istride strideC,
-                                    I const batch_count)
-{
-    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
-    if(has_work)
-    {
-        return;
-    }
-
-    auto const nbx = hipGridDim_x;
-    auto const nby = hipGridDim_y;
-    auto const nbz = hipGridDim_z;
-
-    auto const nx = hipBlockDim_x;
-    auto const ny = hipBlockDim_y;
-
-    // bool const use_lacpy_kernel_general = !((nbx * nx >= m) && (nby * ny >= n) && (nbz >= batch_count));
-    bool const use_lacpy_kernel_general = true;
-    if(use_lacpy_kernel_general)
-    {
-        lacpy_kernel_general<T, I, AA, CC, Istride>(uplo, m, n,
-
-                                                    A, shiftA, lda, strideA,
-
-                                                    C, shiftC, ldc, strideC,
-
-                                                    batch_count);
-    }
-    else
-    {
-        auto const ix = hipThreadIdx_x;
-        auto const iy = hipThreadIdx_y;
-
-        auto const ibx = hipBlockIdx_x;
-        auto const iby = hipBlockIdx_y;
-        auto const ibz = hipBlockIdx_z;
-
-        auto const ii = ix + ibx * nx;
-        auto const jj = iy + iby * ny;
-
-        auto const bid = ibz;
-
-        bool const is_in_range = (ii < m) && (jj < n) && (bid < batch_count);
-        if(is_in_range)
-        {
-            T const* const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
-            T* const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
-
-            bool const use_upper = (uplo == 'U') || (uplo == 'u');
-            bool const use_lower = (uplo == 'L') || (uplo == 'l');
-            bool const use_full = (!use_upper) && (!use_lower);
-
-            bool const is_upper = (ii <= jj);
-            bool const is_lower = (ii >= jj);
-
-            bool const do_assignment
-                = (use_full) || (use_upper && is_upper) || (use_lower && is_lower);
-            if(do_assignment)
-            {
-                auto const ip_c = ii + jj * static_cast<int64_t>(ldc);
-                auto const ip_a = ii + jj * static_cast<int64_t>(lda);
-                Cp[ip_c] = Ap[ip_a];
-            }
-        }
-    }
-}
-#endif
 
 // ---------------------------------
 // swap m by n submatrix between A and C
