@@ -1895,18 +1895,17 @@ __global__ static void copy_diagonal_kernel(I const n,
 // ---------------------------------
 
 template <typename T, typename I, typename AA, typename CC, typename Istride>
-__device__ static void lacpy_kernel_thread(char const uplo,
-                                           I const m,
-                                           I const n,
-                                           AA A,
-                                           Istride const shiftA,
-                                           I const lda,
-                                           Istride strideA,
-                                           CC C,
-                                           Istride const shiftC,
-                                           I const ldc,
-                                           Istride strideC,
-                                           I const batch_count)
+__device__ static void copy2D_kernel_thread(I const m,
+                                            I const n,
+                                            AA A,
+                                            Istride const shiftA,
+                                            I const lda,
+                                            Istride strideA,
+                                            CC C,
+                                            Istride const shiftC,
+                                            I const ldc,
+                                            Istride strideC,
+                                            I const batch_count)
 {
     auto const nbx = hipGridDim_x;
     auto const nby = hipGridDim_y;
@@ -1937,18 +1936,17 @@ __device__ static void lacpy_kernel_thread(char const uplo,
 }
 
 template <typename T, typename I, typename AA, typename CC, typename Istride>
-__device__ static void lacpy_kernel_general(char const uplo,
-                                            I const m,
-                                            I const n,
-                                            AA A,
-                                            Istride const shiftA,
-                                            I const lda,
-                                            Istride strideA,
-                                            CC C,
-                                            Istride const shiftC,
-                                            I const ldc,
-                                            Istride strideC,
-                                            I const batch_count)
+__device__ static void copy2D_kernel_general(I const m,
+                                             I const n,
+                                             AA A,
+                                             Istride const shiftA,
+                                             I const lda,
+                                             Istride strideA,
+                                             CC C,
+                                             Istride const shiftC,
+                                             I const ldc,
+                                             Istride strideC,
+                                             I const batch_count)
 {
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
@@ -1964,59 +1962,34 @@ __device__ static void lacpy_kernel_general(char const uplo,
         T const* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
         T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
-        bool const use_upper = (uplo == 'U') || (uplo == 'u');
-        bool const use_lower = (uplo == 'L') || (uplo == 'l');
-        bool const use_all = (!use_upper) && (!use_lower);
-
-        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
+        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
         auto A = [=](auto i, auto j) { return (Ap[idx2D(i, j, lda)]); };
 
         auto C = [=](auto i, auto j) -> T& { return (Cp[idx2D(i, j, ldc)]); };
 
-        if(use_all)
+        for(I j = j_start; j < n; j += j_inc)
         {
-            for(I j = j_start; j < n; j += j_inc)
+            for(I i = i_start; i < m; i += i_inc)
             {
-                for(I i = i_start; i < m; i += i_inc)
-                {
-                    C(i, j) = A(i, j);
-                }
+                C(i, j) = A(i, j);
             }
         }
-        else
-        {
-            for(I j = j_start; j < n; j += j_inc)
-            {
-                for(I i = i_start; i < m; i += i_inc)
-                {
-                    bool const is_upper = (i <= j);
-                    bool const is_lower = (i >= j);
-
-                    bool const do_assignment = (use_upper && is_upper) || (use_lower && is_lower);
-                    if(do_assignment)
-                    {
-                        C(i, j) = A(i, j);
-                    };
-                } // end for i
-            } // end for j
-        }
-    }
+    } // end for bid
 }
 
 template <typename T, typename I, typename AA, typename CC, typename Istride>
-__global__ static void lacpy_kernel(char const uplo,
-                                    I const m,
-                                    I const n,
-                                    AA A,
-                                    Istride const shiftA,
-                                    I const lda,
-                                    Istride strideA,
-                                    CC C,
-                                    Istride const shiftC,
-                                    I const ldc,
-                                    Istride strideC,
-                                    I const batch_count)
+__global__ static void copy2D_kernel(I const m,
+                                     I const n,
+                                     AA A,
+                                     Istride const shiftA,
+                                     I const lda,
+                                     Istride strideA,
+                                     CC C,
+                                     Istride const shiftC,
+                                     I const ldc,
+                                     Istride strideC,
+                                     I const batch_count)
 {
     auto const nbx = hipGridDim_x;
     auto const nby = hipGridDim_y;
@@ -2025,26 +1998,26 @@ __global__ static void lacpy_kernel(char const uplo,
     auto const nx = hipBlockDim_x;
     auto const ny = hipBlockDim_y;
 
-    bool const use_lacpy_kernel_thread = (nbx * nx >= m) && (nby * ny >= n) && (nbz >= batch_count);
-    if(use_lacpy_kernel_thread)
+    bool const use_copy2D_kernel_thread = (nbx * nx >= m) && (nby * ny >= n) && (nbz >= batch_count);
+    if(use_copy2D_kernel_thread)
     {
-        lacpy_kernel_thread<T, I, AA, CC, Istride>(uplo, m, n,
-
-                                                   A, shiftA, lda, strideA,
-
-                                                   C, shiftC, ldc, strideC,
-
-                                                   batch_count);
-    }
-    else
-    {
-        lacpy_kernel_general<T, I, AA, CC, Istride>(uplo, m, n,
+        copy2D_kernel_thread<T, I, AA, CC, Istride>(m, n,
 
                                                     A, shiftA, lda, strideA,
 
                                                     C, shiftC, ldc, strideC,
 
                                                     batch_count);
+    }
+    else
+    {
+        copy2D_kernel_general<T, I, AA, CC, Istride>(m, n,
+
+                                                     A, shiftA, lda, strideA,
+
+                                                     C, shiftC, ldc, strideC,
+
+                                                     batch_count);
     }
 }
 // ---------------------------------
@@ -5261,11 +5234,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                     auto const mm = n;
                                     auto const nn = n;
-                                    char const cl_uplo = 'A';
                                     // clang-format off
-                                ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+                                ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T**, T**, Istride>),
 				    dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
-				    cl_uplo, mm, nn,
+				    mm, nn,
 				    Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 				    Vtmp_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
 				    batch_count_remain);
@@ -5336,7 +5308,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                             I const m1 = (2 * nb);
                             I const n1 = (2 * nb);
-                            char const cl_uplo = 'A';
 
                             Istride const strideA_diag = (2 * nb) * (2 * nb);
 
@@ -5344,9 +5315,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 auto const nbx1 = std::min(max_thread_blocks, ceil(m1, nx));
                                 auto const nby1 = std::min(max_thread_blocks, ceil(n1, ny));
                                 // clang-format off
-                            ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+                            ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T**, T**, Istride>),
 				    dim3(nbx1, nby1, nbz2), dim3(nx, ny, 1), 0, stream,
-				    cl_uplo, m1, n1,
+				    m1, n1,
 				    Atmp_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 				    Aj_ptr_array, shift_Aj, ldaj, lstride_Aj,
 				    lbatch_count);
@@ -5366,9 +5337,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 auto const nbx2 = std::min(max_thread_blocks, ceil(m2, nx));
                                 auto const nby2 = std::min(max_thread_blocks, ceil(n2, ny));
                                 // clang-format off
-                            ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+                            ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T**, T**, Istride>),
 					    dim3(nbx2, nby2, nbz), dim3(nx, ny, 1), 0, stream,
-					    cl_uplo, m2, n2,
+					    m2, n2,
 					    Atmp_last_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					    Aj_last_ptr_array, shift_Aj, ldaj_last, lstride_Aj_last,
 					    batch_count_remain);
@@ -5815,7 +5786,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                         I const m1 = (2 * nb);
                         I const n1 = (2 * nb);
-                        char const cl_uplo = 'A';
 
                         I const lbatch_count = (nblocks_half - 1) * batch_count_remain;
 
@@ -5823,9 +5793,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             auto const nbx1 = std::min(max_thread_blocks, ceil(m1, nx));
                             auto const nby1 = std::min(max_thread_blocks, ceil(n1, ny));
                             // clang-format off
-                        ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, T**, Istride>),
+                        ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T*, T**, Istride>),
 					dim3(nbx1, nby1, nbz2), dim3(nx, ny, 1), 0, stream,
-					cl_uplo, m1, n1,
+					m1, n1,
 					Aj, shift_Aj, ldaj, lstride_Aj,
 					Atmp_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					lbatch_count);
@@ -5843,9 +5813,9 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             auto const nbx2 = std::min(max_thread_blocks, ceil(m2, nx));
                             auto const nby2 = std::min(max_thread_blocks, ceil(n2, ny));
                             // clang-format off
-                        ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, T**, Istride>),
+                        ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T*, T**, Istride>),
 					dim3(nbx2, nby2, nbz), dim3(nx, ny, 1), 0, stream,
-					cl_uplo, m2, n2,
+					m2, n2,
 					Aj_last, shift_Aj_last, ldaj_last, lstride_Aj_last,
 					Atmp_last_diag_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 					batch_count_remain);
@@ -5883,12 +5853,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         {
                             I const mm = n;
                             I const nn = n;
-                            char const cl_uplo = 'A';
 
                             // clang-format off
-                            ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+                            ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T**, T**, Istride>),
                                                     dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                    cl_uplo, mm, nn,
+                                                    mm, nn,
 						    Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 						    A_ptr_array, shift_zero, lda, strideA,
 						    batch_count_remain);
@@ -5981,11 +5950,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                                 auto const mm = n;
                                 auto const nn = n;
-                                char const cl_uplo = 'A';
                                 // clang-format off
-                                    ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+                                    ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T**, T**, Istride>),
 				        dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
-				        cl_uplo, mm, nn,
+				        mm, nn,
 				        Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 				        Vtmp_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
 					batch_count_remain);
@@ -6026,11 +5994,10 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                             {
                                 auto const mm = n;
                                 auto const nn = n;
-                                char const cl_uplo = 'A';
                                 // clang-format off
-                                    ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T**, T**, Istride>),
+                                    ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T**, T**, Istride>),
 				        dim3(nbx, nby, nbz2), dim3(nx, ny, 1), 0, stream,
-				        cl_uplo, mm, nn,
+				        mm, nn,
 				        Atmp_ptr_array, shift_Atmp, ldatmp, lstride_Atmp,
 				        Vtmp_ptr_array, shift_Vtmp, ldvtmp, lstride_Vtmp,
 					batch_count_remain);
@@ -6191,12 +6158,11 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             else
             {
                 // clang-format off
-		            char const cl_uplo = 'A';
 			    auto const mm = n;
 			    auto const nn = n;
-                            ROCSOLVER_LAUNCH_KERNEL((lacpy_kernel<T, I, T*, U, Istride>),
+                            ROCSOLVER_LAUNCH_KERNEL((copy2D_kernel<T, I, T*, U, Istride>),
                                                     dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
-                                                    cl_uplo, mm, nn,
+                                                    mm, nn,
 						    Vtmp, shift_Vtmp, ldvtmp, lstride_Vtmp,
 						    A, shiftA, lda, strideA,
 						    batch_count);
