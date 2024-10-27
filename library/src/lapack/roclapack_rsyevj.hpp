@@ -1907,15 +1907,15 @@ __device__ static void copy2D_kernel_thread(I const m,
                                             Istride strideC,
                                             I const batch_count)
 {
-    auto const nbx = hipGridDim_x;
-    auto const nby = hipGridDim_y;
-    auto const nbz = hipGridDim_z;
-    auto const nx = hipBlockDim_x;
-    auto const ny = hipBlockDim_y;
-
     auto const bid = hipBlockIdx_z;
     if(bid < batch_count)
     {
+        auto const nbx = hipGridDim_x;
+        auto const nby = hipGridDim_y;
+        auto const nbz = hipGridDim_z;
+        auto const nx = hipBlockDim_x;
+        auto const ny = hipBlockDim_y;
+
         auto const ix = hipThreadIdx_x;
         auto const iy = hipThreadIdx_y;
         auto const ibx = hipBlockIdx_x;
@@ -1923,10 +1923,11 @@ __device__ static void copy2D_kernel_thread(I const m,
 
         auto const ia = ix + ibx * nx;
         auto const ja = iy + iby * ny;
+
         if((ia < m) && (ja < n))
         {
-            T const* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
-            T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+            T const* const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
+            T* const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
             auto const ij_a = ia + ja * static_cast<int64_t>(lda);
             auto const ij_c = ia + ja * static_cast<int64_t>(ldc);
@@ -1959,8 +1960,8 @@ __device__ static void copy2D_kernel_general(I const m,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        T const* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+        T const* const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        T* const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
         auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
@@ -1975,6 +1976,88 @@ __device__ static void copy2D_kernel_general(I const m,
                 C(i, j) = A(i, j);
             }
         }
+    } // end for bid
+}
+
+template <typename T, typename I, typename AA, typename CC, typename Istride>
+__device__ static void copy2D_kernel_blocks(I const m,
+                                            I const n,
+                                            AA A,
+                                            Istride const shiftA,
+                                            I const lda,
+                                            Istride strideA,
+                                            CC C,
+                                            Istride const shiftC,
+                                            I const ldc,
+                                            Istride strideC,
+                                            I const batch_count)
+{
+    auto const nbx = hipGridDim_x;
+    auto const nby = hipGridDim_y;
+    auto const nbz = hipGridDim_z;
+
+    auto const ibx = hipBlockIdx_x;
+    auto const iby = hipBlockIdx_y;
+    auto const ibz = hipBlockIdx_z;
+
+    auto const nx = hipBlockDim_x;
+    auto const ny = hipBlockDim_y;
+
+    auto const ix = hipThreadIdx_x;
+    auto const iy = hipThreadIdx_y;
+
+    I const ib_start = ibx;
+    I const ib_inc = nbx;
+    I const jb_start = iby;
+    I const jb_inc = nby;
+
+    I const bid_start = ibz;
+    I const bid_inc = nbz;
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T const* const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        T* const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
+
+        auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+        auto A = [=](auto i, auto j) { return (Ap[idx2D(i, j, lda)]); };
+
+        auto C = [=](auto i, auto j) -> T& { return (Cp[idx2D(i, j, ldc)]); };
+
+        I const nblocks_i = ceil(m, nx);
+        I const nblocks_j = ceil(n, ny);
+
+        auto const i_start = ix;
+        auto const i_inc = nx;
+        auto const j_start = iy;
+        auto const j_inc = ny;
+
+        I const mi_last = m - (nblocks_i - 1) * nx;
+        I const nj_last = n - (nblocks_j - 1) * ny;
+
+        for(I jb = jb_start; jb < nblocks_j; jb += jb_inc)
+        {
+            for(I ib = ib_start; ib < nblocks_i; ib += ib_inc)
+            {
+                I const mi = (ib == (nblocks_i - 1)) ? mi_last : nx;
+                I const nj = (jb == (nblocks_j - 1)) ? nj_last : ny;
+
+                I const ioff = ib * nx;
+                I const joff = jb * ny;
+
+                for(I j = j_start; j < nj; j += j_inc)
+                {
+                    for(I i = i_start; i < mi; i += i_inc)
+                    {
+                        C(ioff + i, joff + j) = A(ioff + i, joff + j);
+                    }
+                }
+            }
+        }
+
     } // end for bid
 }
 
