@@ -1895,25 +1895,61 @@ __global__ static void copy_diagonal_kernel(I const n,
 // ---------------------------------
 
 template <typename T, typename I, typename AA, typename CC, typename Istride>
-__global__ static void lacpy_kernel(char const uplo,
-                                    I const m,
-                                    I const n,
-                                    AA A,
-                                    Istride const shiftA,
-                                    I const lda,
-                                    Istride strideA,
-                                    CC C,
-                                    Istride const shiftC,
-                                    I const ldc,
-                                    Istride strideC,
-                                    I const batch_count)
+__device__ static void lacpy_kernel_thread(char const uplo,
+                                           I const m,
+                                           I const n,
+                                           AA A,
+                                           Istride const shiftA,
+                                           I const lda,
+                                           Istride strideA,
+                                           CC C,
+                                           Istride const shiftC,
+                                           I const ldc,
+                                           Istride strideC,
+                                           I const batch_count)
 {
-    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
-    if(!has_work)
-    {
-        return;
-    }
+    auto const nbx = hipGridDim_x;
+    auto const nby = hipGridDim_y;
+    auto const nbz = hipGridDim_z;
+    auto const nx = hipBlockDim_x;
+    auto const ny = hipBlockDim_y;
 
+    auto const bid = hipBlockIdx_z;
+    if(bid < batch_count)
+    {
+        auto const ix = hipThreadIdx_x;
+        auto const iy = hipThreadIdx_y;
+        auto const ibx = hipBlockIdx_x;
+        auto const iby = hipBlockIdx_y;
+
+        auto const ia = ix + ibx * nx;
+        auto const ja = iy + iby * ny;
+        if((ia < m) && (ja < n))
+        {
+            T const* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
+            T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+
+            auto const ij_a = ia + ja * static_cast<int64_t>(lda);
+            auto const ij_c = ia + ja * static_cast<int64_t>(ldc);
+            Cp[ij_c] = Ap[ij_a];
+        }
+    }
+}
+
+template <typename T, typename I, typename AA, typename CC, typename Istride>
+__device__ static void lacpy_kernel_general(char const uplo,
+                                            I const m,
+                                            I const n,
+                                            AA A,
+                                            Istride const shiftA,
+                                            I const lda,
+                                            Istride strideA,
+                                            CC C,
+                                            Istride const shiftC,
+                                            I const ldc,
+                                            Istride strideC,
+                                            I const batch_count)
+{
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
 
@@ -1925,16 +1961,16 @@ __global__ static void lacpy_kernel(char const uplo,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        T const* const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        T* const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
+        T const* const Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        T* const Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
         bool const use_upper = (uplo == 'U') || (uplo == 'u');
         bool const use_lower = (uplo == 'L') || (uplo == 'l');
         bool const use_all = (!use_upper) && (!use_lower);
 
-        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * int64_t(ld)); };
 
-        auto A = [=](auto i, auto j) -> T { return (Ap[idx2D(i, j, lda)]); };
+        auto A = [=](auto i, auto j) { return (Ap[idx2D(i, j, lda)]); };
 
         auto C = [=](auto i, auto j) -> T& { return (Cp[idx2D(i, j, ldc)]); };
 
@@ -1948,30 +1984,69 @@ __global__ static void lacpy_kernel(char const uplo,
                 }
             }
         }
-        else if(use_upper)
+        else
         {
             for(I j = j_start; j < n; j += j_inc)
             {
-                auto const mm = std::min(m, j + 1);
-                for(I i = i_start; i < mm; i += i_inc)
+                for(I i = i_start; i < m; i += i_inc)
                 {
-                    C(i, j) = A(i, j);
-                }
-            }
-        }
-        else if(use_lower)
-        {
-            for(I j = j_start; j < n; j += j_inc)
-            {
-                for(I i = j + i_start; i < m; i += i_inc)
-                {
-                    C(i, j) = A(i, j);
-                }
-            }
+                    bool const is_upper = (i <= j);
+                    bool const is_lower = (i >= j);
+
+                    bool const do_assignment = (use_upper && is_upper) || (use_lower && is_lower);
+                    if(do_assignment)
+                    {
+                        C(i, j) = A(i, j);
+                    };
+                } // end for i
+            } // end for j
         }
     }
 }
 
+template <typename T, typename I, typename AA, typename CC, typename Istride>
+__global__ static void lacpy_kernel(char const uplo,
+                                    I const m,
+                                    I const n,
+                                    AA A,
+                                    Istride const shiftA,
+                                    I const lda,
+                                    Istride strideA,
+                                    CC C,
+                                    Istride const shiftC,
+                                    I const ldc,
+                                    Istride strideC,
+                                    I const batch_count)
+{
+    auto const nbx = hipGridDim_x;
+    auto const nby = hipGridDim_y;
+    auto const nbz = hipGridDim_z;
+
+    auto const nx = hipBlockDim_x;
+    auto const ny = hipBlockDim_y;
+
+    bool const use_lacpy_kernel_thread = (nbx * nx >= m) && (nby * ny >= n) && (nbz >= batch_count);
+    if(use_lacpy_kernel_thread)
+    {
+        lacpy_kernel_thread<T, I, AA, CC, Istride>(uplo, m, n,
+
+                                                   A, shiftA, lda, strideA,
+
+                                                   C, shiftC, ldc, strideC,
+
+                                                   batch_count);
+    }
+    else
+    {
+        lacpy_kernel_general<T, I, AA, CC, Istride>(uplo, m, n,
+
+                                                    A, shiftA, lda, strideA,
+
+                                                    C, shiftC, ldc, strideC,
+
+                                                    batch_count);
+    }
+}
 // ---------------------------------
 // swap m by n submatrix between A and C
 // launch as
