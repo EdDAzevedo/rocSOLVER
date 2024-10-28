@@ -1210,7 +1210,7 @@ static __device__ void check_symmetry_body(I const n,
     auto A = [=](auto i, auto j) -> T { return (A_[idx2D(i, j, lda)]); };
 
     auto nearly_equal = [=](auto x, auto y, auto tol) -> bool {
-        auto const dnorm = std::max(std::abs(x), std::abs(y));
+        auto const dnorm = std::fmax(std::abs(x), std::abs(y));
         return (std::abs(x - y) <= (tol * dnorm));
     };
 
@@ -2344,8 +2344,8 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
                 auto const min_ij = min(i, j);
                 auto const max_ij = max(i, j);
 
-                is_matched[i] = true;
                 is_matched[j] = true;
+                is_matched[i] = true;
 
                 auto const ip = atomicAdd(&nmate, 1);
 
@@ -2384,6 +2384,7 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
     // place last entry  at last position
     // ------------------------
 
+    __syncthreads();
     for(auto i = i_start; i < (nmate - 1); i += i_inc)
     {
         auto const ivertex = mate(0, i);
@@ -2399,6 +2400,7 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
 
 #ifdef NDEBUG
 #else
+    if(idebug >= 1)
     {
         // check the last entry
         assert(mate(1, nmate - 1) == (n - 1));
@@ -2466,8 +2468,8 @@ static void pgreedy_mwm(I const n,
         return;
     };
 
-    auto const MAX_THREADS = 1024;
-    auto const MAX_BLOCKS = 64 * 1000;
+    auto constexpr MAX_THREADS = 1024;
+    auto constexpr MAX_BLOCKS = 64 * 1000;
 
     auto const nwarps = (n - 1) / warpSize + 1;
     auto const nthreads = std::min(nwarps * warpSize, MAX_THREADS);
@@ -2545,7 +2547,7 @@ static __device__ void
         return (ans);
     };
 
-    double dscale = std::max(std::abs(a_arg), std::max(std::abs(b_arg), std::abs(c_arg)));
+    double dscale = std::fmax(std::abs(a_arg), std::fmax(std::abs(b_arg), std::abs(c_arg)));
     if(dscale == 0)
     {
         // trivial zero matrix
@@ -3416,7 +3418,8 @@ __device__ void run_rsyevj(const I dimx,
                         auto const Aqq = A(q, q);
 
                         auto const mag = std::abs(Apq);
-                        bool const is_small = (mag < sqrt_small_num);
+                        // bool const is_small = (mag <= sqrt_small_num);
+                        bool const is_small = (std::abs(Apq) == 0);
                         if(is_small)
                         {
                             cs1 = 1;
@@ -4803,8 +4806,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                     for(I i = 0; i < n; i++)
                     {
                         double const w_i = h_W[i + bid * n];
-                        w_max = std::max(w_max, w_i);
-                        w_min = std::min(w_min, w_i);
+                        w_max = std::fmax(w_max, w_i);
+                        w_min = std::fmin(w_min, w_i);
                         w_norm += std::norm(w_i);
                     }
                     w_norm = std::sqrt(w_norm);
@@ -5192,7 +5195,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = true;
+                    bool const use_schedule = false;
                     bool const use_greedy_mwm = (!use_schedule);
 
                     if(use_greedy_mwm)
@@ -5602,7 +5605,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 // ---------------------------
                                 I const small_max_sweeps = 5;
                                 I const rsyevj_max_sweeps = std::min(max_sweeps, small_max_sweeps);
-                                auto const rsyevj_atol = atol / nblocks;
+                                auto const rsyevj_atol = atol / (2.0 * nblocks * nblocks);
 
                                 // -----------------------------------------
                                 // need to store the matrix of eigen vectors
@@ -6092,6 +6095,25 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
             } // end for iround
         } // end for sweeps
 
+        if(idebug >= 0)
+        {
+            std::vector<S> h_residual(batch_count);
+            std::vector<S> h_norms(batch_count);
+
+            HIP_CHECK(hipMemcpy(&(h_residual[0]), residual, sizeof(S) * batch_count,
+                                hipMemcpyDeviceToHost));
+            HIP_CHECK(hipMemcpy(&(h_norms[0]), norms, sizeof(S) * batch_count, hipMemcpyDeviceToHost));
+            S max_relerr = 0;
+            for(auto bid = 0; bid < batch_count; bid++)
+            {
+                max_relerr = std::fmax(max_relerr, h_residual[bid] / h_norms[bid]);
+                printf("h_residual[%d]=%le, h_norms[%d]=%le\n", bid, (double)h_residual[bid], bid,
+                       (double)h_norms[bid]);
+            }
+            printf("is_converged=%d,h_sweeps=%d,  max_relerr= %le\n", (int)is_converged,
+                   (int)h_sweeps, (double)max_relerr);
+        }
+
         {
             // ---------------------
             // copy out eigen values
@@ -6163,7 +6185,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                         resid_icol += std::norm(h_W[icol] * v[i] - Av[i]);
                     }
                     resid_icol = std::sqrt(resid_icol);
-                    resid = std::max(resid, resid_icol);
+                    resid = std::fmax(resid, resid_icol);
                     printf("icol=%d, resid=%le\n", (int)icol, (double)resid_icol);
                 }
                 printf("norm(A*V - V * D) = %le\n", (double)resid);
