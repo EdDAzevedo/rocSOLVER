@@ -4569,8 +4569,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         auto const nx = (use_debug) ? 1 : NX_THREADS;
         auto const ny = (use_debug) ? 1 : NY_THREADS;
 
-        auto const nbx = (use_debug) ? 1 : std::min(max_thread_blocks, ceil(n, nx));
-        auto const nby = (use_debug) ? 1 : std::min(max_thread_blocks, ceil(n, ny));
+        auto const nbx = (use_debug) ? 1 : std::min(max_thread_blocks, ceil(n, 2 * nx));
+        auto const nby = (use_debug) ? 1 : std::min(max_thread_blocks, ceil(n, 2 * ny));
         auto const nbz = (use_debug) ? 1 : std::min(max_thread_blocks, batch_count);
 
         auto update_norm = [=](bool const include_diagonal, S* residual) {
@@ -5605,7 +5605,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
                                 // no need for too many sweeps
                                 // since the blocks will be over-written
                                 // ---------------------------
-                                I const small_max_sweeps = 5;
+                                I const small_max_sweeps = 1;
                                 I const rsyevj_max_sweeps = std::min(max_sweeps, small_max_sweeps);
                                 auto const rsyevj_atol = atol / (2.0 * nblocks * nblocks);
 
