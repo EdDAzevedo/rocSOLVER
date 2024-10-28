@@ -2344,8 +2344,9 @@ static void __device__ pgreedy_mwm_block(I const n, T const* const G_, I* const 
                 auto const min_ij = min(i, j);
                 auto const max_ij = max(i, j);
 
-                is_matched[j] = true;
-                is_matched[i] = true;
+                is_matched[j] = 1;
+                is_matched[i] = 1;
+                __threadfence_block();
 
                 auto const ip = atomicAdd(&nmate, 1);
 
@@ -2480,7 +2481,7 @@ static void pgreedy_mwm(I const n,
     size_t const max_lds = get_lds();
     assert(lmem_size + sizeof(int) <= max_lds);
 
-    pgreedy_mwm_kernel<T, I><<<dim3(1, 1, nblocks), dim3(1, 1, 1), lmem_size, stream>>>(
+    pgreedy_mwm_kernel<T, I><<<dim3(1, 1, nblocks), dim3(nthreads, 1, 1), lmem_size, stream>>>(
         n, G_array, mate_array, batch_count);
 }
 
@@ -3419,7 +3420,7 @@ __device__ void run_rsyevj(const I dimx,
 
                         auto const mag = std::abs(Apq);
                         // bool const is_small = (mag <= sqrt_small_num);
-                        bool const is_small = (std::abs(Apq) == 0);
+                        bool const is_small = (Apq == 0);
                         if(is_small)
                         {
                             cs1 = 1;
@@ -4495,7 +4496,8 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
         //  larger matrix
         //  -------------
         bool constexpr use_swap_kernel = false;
-        bool constexpr do_overwrite_A_with_V = false;
+        bool constexpr use_restore_diagonal_blocks = true;
+        bool constexpr do_overwrite_A_with_V = (!use_restore_diagonal_blocks);
         bool use_swap_Atmp_Vtmp = true;
         bool constexpr use_swap_aj_vj = true;
         bool constexpr use_gather2D = false;
@@ -5863,7 +5865,6 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     TRACE(2);
 
-                    bool const use_restore_diagonal_blocks = (!do_overwrite_A_with_V);
                     if(use_restore_diagonal_blocks)
                     {
                         // ----------------------------------------
