@@ -5197,7 +5197,7 @@ rocblas_status rocsolver_rsyevj_rheevj_template(rocblas_handle handle,
 
                     I const* const col_map_schedule = d_schedule_large + iround * (even_nblocks);
 
-                    bool const use_schedule = false;
+                    bool const use_schedule = true;
                     bool const use_greedy_mwm = (!use_schedule);
 
                     if(use_greedy_mwm)
