@@ -1021,17 +1021,17 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int blocks,
     Call this kernel with batch_count groups in z, 2*BS2 threads in x and BS2/2 threads in y.
     For a matrix consisting of b * b blocks, use b / 2 groups in x and 2(b - 2) groups in y. **/
 template <bool APPLY_LEFT, typename T, typename S, typename U>
-ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
-                                        const rocblas_int blocks,
-                                        const rocblas_int n,
-                                        U AA,
-                                        const rocblas_int shiftA,
-                                        const rocblas_int lda,
-                                        const rocblas_stride strideA,
-                                        T* JA,
-                                        rocblas_int* top,
-                                        rocblas_int* bottom,
-                                        rocblas_int* completed)
+ROCSOLVER_KERNEL void syevj_offd_rotate_org(const bool skip_block,
+                                            const rocblas_int blocks,
+                                            const rocblas_int n,
+                                            U AA,
+                                            const rocblas_int shiftA,
+                                            const rocblas_int lda,
+                                            const rocblas_stride strideA,
+                                            T* JA,
+                                            rocblas_int* top,
+                                            rocblas_int* bottom,
+                                            rocblas_int* completed)
 {
     rocblas_int tix = hipThreadIdx_x;
     rocblas_int tiy = hipThreadIdx_y;
@@ -1094,6 +1094,101 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
             temp += conj(J[tix + (k + nb_max) * ldj]) * A[(k + offsetj) + y * lda];
         __syncthreads();
         A[x + y * lda] = temp;
+    }
+}
+
+template <bool APPLY_LEFT, typename T, typename S, typename U>
+ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
+                                        const rocblas_int blocks,
+                                        const rocblas_int n,
+                                        U AA,
+                                        const rocblas_int shiftA,
+                                        const rocblas_int lda,
+                                        const rocblas_stride strideA,
+                                        T* JA,
+                                        rocblas_int* top,
+                                        rocblas_int* bottom,
+                                        rocblas_int* completed)
+{
+    rocblas_int tix = hipThreadIdx_x;
+    rocblas_int tiy = hipThreadIdx_y;
+    rocblas_int bix = hipBlockIdx_x;
+    rocblas_int biy = hipBlockIdx_y;
+    rocblas_int bid = hipBlockIdx_z;
+    rocblas_int jid = bid * hipGridDim_x + hipBlockIdx_x;
+
+    if(completed[bid + 1])
+        return;
+
+    rocblas_int i = top[bix];
+    rocblas_int j = bottom[bix];
+    if(i >= blocks || j >= blocks)
+        return;
+    if(i > j)
+        swap(i, j);
+    if(skip_block && (biy / 2 == i || biy / 2 == j))
+        return;
+
+    rocblas_int nb_max = hipBlockDim_x / 2;
+    rocblas_int offseti = i * nb_max;
+    rocblas_int offsetj = j * nb_max;
+    rocblas_int offsetx = (tix < nb_max ? offseti : offsetj - nb_max);
+    rocblas_int offsety = biy * hipBlockDim_y;
+    rocblas_int ldj = 2 * nb_max;
+
+    // local variables
+    T temp;
+    rocblas_int k;
+    rocblas_int x = tix + offsetx;
+    rocblas_int y = tiy + offsety;
+
+    rocblas_int nb = std::min(n - offsetj, nb_max);
+
+    if(x >= n || y >= n)
+        return;
+
+    // array pointers
+    T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
+    T* J = JA + (jid * 4 * nb_max * nb_max);
+
+    auto Jmat = [=](auto tix, auto k) -> const T& { return (J[tix + k * ldj]); };
+
+    auto Amat = [=](auto i, auto j) -> T& { return (A[i + j * static_cast<int64_t>(lda)]); };
+
+    // apply J to the current block
+    if(!APPLY_LEFT)
+    {
+        temp = 0;
+        for(k = 0; k < nb_max; k++)
+        {
+            // temp += J[tix + k * ldj] * A[y + (k + offseti) * lda];
+            temp += Jmat(tix, k) * Amat(y, (k + offseti));
+        }
+        for(k = 0; k < nb; k++)
+        {
+            // temp += J[tix + (k + nb_max) * ldj] * A[y + (k + offsetj) * lda];
+            temp += Jmat(tix, (k + nb_max)) * Amat(y, (k + offsetj));
+        }
+        __syncthreads();
+        // A[y + x * lda] = temp;
+        Amat(y, x) = temp;
+    }
+    else
+    {
+        temp = 0;
+        for(k = 0; k < nb_max; k++)
+        {
+            // temp += conj(J[tix + k * ldj]) * A[(k + offseti) + y * lda];
+            temp += conj(Jmat(tix, k)) * Amat(k + offseti, y);
+        }
+        for(k = 0; k < nb; k++)
+        {
+            // temp += conj(J[tix + (k + nb_max) * ldj]) * A[(k + offsetj) + y * lda];
+            temp += conj(Jmat(tix, (k + nb_max))) * Amat((k + offsetj), y);
+        }
+        __syncthreads();
+        // A[x + y * lda] = temp;
+        Amat(x, y) = temp;
     }
 }
 
