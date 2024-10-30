@@ -1143,7 +1143,10 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
     if(iblock >= blocks || jblock >= blocks)
         return;
 
+    // ------------------------------------
     // consider blocks in upper triangular
+    // want   (iblock < jblock)
+    // ------------------------------------
     if(iblock > jblock)
     {
         swap(iblock, jblock);
@@ -1173,62 +1176,83 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
 
     rocblas_int nb = std::min(n - offsetj, nb_max);
 
-    if(x >= n || y >= n)
-        return;
-
-    // array pointers
-    T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* J = JA + (jid * 4 * nb_max * nb_max);
-
-    auto Jmat = [=](auto tix, auto k) -> const T& { return (J[tix + k * ldj]); };
-
-    auto Amat = [=](auto i, auto j) -> T& { return (A[i + j * static_cast<int64_t>(lda)]); };
-
     auto constexpr max_lds = 64 * 1024;
     auto constexpr len_shmem = max_lds / sizeof(T);
     __shared__ T shmem[len_shmem];
 
-    T* pfree = &(shmem[0]);
-    T* const Jsh_ = pfree;
-    pfree += ldj * (2 * nb_max);
+    // array pointers
+    T* const __restrict__ A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
+    T const* const __restrict__ J = JA + (jid * 4 * nb_max * nb_max);
 
-    auto const Jsh = [=](auto i, auto j) -> T& { return (Jsh_[i + j * ldj]); };
+    assert(sizeof(T) * 4 * nb_max * nb_max <= max_lds);
+
+    T* const Jsh_ = &(shmem[0]);
+
+    {
+        // -------------------------
+        // load J into shared memory
+        // -------------------------
+
+        auto const ij_start = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x;
+        auto const ij_inc = hipBlockDim_x * hipBlockDim_y;
+        auto const ij_end = 4 * nb_max * nb_max;
+
+        __syncthreads();
+
+        for(auto ij = ij_start; ij < ij_end; ij += ij_inc)
+        {
+            Jsh_[ij] = J[ij];
+        }
+        __syncthreads();
+    }
+
+    auto Jmat = [=](auto tix, auto k) -> const T { return (Jsh_[tix + k * ldj]); };
+
+    auto Amat = [=](auto i, auto j) -> T& { return (A[i + j * static_cast<int64_t>(lda)]); };
 
     // apply J to the current block
     if(!APPLY_LEFT)
     {
-        temp = 0;
-        for(k = 0; k < nb_max; k++)
+        bool const is_valid = (x < n) && (y < n);
+        if(is_valid)
         {
-            // temp += J[tix + k * ldj] * A[y + (k + offseti) * lda];
-            temp += Amat(y, (k + offseti)) * Jmat(tix, k);
+            temp = 0;
+            for(k = 0; k < nb_max; k++)
+            {
+                // temp += J[tix + k * ldj] * A[y + (k + offseti) * lda];
+                temp += Amat(y, (k + offseti)) * Jmat(tix, k);
+            }
+            for(k = 0; k < nb; k++)
+            {
+                // temp += J[tix + (k + nb_max) * ldj] * A[y + (k + offsetj) * lda];
+                temp += Amat(y, (k + offsetj)) * Jmat(tix, (k + nb_max));
+            }
+            __syncthreads();
+            // A[y + x * lda] = temp;
+            Amat(y, x) = temp;
         }
-        for(k = 0; k < nb; k++)
-        {
-            // temp += J[tix + (k + nb_max) * ldj] * A[y + (k + offsetj) * lda];
-            temp += Amat(y, (k + offsetj)) * Jmat(tix, (k + nb_max));
-        }
-        __syncthreads();
-        // A[y + x * lda] = temp;
-        Amat(y, x) = temp;
     }
     else
     {
-        // APLLY_LEFT
-        temp = 0;
-        for(k = 0; k < nb_max; k++)
+        bool const is_valid = (x < n) && (y < n);
+        if(is_valid)
         {
-            // temp += conj(J[tix + k * ldj]) * A[(k + offseti) + y * lda];
-            temp += conj(Jmat(tix, k)) * Amat(k + offseti, y);
+            // APLLY_LEFT
+            temp = 0;
+            for(k = 0; k < nb_max; k++)
+            {
+                // temp += conj(J[tix + k * ldj]) * A[(k + offseti) + y * lda];
+                temp += conj(Jmat(tix, k)) * Amat(k + offseti, y);
+            }
+            for(k = 0; k < nb; k++)
+            {
+                // temp += conj(J[tix + (k + nb_max) * ldj]) * A[(k + offsetj) + y * lda];
+                temp += conj(Jmat(tix, (k + nb_max))) * Amat((k + offsetj), y);
+            }
+            __syncthreads();
+            // A[x + y * lda] = temp;
+            Amat(x, y) = temp;
         }
-        for(k = 0; k < nb; k++)
-        {
-            // temp += conj(J[tix + (k + nb_max) * ldj]) * A[(k + offsetj) + y * lda];
-            temp += conj(Jmat(tix, (k + nb_max))) * Amat((k + offsetj), y);
-        }
-        __syncthreads();
-        // A[x + y * lda] = temp;
-        Amat(x, y) = temp;
     }
 }
 
