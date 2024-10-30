@@ -1117,23 +1117,52 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
     rocblas_int bid = hipBlockIdx_z;
     rocblas_int jid = bid * hipGridDim_x + hipBlockIdx_x;
 
+    auto const nbx = hipGridDim_x;
+    auto const nby = hipGridDim_y;
+    auto const nbz = hipGridDim_z;
+    auto const nx = hipBlockDim_x;
+    auto const ny = hipBlockDim_y;
+
+    auto const i_start = tix;
+    auto const j_start = tiy;
+    auto const ib_start = hipBlockIdx_x;
+    auto const jb_start = hipBlockIdx_y;
+    auto const bid_start = hipBlockIdx_z;
+
+    auto const i_inc = nx;
+    auto const j_inc = ny;
+    auto const ib_inc = nbx;
+    auto const jb_inc = nby;
+    auto const bid_inc = nbz;
+
     if(completed[bid + 1])
         return;
 
-    rocblas_int i = top[bix];
-    rocblas_int j = bottom[bix];
-    if(i >= blocks || j >= blocks)
-        return;
-    if(i > j)
-        swap(i, j);
-    if(skip_block && (biy / 2 == i || biy / 2 == j))
+    auto iblock = top[bix];
+    auto jblock = bottom[bix];
+    if(iblock >= blocks || jblock >= blocks)
         return;
 
+    // consider blocks in upper triangular
+    if(iblock > jblock)
+    {
+        swap(iblock, jblock);
+    }
+
+    if(skip_block && (biy / 2 == iblock || biy / 2 == jblock))
+        return;
+
+    auto i = iblock;
+    auto j = jblock;
+
     rocblas_int nb_max = hipBlockDim_x / 2;
-    rocblas_int offseti = i * nb_max;
-    rocblas_int offsetj = j * nb_max;
+
+    rocblas_int offseti = iblock * nb_max;
+    rocblas_int offsetj = jblock * nb_max;
+
     rocblas_int offsetx = (tix < nb_max ? offseti : offsetj - nb_max);
     rocblas_int offsety = biy * hipBlockDim_y;
+
     rocblas_int ldj = 2 * nb_max;
 
     // local variables
@@ -1155,6 +1184,16 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
 
     auto Amat = [=](auto i, auto j) -> T& { return (A[i + j * static_cast<int64_t>(lda)]); };
 
+    auto constexpr max_lds = 64 * 1024;
+    auto constexpr len_shmem = max_lds / sizeof(T);
+    __shared__ T shmem[len_shmem];
+
+    T* pfree = &(shmem[0]);
+    T* const Jsh_ = pfree;
+    pfree += ldj * (2 * nb_max);
+
+    auto const Jsh = [=](auto i, auto j) -> T& { return (Jsh_[i + j * ldj]); };
+
     // apply J to the current block
     if(!APPLY_LEFT)
     {
@@ -1162,13 +1201,11 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
         for(k = 0; k < nb_max; k++)
         {
             // temp += J[tix + k * ldj] * A[y + (k + offseti) * lda];
-            // temp += Jmat(tix, k) * Amat(y, (k + offseti));
             temp += Amat(y, (k + offseti)) * Jmat(tix, k);
         }
         for(k = 0; k < nb; k++)
         {
             // temp += J[tix + (k + nb_max) * ldj] * A[y + (k + offsetj) * lda];
-            // temp += Jmat(tix, (k + nb_max)) * Amat(y, (k + offsetj));
             temp += Amat(y, (k + offsetj)) * Jmat(tix, (k + nb_max));
         }
         __syncthreads();
