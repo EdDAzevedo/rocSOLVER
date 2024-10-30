@@ -1162,12 +1162,14 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
         for(k = 0; k < nb_max; k++)
         {
             // temp += J[tix + k * ldj] * A[y + (k + offseti) * lda];
-            temp += Jmat(tix, k) * Amat(y, (k + offseti));
+            // temp += Jmat(tix, k) * Amat(y, (k + offseti));
+            temp += Amat(y, (k + offseti)) * Jmat(tix, k);
         }
         for(k = 0; k < nb; k++)
         {
             // temp += J[tix + (k + nb_max) * ldj] * A[y + (k + offsetj) * lda];
-            temp += Jmat(tix, (k + nb_max)) * Amat(y, (k + offsetj));
+            // temp += Jmat(tix, (k + nb_max)) * Amat(y, (k + offsetj));
+            temp += Amat(y, (k + offsetj)) * Jmat(tix, (k + nb_max));
         }
         __syncthreads();
         // A[y + x * lda] = temp;
@@ -1175,6 +1177,7 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
     }
     else
     {
+        // APLLY_LEFT
         temp = 0;
         for(k = 0; k < nb_max; k++)
         {
