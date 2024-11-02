@@ -1049,8 +1049,7 @@ ROCSOLVER_KERNEL void syevj_offd_rotate_org(const bool skip_block,
         return;
     if(i > j)
         swap(i, j);
-    if(skip_block && (biy / 2 == i || biy / 2 == j))
-        return;
+    // if(skip_block && (biy / 2 == i || biy / 2 == j)) return;
 
     rocblas_int nb_max = hipBlockDim_x / 2;
     rocblas_int offseti = i * nb_max;
@@ -1099,7 +1098,7 @@ ROCSOLVER_KERNEL void syevj_offd_rotate_org(const bool skip_block,
 
 template <bool APPLY_LEFT, typename T, typename S, typename U>
 ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
-                                        const rocblas_int blocks,
+                                        const rocblas_int nb_max,
                                         const rocblas_int n,
                                         U AA,
                                         const rocblas_int shiftA,
@@ -1110,6 +1109,21 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                                         rocblas_int* bottom,
                                         rocblas_int* completed)
 {
+    bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+    auto max = [](auto x, auto y) { return ((x > y) ? x : y); };
+    auto min = [](auto x, auto y) { return ((x < y) ? x : y); };
+
+    auto const blocks = ceil(n, nb_max);
+    auto const even_blocks = blocks + (blocks % 2);
+    auto const half_blocks = even_blocks / 2;
+
+    auto bsize = [=](auto iblock) {
+        auto const nb_last = n - (blocks - 1) * nb_max;
+        bool const is_last_block = (iblock == (blocks - 1));
+        return ((is_last_block) ? nb_last : nb_max);
+    };
+
     rocblas_int tix = hipThreadIdx_x;
     rocblas_int tiy = hipThreadIdx_y;
     rocblas_int bix = hipBlockIdx_x;
@@ -1135,125 +1149,184 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
     auto const jb_inc = nby;
     auto const bid_inc = nbz;
 
-    if(completed[bid + 1])
-        return;
+    auto const npairs = half_blocks;
+    auto const ipair_start = ib_start;
+    auto const ipair_inc = ib_inc;
 
-    auto iblock = top[bix];
-    auto jblock = bottom[bix];
-    if(iblock >= blocks || jblock >= blocks)
-        return;
-
-    // ------------------------------------
-    // consider blocks in upper triangular
-    // want   (iblock < jblock)
-    // ------------------------------------
-    if(iblock > jblock)
-    {
-        swap(iblock, jblock);
-    }
-
-    if(skip_block && (biy / 2 == iblock || biy / 2 == jblock))
-        return;
-
-    auto i = iblock;
-    auto j = jblock;
-
-    rocblas_int nb_max = hipBlockDim_x / 2;
-
-    rocblas_int offseti = iblock * nb_max;
-    rocblas_int offsetj = jblock * nb_max;
-
-    rocblas_int offsetx = (tix < nb_max ? offseti : offsetj - nb_max);
-    rocblas_int offsety = biy * hipBlockDim_y;
-
-    rocblas_int ldj = 2 * nb_max;
-
-    // local variables
-    T temp;
-    rocblas_int k;
-    rocblas_int x = tix + offsetx;
-    rocblas_int y = tiy + offsety;
-
-    rocblas_int nb = std::min(n - offsetj, nb_max);
+    auto const kb_start = jb_start;
+    auto const kb_inc = jb_inc;
 
     auto constexpr max_lds = 64 * 1024;
     auto constexpr len_shmem = max_lds / sizeof(T);
     __shared__ T shmem[len_shmem];
 
-    // array pointers
-    T* const __restrict__ A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T const* const __restrict__ J = JA + (jid * 4 * nb_max * nb_max);
-
-    assert(sizeof(T) * 4 * nb_max * nb_max <= max_lds);
-
-    T* const Jsh_ = &(shmem[0]);
-
+    for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        // -------------------------
-        // load J into shared memory
-        // -------------------------
-
-        auto const ij_start = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x;
-        auto const ij_inc = hipBlockDim_x * hipBlockDim_y;
-        auto const ij_end = 4 * nb_max * nb_max;
-
-        __syncthreads();
-
-        for(auto ij = ij_start; ij < ij_end; ij += ij_inc)
+        if(completed[bid + 1])
         {
-            Jsh_[ij] = J[ij];
-        }
-        __syncthreads();
-    }
+            continue
+        };
 
-    auto Jmat = [=](auto tix, auto k) -> const T { return (Jsh_[tix + k * ldj]); };
+        T* const __restrict__ A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
 
-    auto Amat = [=](auto i, auto j) -> T& { return (A[i + j * static_cast<int64_t>(lda)]); };
-
-    // apply J to the current block
-    if(!APPLY_LEFT)
-    {
-        bool const is_valid = (x < n) && (y < n);
-        if(is_valid)
+        for(auto ipair = ipair_start; ipair < npairs; ipair += inc)
         {
-            temp = 0;
-            for(k = 0; k < nb_max; k++)
+            // ------------------------------------
+            // consider blocks in upper triangular
+            // want   (iblock < jblock)
+            // ------------------------------------
+            auto const iblock = min(top[ipair], bottom[ipair]);
+            auto const jblock = max(top[ipair], bottom[ipair]);
+
+            if((iblock >= blocks) || (jblock >= blocks))
             {
-                // temp += J[tix + k * ldj] * A[y + (k + offseti) * lda];
-                temp += Amat(y, (k + offseti)) * Jmat(tix, k);
+                continue;
             }
-            for(k = 0; k < nb; k++)
+
+            auto const offseti = iblock * nb_max;
+            auto const offsetj = jblock * nb_max;
+
+            auto const ldj = 2 * nb_max;
+
+            auto const jid = ipair + bid * half_blocks;
+            T const* const __restrict__ J = JA + (jid * 4 * nb_max * nb_max);
+
+            T* const Jsh_ = &(shmem[0]);
+            T* const Ash_ = Jsh_ + (4 * nb_max * nb_max);
+            assert(2 * sizeof(T) * 4 * nb_max * nb_max <= max_lds);
+
             {
-                // temp += J[tix + (k + nb_max) * ldj] * A[y + (k + offsetj) * lda];
-                temp += Amat(y, (k + offsetj)) * Jmat(tix, (k + nb_max));
+                // -------------------------
+                // load J into shared memory
+                // -------------------------
+
+                auto const ij_start = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x;
+                auto const ij_inc = hipBlockDim_x * hipBlockDim_y;
+                auto const len_Jsh = 4 * nb_max * nb_max;
+
+                __syncthreads();
+
+                for(auto ij = ij_start; ij < len_Jsh; ij += ij_inc)
+                {
+                    Jsh_[ij] = J[ij];
+                }
+                __syncthreads();
             }
-            __syncthreads();
-            // A[y + x * lda] = temp;
-            Amat(y, x) = temp;
-        }
-    }
-    else
-    {
-        bool const is_valid = (x < n) && (y < n);
-        if(is_valid)
-        {
-            // APLLY_LEFT
-            temp = 0;
-            for(k = 0; k < nb_max; k++)
+
+            auto Jsh = [=](auto tix, auto k) -> const T { return (Jsh_[tix + k * ldj]); };
+            for(auto kb = kb_start; kblock < kblock_end; kb += kb_inc)
             {
-                // temp += conj(J[tix + k * ldj]) * A[(k + offseti) + y * lda];
-                temp += conj(Jmat(tix, k)) * Amat(k + offseti, y);
-            }
-            for(k = 0; k < nb; k++)
-            {
-                // temp += conj(J[tix + (k + nb_max) * ldj]) * A[(k + offsetj) + y * lda];
-                temp += conj(Jmat(tix, (k + nb_max))) * Amat((k + offsetj), y);
-            }
-            __syncthreads();
-            // A[x + y * lda] = temp;
-            Amat(x, y) = temp;
-        }
-    }
+                auto const kblock = kb;
+                if(skip_block && ((kblock == iblock) || (kblock == jblock)))
+                {
+                    continue;
+                };
+
+                auto const offsetk = kblock * nb_max;
+
+                // local variables
+                T temp;
+                rocblas_int k;
+
+                rocblas_int offsetx = (tix < nb_max ? offseti : offsetj - nb_max);
+                rocblas_int offsety = biy * hipBlockDim_y;
+                rocblas_int x = tix + offsetx;
+                rocblas_int y = tiy + offsety;
+
+                auto const nb = std::min(n - offsetj, nb_max);
+
+                auto A
+                    = [=](auto i, auto j) -> T& { return (A_[i + j * static_cast<int64_t>(lda)]); };
+
+                auto const ldAmat = 2 * nb_max;
+                auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAmat]); };
+
+                auto const ni = bsize(iblock);
+                auto const nk = bsize(kblock);
+
+                auto const nrowsJ = bsize(iblock) + bsize(jblock);
+                auto const ncolsJ = nrowsJ;
+
+                auto const nrowsA = (APPLY_LEFT) ? nrowsJ : (ni + nk);
+                auto const ncolsA = (APPLY_LEFT) ? (ni + nk) : ncolsJ;
+                {
+                    // ------------------------
+                    // load upper triangular part A into shared memory
+                    // and enforce symmetry
+                    // ------------------------
+
+                    for(auto j = j_start; j < ncolsA; j += j_inc)
+                    {
+                        for(auto i = i_start; i < nrowsA; i += i_inc)
+                        {
+                            auto const ia = (i < ni) ? offseti + i : offsetk + (i - ni);
+                            auto const ja = (j < ni) ? offseti + j : offsetk + (j - ni);
+
+                            Ash(i, j) = A(ia, ja);
+                        }
+                    }
+                    __syncthreads();
+                }
+
+                // apply J to the current block
+                //
+                if(APPLY_RIGHT)
+                {
+                    // ------------
+                    // A <- Ash * Jsh
+                    // ------------
+
+                    for(auto i = i_start; i < nrowsA; i += i_inc)
+                    {
+                        for(auto j = j_start; j < ncolsA; j += j_inc)
+                        {
+                            T aij = 0;
+                            for(auto k = 0; k < nrowsJ; k++)
+                            {
+                                auto const aik = Ash(i, k);
+                                auto const J_kj = Jsh(k, j);
+                                aij += aik * J_kj;
+                            }
+
+                            auto const ia = (i < ni) ? offseti + i : offsetk + (i - ni);
+                            auto const ja = (j < ni) ? offseti + j : offsetk + (j - ni);
+                            A(ia, ja) = aij;
+                        }
+                    }
+
+                    __syncthreads();
+                }
+                else
+                {
+                    // APLLY_LEFT
+
+                    // --------------------------------
+                    // A <-  conj( transpose(Jsh) ) * Ash
+                    // --------------------------------
+
+                    for(auto j = j_start; j < ncolsA; j += j_inc)
+                    {
+                        for(auto i = i_start; i < nrowsA; i += i_inc)
+                        {
+                            T aij = 0;
+                            for(auto k = 0; k < nrowsJ; k++)
+                            {
+                                auto const Jt_ik = conj(Jsh(k, i));
+                                auto const akj = Ash(k, j);
+
+                                aij += Jt_ik * akj;
+                            }
+                            auto const ia = (i < ni) ? offseti + i : offsetk + (i - ni);
+                            auto const ja = (j < ni) ? offseti + j : offsetk + (j - ni);
+                            A(ia, ja) = aij;
+                        }
+                    }
+                    __syncthreads();
+                }
+
+            } // end for ipair
+        } // end for kb
+    } // end for bid
 }
 
 /** SYEVJ_CYCLE_PAIRS cycles the block-level top/bottom pairs to progress the sweep.
@@ -1490,15 +1563,22 @@ void rocsolver_syevj_heevj_getMemorySize(const rocblas_evect evect,
         return;
     }
 
-    rocblas_int half_n = (n - 1) / 2 + 1;
-    rocblas_int blocks = (n - 1) / BS2 + 1;
-    rocblas_int half_blocks = (blocks - 1) / 2 + 1;
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+    rocblas_int const nb_max = BS2;
+    auto const half_n = ceil(n, 2);
+    auto const blocks = ceil(n, nb_max);
+    auto const half_blocks = ceil(blocks, 2);
 
     // size of temporary workspace to store the block rotation matrices
     if(half_blocks == 1 && evect == rocblas_evect_none)
-        *size_J = sizeof(T) * blocks * BS2 * BS2 * batch_count;
+    {
+        *size_J = sizeof(T) * blocks * nb_max * nb_max * batch_count;
+    }
     else
-        *size_J = sizeof(T) * half_blocks * 4 * BS2 * BS2 * batch_count;
+    {
+        *size_J = sizeof(T) * half_blocks * 4 * nb_max * nb_max * batch_count;
+    }
 
     // size of temporary workspace to store the full matrix norm
     *size_norms = sizeof(S) * batch_count;
@@ -1635,12 +1715,14 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
     else
     {
         // *** USE BLOCKED KERNELS ***
+        auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+        rocblas_int const nb_max = BS2;
 
         // kernel dimensions
-        rocblas_int blocksReset = batch_count / BS1 + 1;
-        rocblas_int blocks = (n - 1) / BS2 + 1;
-        rocblas_int even_blocks = blocks + blocks % 2;
-        rocblas_int half_blocks = even_blocks / 2;
+        rocblas_int const blocksReset = batch_count / BS1 + 1;
+        auto const blocks = ceil(n, nb_max);
+        auto const even_blocks = blocks + (blocks % 2);
+        auto const half_blocks = even_blocks / 2;
 
         dim3 gridReset(blocksReset, 1, 1);
         dim3 grid(1, batch_count, 1);
@@ -1657,13 +1739,13 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 threadsOR(2 * BS2, BS2 / 2, 1);
 
         // shared memory sizes
-        size_t lmemsizeInit = 2 * sizeof(S) * BS1;
-        size_t lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
-        size_t lmemsizeDR = (2 * sizeof(rocblas_int)) * (BS2 / 2);
-        size_t lmemsizeOK = (sizeof(S) + sizeof(T)) * BS2;
-        size_t lmemsizePairs = (half_blocks > BS1 ? 2 * sizeof(rocblas_int) * half_blocks : 0);
+        size_t const lmemsizeInit = 2 * sizeof(S) * BS1;
+        size_t const lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
+        size_t const lmemsizeDR = (2 * sizeof(rocblas_int)) * (BS2 / 2);
+        size_t const lmemsizeOK = (sizeof(S) + sizeof(T)) * BS2;
+        size_t const lmemsizePairs = (half_blocks > BS1 ? 2 * sizeof(rocblas_int) * half_blocks : 0);
 
-        bool ev = (evect != rocblas_evect_none);
+        bool const ev = (evect != rocblas_evect_none);
         rocblas_int h_sweeps = 0;
         rocblas_int h_completed = 0;
 
@@ -1713,7 +1795,7 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                 // update eigenvectors
                 if(ev)
                     ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR, 0,
-                                            stream, false, blocks, n, A, shiftA, lda, strideA, J,
+                                            stream, false, nb_max, n, A, shiftA, lda, strideA, J,
                                             top, bottom, completed);
             }
             else
@@ -1727,16 +1809,16 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
                     // apply rotations calculated by offd_kernel
                     ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR, 0,
-                                            stream, true, blocks, n, Acpy, 0, n, n * n, J, top,
+                                            stream, true, nb_max, n, Acpy, 0, n, n * n, J, top,
                                             bottom, completed);
                     ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<true, T, S>), gridOR, threadsOR, 0,
-                                            stream, true, blocks, n, Acpy, 0, n, n * n, J, top,
+                                            stream, true, nb_max, n, Acpy, 0, n, n * n, J, top,
                                             bottom, completed);
 
                     // update eigenvectors
                     if(ev)
                         ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
-                                                0, stream, false, blocks, n, A, shiftA, lda,
+                                                0, stream, false, nb_max, n, A, shiftA, lda,
                                                 strideA, J, top, bottom, completed);
 
                     // cycle top/bottom pairs
