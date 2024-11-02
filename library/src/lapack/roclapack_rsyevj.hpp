@@ -1048,6 +1048,275 @@ static __global__ void permute_swap_kernel(I const n,
 }
 
 // ------------------------------------------
+// simple implementation of in-place GEMM
+// compute   B = alpha * op(A) * B, or B = alpha * B * op(A)
+// where B is m by n, A is square
+//
+// motivated by TRMM in-place triangular matrix-matrix multiply
+//
+// launch as dim3(nbx,nby, batch_count), dim3(nx,ny,1)
+// ------------------------------------------
+template <typename T, typename I, typename AA, typename BB, typename Istride>
+static __global__ void simple_sqmm_kernel(rocblas_side side,
+                                          rocblas_operation transA,
+                                          I m,
+                                          I n,
+                                          T alpha,
+                                          AA A_,
+                                          Istride shift_A,
+                                          I lda,
+                                          Istride stride_A,
+                                          BB B_,
+                                          Istride shift_B,
+                                          I ldb,
+                                          Istride stride_B,
+                                          I batch_count,
+                                          T* work)
+{
+    bool const isok_args = (A_ != nullptr) && (B_ != nullptr);
+    assert(isok_args);
+
+    bool has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return;
+    };
+
+    bool const is_no_transpose_A = (transA == rocblas_operation_none);
+    bool const is_transpose_A = (transA == rocblas_operation_transpose);
+    bool const is_conj_transpose_A = (transA == rocblas_operation_conjugate_transpose);
+
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    I const ib_start = hipBlockIdx_x;
+    I const ib_inc = hipGridDim_x;
+    I const jb_start = hipBlockIdx_y;
+    I const jb_inc = hipGridDim_y;
+
+    I const i_start = hipThreadIdx_x;
+    I const i_inc = hipBlockDim_x;
+
+    I const j_start = hipThreadIdx_y;
+    I const j_inc = hipBlockDim_y;
+
+    bool const is_left = (side == rocblas_side_left);
+
+    auto const nrowA = (is_left) ? m : n;
+    auto const ncolA = nrowA;
+
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+    size_t const size_lds = 64 * 1024;
+    auto const len_lds = size_lds / sizeof(T);
+    extern T shmem[len_lds];
+
+    // ----------------------
+    // Ash_ is nrow_Ash by ncol_Ash
+    // ----------------------
+    auto const nrow_Ash = nrowA;
+    auto const ncol_Ash = ncolA;
+
+    auto const len_Ash = nrow_Ash * ncol_Ash;
+    T* const Ash_ = &(shmem[0]);
+
+    T* const Bsh_ = Ash_ + len_Ash;
+
+    // ----------------------
+    // Bsh_ is nrowB by ncolB
+    // ----------------------
+    auto const nb = (len_lds - len_Ash) / nrowA;
+    auto const nrow_Bsh = (is_left) ? nrowA : nb;
+    auto const ncol_Bsh = (is_left) ? nb : nrowA;
+
+    auto const len_Bsh = nrow_Bsh * ncol_Bsh;
+    assert((len_Ash + len_Bsh) <= len_lds);
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T const* const A_ = load_ptr_batch(A_, bid, shift_A, stride_A);
+        T const* const B_ = load_ptr_batch(B_, bid, shift_B, stride_B);
+
+        auto A = [=](auto i, auto j) -> const T { return (A_[idx2D(i, j, lda)]); };
+
+        auto B = [=](auto i, auto j) -> T& { return (B_[idx2D(i, j, ldb)]); };
+
+        auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * nrow_Ash]); };
+        auto Bsh = [=](auto i, auto j) -> T& { return (Bsh_[i + j * nrow_Bsh]); };
+
+        {
+            // -------------------------
+            // load A into shared memory
+            // -------------------------
+
+            for(auto j = j_start; j < ncolA; j += j_inc)
+            {
+                for(auto i = i_start; i < nrowA; i += i_inc)
+                {
+                    Ash(i, j) = A(i, j);
+                }
+            }
+            __syncthreads();
+        }
+
+        auto const nblocks = (is_left) ? ceil(n, nb) : ceil(m, nb);
+        auto const bsize = [=](auto iblock) {
+            auto const nb_last = (is_left) ? n - (nblocks - 1) * nb : m - (nblocks - 1) * nb;
+            bool const is_last_block = (iblock == (nblocks - 1));
+            return ((is_last_block) ? nb_last : nb);
+        };
+
+        for(auto ib = ib_start; ib < nblocks; ib += ib_inc)
+        {
+            auto const offset_i = (is_left) ? 0 : ib * nb;
+            auto const offset_j = (is_left) ? ib * nb : 0;
+
+            auto const mm = (is_left) ? m : bsize(ib);
+            auto const nn = (is_left) ? bsize(ib) : n;
+
+            {
+                // -------------------------
+                // load B into shared memory
+                // -------------------------
+
+                for(auto j = j_start; j < nn; j += j_inc)
+                {
+                    for(auto i = i_start; i < mm; i += i_inc)
+                    {
+                        auto const ib = i + offset_i;
+                        auto const jb = j + offset_j;
+                        Bsh(i, j) = B(ib, jb);
+                    }
+                }
+
+                __syncthreads();
+            }
+
+            // -------------------
+            // perform computation
+            // -------------------
+            for(auto j = j_start; j < nn; j += j_inc)
+            {
+                for(auto i = i_start; i < mm; i += i_inc)
+                {
+                    auto bij = 0;
+                    if(is_left)
+                    {
+                        if(is_no_transpose_A)
+                        {
+                            for(auto k = 0; k < nrowA; k++)
+                            {
+                                auto const aik = Ash(i, k);
+                                bij += aik * Bsh(k, j);
+                            }
+                        }
+                        else if(is_transpose_A)
+                        {
+                            for(auto k = 0; k < nrowA; k++)
+                            {
+                                auto const aik = Ash(k, i);
+                                bij += aik * Bsh(k, j);
+                            }
+                        }
+                        else
+                        {
+                            assert(is_conj_transpose_A);
+                            for(auto k = 0; k < nrowA; k++)
+                            {
+                                auto const aik = conj(Ash(k, i));
+                                bij += aik * Bsh(k, j);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if(is_no_transpose_A)
+                        {
+                            for(auto k = 0; k < nrowA; k++)
+                            {
+                                bij += Bsh(i, k) * Ash(k, j);
+                            }
+                        }
+                        else if(is_transpose_A)
+                        {
+                            for(auto k = 0; k < nrowA; k++)
+                            {
+                                bij += Bsh(i, k) * Ash(j, k);
+                            }
+                        }
+                        else
+                        {
+                            assert(is_conj_transpose_A);
+                            for(auto k = 0; k < nrowA; k++)
+                            {
+                                bij += Bsh(i, k) * conj(Ash(j, k));
+                            }
+                        }
+                    }
+
+                    auto const ib = i + offset_i;
+                    auto const jb = j + offset_j;
+                    B(ib, jb) = alpha * bij;
+                }
+            }
+
+        } // end for ib
+    } // end for bid
+}
+
+template <typename T, typename I, typename AA, typename BB, typename CC, typename Istride>
+static rocblas_status simple_sqmm(rocblas_handle handle,
+                                  rocblas_operation transA,
+                                  I mm,
+                                  I nn,
+                                  T* alpha_arg,
+                                  AA A_,
+                                  Istride shiftA,
+                                  I lda,
+                                  Istride strideA,
+                                  BB B_,
+                                  Istride shiftB,
+                                  I ldb,
+                                  Istride strideB,
+                                  T* beta_arg,
+                                  I batch_count,
+                                  T** work = nullptr)
+{
+    assert(alpha_arg != nullptr);
+    assert(beta_arg != nullptr);
+
+    T alpha = *alpha_arg;
+    T beta = *beta_arg;
+
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+
+    I const max_thread_blocks = 1024;
+    I const nx = 32;
+    I const ny = 32;
+
+    I const nbx = std::min(max_thread_blocks, ceil(mm, nx));
+    I const nby = std::min(max_thread_blocks, ceil(nn, ny));
+    I const nbz = std::min(max_thread_blocks, batch_count);
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    // clang-format off
+    ROCSOLVER_LAUNCH_KERNEL((simple_sqmm_kernel<T, I, AA, BB, Istride>),
+		    dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream,
+		    transA,
+		    mm, nn,
+		    alpha,
+		    A_, shiftA, lda, strideA,
+		    B_, shiftB, ldb, strideB,
+		    batch_count );
+    // clang-format on
+
+    return (rocblas_status_success);
+}
+
+// ------------------------------------------
 // simple implementation of GEMM for debugging
 //
 // launch as dim3(nbx,nby, batch_count), dim3(nx,ny,1)
