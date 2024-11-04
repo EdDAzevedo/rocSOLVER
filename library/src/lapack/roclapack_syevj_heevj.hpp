@@ -852,17 +852,17 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
     Call this kernel with batch_count groups in z, and BS2 threads in x and y. Each thread group
     will work on four matrix blocks; for a matrix consisting of b * b blocks, use b / 2 groups in x. **/
 template <typename T, typename S, typename U>
-ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int blocks,
-                                        const rocblas_int n,
-                                        U AA,
-                                        const rocblas_int shiftA,
-                                        const rocblas_int lda,
-                                        const rocblas_stride strideA,
-                                        const S eps,
-                                        T* JA,
-                                        rocblas_int* top,
-                                        rocblas_int* bottom,
-                                        rocblas_int* completed)
+ROCSOLVER_KERNEL void syevj_offd_kernel_org(const rocblas_int blocks,
+                                            const rocblas_int n,
+                                            U AA,
+                                            const rocblas_int shiftA,
+                                            const rocblas_int lda,
+                                            const rocblas_stride strideA,
+                                            const S eps,
+                                            T* JA,
+                                            rocblas_int* top,
+                                            rocblas_int* bottom,
+                                            rocblas_int* completed)
 {
     rocblas_int tix = hipThreadIdx_x;
     rocblas_int tiy = hipThreadIdx_y;
@@ -1014,6 +1014,336 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int blocks,
             A[j + i * lda] = 0;
         }
     }
+}
+
+template <typename T, typename S, typename U>
+ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
+                                        const rocblas_int n,
+                                        U AA,
+                                        const rocblas_int shiftA,
+                                        const rocblas_int lda,
+                                        const rocblas_stride strideA,
+                                        const S eps,
+                                        T* JA,
+                                        rocblas_int* top,
+                                        rocblas_int* bottom,
+                                        rocblas_int* completed,
+                                        rocblas_int batch_count)
+{
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+    auto max = [](auto x, auto y) { return ((x > y) ? x : y); };
+    auto min = [](auto x, auto y) { return ((x < y) ? x : y); };
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+    auto const blocks = ceil(n, nb_max);
+    auto const even_blocks = blocks + (blocks % 2);
+    auto const half_blocks = even_blocks / 2;
+
+    auto const ibx = hipBlockIdx_x;
+    auto const iby = hipBlockIdx_y;
+    auto const ibz = hipBlockIdx_z;
+
+    auto const nbx = hipGridDim_x;
+    auto const nby = hipGridDim_y;
+    auto const nbz = hipGridDim_z;
+
+    auto const tix = hipThreadIdx_x;
+    auto const tiy = hipThreadIdx_y;
+    auto const bid = ibz;
+    auto const jid = ibx + bid * nbx;
+
+    auto const tix_start = hipThreadIdx_x;
+    auto const tiy_start = hipThreadIdx_y;
+    auto const tix_inc = hipBlockDim_x;
+    auto const tiy_inc = hipBlockDim_y;
+
+    auto const bid_start = ibz;
+    auto const bid_inc = nbz;
+
+    // local variables
+    S c, mag, f, g, r, s;
+    T s1, s2, aij, temp1, temp2;
+    rocblas_int k;
+
+    // if(y1 >= n) return;
+
+    // array pointers
+    T* A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
+    T* J_ = (JA ? JA + (jid * 4 * nb_max * nb_max) : nullptr);
+
+    auto const ldj = (2 * nb_max);
+    auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
+    auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+
+    // shared memory
+    extern __shared__ double lmem[];
+
+    size_t total_bytes = 0;
+    std::byte* pfree = reinterpret_cast<std::byte*>(&(lmem[0]));
+
+    size_t const size_sh_cosines = sizeof(S) * nb_max;
+    S* const sh_cosines = reinterpret_cast<S*>(pfree);
+    pfree += size_sh_cosines;
+    total_bytes += size_sh_cosines;
+
+    size_t const size_sh_sines = sizeof(T) * nb_max;
+    T* const sh_sines = reinterpret_cast<T*>(pfree);
+    pfree += size_sh_sines;
+    total_bytes += size_sh_sines;
+
+    size_t const size_Jsh = sizeof(T) * (2 * nb_max) * (2 * nb_max);
+    T* const Jsh_ = reinterpret_cast<T*>(pfree);
+    pfree += size_Jsh;
+    total_bytes += size_Jsh;
+
+    size_t const max_lds = 64 * 1024;
+    bool const use_Jsh = (total_bytes <= max_lds);
+
+    T* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
+
+    auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldj]); };
+
+    auto bsize = [=](auto iblock) {
+        auto const nb_last = n - (blocks - 1) * nb_max;
+        bool const is_last_block = (iblock == (blocks - 1));
+        return ((is_last_block) ? nb_last : nb_max);
+    };
+
+    auto const ipair_start = ibx;
+    auto const ipair_inc = nbx;
+    auto const npairs = half_blocks;
+
+    for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        if(completed[bid + 1])
+            continue;
+
+        for(auto ipair = ipair_start; ipair < npairs; ipair += ipair_inc)
+        {
+            auto const iblock = min(top[ibx], bottom[ibx]);
+            auto const jblock = max(top[ibx], bottom[ibx]);
+            if((iblock >= blocks) || (jblock >= blocks))
+                continue;
+
+            auto const offseti = iblock * nb_max;
+            auto const offsetj = jblock * nb_max;
+
+            auto const ni = bsize(iblock);
+            auto const nj = bsize(jblock);
+            auto const nrowsJ = ni + nj;
+            auto const ncolsJ = nrowsJ;
+
+            // ------------------------------------------
+            // initialize Jmat to be the identity matrix
+            // ------------------------------------------
+            if(J_ != nullptr)
+            {
+                __syncthreads();
+
+                auto const i_start = tix_start;
+                auto const i_inc = tix_inc;
+
+                auto const j_start = tiy_start;
+                auto const j_inc = tiy_inc;
+
+                for(auto j = j_start; j < ncolsJ; j += j_inc)
+                {
+                    for(auto i = i_start; i < nrowsJ; i += i_inc)
+                    {
+                        bool const is_diagonal = (i == j);
+                        Jmat(i, j) = (is_diagonal) ? 1 : 0;
+                    }
+                }
+                __syncthreads();
+            }
+
+            S const small_num = get_safemin<S>() / eps;
+
+            // for each element, calculate the Jacobi rotation and apply it to A
+            for(rocblas_int k = 0; k < nb_max; k++)
+            {
+                for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
+                {
+                    for(auto tix = tix_start; tix < nb_max; tix += tix_inc)
+                    {
+                        auto const x1 = tix + offseti;
+                        auto const x2 = tix + offsetj;
+                        auto const y1 = tiy + offseti;
+                        auto const y2 = tiy + offsetj;
+
+                        // get element indices
+                        auto const i = x1;
+                        auto const j = (tix + k) % nb_max + offsetj;
+
+                        if((tiy == 0) && (i < n) && (j < n))
+                        {
+                            aij = A(i, j);
+                            mag = std::abs(aij);
+
+                            // calculate rotation J
+                            if(mag * mag < small_num)
+                            {
+                                c = 1;
+                                s1 = 0;
+                            }
+                            else
+                            {
+                                g = 2 * mag;
+                                f = std::real(A(j, j) - A(i, i));
+                                f += (f < 0) ? -std::hypot(f, g) : std::hypot(f, g);
+                                lartg(f, g, c, s, r);
+                                s1 = s * aij / mag;
+                            }
+
+                            sh_cosines[tix] = c;
+                            sh_sines[tix] = s1;
+                        }
+                    }
+                }
+                __syncthreads();
+
+                for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
+                {
+                    for(auto tix = tix_start; tix < nb_max; tix += tix_inc)
+                    {
+                        auto const x1 = tix + offseti;
+                        auto const x2 = tix + offsetj;
+                        auto const y1 = tiy + offseti;
+                        auto const y2 = tiy + offsetj;
+
+                        auto xx1 = tix;
+                        auto xx2 = tix + nb_max;
+                        auto yy1 = tiy;
+                        auto yy2 = tiy + nb_max;
+                        // get element indices
+                        auto const i = x1;
+                        auto const j = (tix + k) % nb_max + offsetj;
+
+                        if((i < n) && (j < n))
+                        {
+                            c = sh_cosines[tix];
+                            s1 = sh_sines[tix];
+                            s2 = conj(s1);
+
+                            // store J row-wise
+                            if(J_ != nullptr)
+                            {
+                                xx1 = i - offseti;
+                                xx2 = j - offsetj + nb_max;
+                                temp1 = Jmat(xx1, yy1);
+                                temp2 = Jmat(xx2, yy1);
+
+                                Jmat(xx1, yy1) = c * temp1 + s2 * temp2;
+                                Jmat(xx2, yy1) = -s1 * temp1 + c * temp2;
+
+                                if(y2 < n)
+                                {
+                                    temp1 = Jmat(xx1, yy2);
+                                    temp2 = Jmat(xx2, yy2);
+
+                                    Jmat(xx1, yy2) = c * temp1 + s2 * temp2;
+                                    Jmat(xx2, yy2) = -s1 * temp1 + c * temp2;
+                                }
+                            }
+
+                            // apply J from the right
+                            temp1 = A(y1, i);
+                            temp2 = A(y1, j);
+                            A(y1, i) = c * temp1 + s2 * temp2;
+                            A(y1, j) = -s1 * temp1 + c * temp2;
+
+                            if(y2 < n)
+                            {
+                                temp1 = A(y2, i);
+                                temp2 = A(y2, j);
+                                A(y2, i) = c * temp1 + s2 * temp2;
+                                A(y2, j) = -s1 * temp1 + c * temp2;
+                            }
+                        }
+                    }
+                }
+
+                __syncthreads();
+
+                for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
+                {
+                    for(auto tix = tix_start; tix < nb_max; tix += tix_inc)
+                    {
+                        auto const x1 = tix + offseti;
+                        auto const x2 = tix + offsetj;
+                        auto const y1 = tiy + offseti;
+                        auto const y2 = tiy + offsetj;
+
+                        // get element indices
+                        auto const i = x1;
+                        auto const j = (tix + k) % nb_max + offsetj;
+                        if(i < n && j < n)
+                        {
+                            // apply J' from the left
+                            temp1 = A(i, y1);
+                            temp2 = A(j, y1);
+                            A(i, y1) = c * temp1 + s1 * temp2;
+                            A(j, y1) = -s2 * temp1 + c * temp2;
+
+                            if(y2 < n)
+                            {
+                                temp1 = A(i, y2);
+                                temp2 = A(j, y2);
+                                A(i, y2) = c * temp1 + s1 * temp2;
+                                A(j, y2) = -s2 * temp1 + c * temp2;
+                            }
+                        }
+                    }
+                }
+
+                __syncthreads();
+
+                for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
+                {
+                    for(auto tix = tix_start; tix < nb_max; tix += tix_inc)
+                    {
+                        auto const x1 = tix + offseti;
+                        auto const x2 = tix + offsetj;
+                        auto const y1 = tiy + offseti;
+                        auto const y2 = tiy + offsetj;
+
+                        // get element indices
+                        auto const i = x1;
+                        auto const j = (tix + k) % nb_max + offsetj;
+                        if(tiy == 0 && j < n)
+                        {
+                            // round aij and aji to zero
+                            A(i, j) = 0;
+                            A(j, i) = 0;
+                        }
+                    }
+                }
+            } // end for k
+
+            // -----------------------------------
+            // write out Jsh to J in device memory
+            // -----------------------------------
+            if((J_ != nullptr) && use_Jsh)
+            {
+                __syncthreads();
+
+                auto const i_start = tix_start;
+                auto const i_inc = tix_inc;
+
+                auto const j_start = tiy_start;
+                auto const j_inc = tiy_inc;
+
+                for(auto j = j_start; j < ncolsJ; j += j_inc)
+                {
+                    for(auto i = i_start; i < nrowsJ; i += i_inc)
+                    {
+                        J(i, j) = Jmat(i, j);
+                    }
+                }
+                __syncthreads();
+            }
+        } // end for ipair
+    } // end for bid
 }
 
 /** SYEVJ_OFFD_ROTATE rotates off-diagonal blocks using the rotations calculated by SYEVJ_OFFD_KERNEL.
@@ -1797,11 +2127,25 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 gridOR(half_blocks, std::max(1, blocks), batch_count);
         dim3 threadsOR(BS2, BS2, 1);
 
+        size_t const size_lds = 64 * 1024;
         // shared memory sizes
         size_t const lmemsizeInit = 2 * sizeof(S) * BS1;
         size_t const lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
         size_t const lmemsizeDR = (2 * sizeof(rocblas_int)) * (BS2 / 2);
-        size_t const lmemsizeOK = (sizeof(S) + sizeof(T)) * BS2;
+
+        size_t lmemsizeOK = (sizeof(S) + sizeof(T)) * nb_max;
+        {
+            // ---------------------------------------------------------
+            // try to hold J in shared memory if there is sufficient LDS
+            // ---------------------------------------------------------
+            size_t const size_sh_cosines = sizeof(S) * nb_max;
+            size_t const size_sh_sines = sizeof(T) * nb_max;
+            size_t const size_Jsh = sizeof(T) * (2 * nb_max) * (2 * nb_max);
+            bool const use_Jsh = (size_sh_cosines + size_sh_sines + size_Jsh) <= size_lds;
+            lmemsizeOK = (use_Jsh) ? (size_sh_cosines + size_sh_sines + size_Jsh)
+                                   : (size_sh_cosines + size_sh_sines);
+        }
+
         size_t const lmemsizePairs = (half_blocks > BS1 ? 2 * sizeof(rocblas_int) * half_blocks : 0);
 
         // ------------------------------------------
@@ -1809,12 +2153,13 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         // there is sufficient space,
         // otherwise store only 2x1 block of A in LDS
         // ------------------------------------------
-        size_t const size_lds = 64 * 1024;
 
-        size_t const size_Ash = sizeof(T) * 2 * nb_max * nb_max;
-        size_t const size_Jsh = sizeof(T) * 4 * nb_max * nb_max;
-        size_t const lmemsizeOR
-            = ((size_Ash + size_Jsh) <= size_lds) ? (size_Ash + size_Jsh) : size_Ash;
+        size_t lmemsizeOR = size_lds;
+        {
+            size_t const size_Ash = sizeof(T) * 2 * nb_max * nb_max;
+            size_t const size_Jsh = sizeof(T) * 4 * nb_max * nb_max;
+            lmemsizeOR = ((size_Ash + size_Jsh) <= size_lds) ? (size_Ash + size_Jsh) : size_Ash;
+        }
 
         bool const ev = (evect != rocblas_evect_none);
         rocblas_int h_sweeps = 0;
@@ -1860,8 +2205,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
             {
                 // decompose off-diagonal block
                 ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK, lmemsizeOK,
-                                        stream, blocks, n, Acpy, 0, n, n * n, eps,
-                                        (ev ? J : nullptr), top, bottom, completed);
+                                        stream, nb_max, n, Acpy, 0, n, n * n, eps,
+                                        (ev ? J : nullptr), top, bottom, completed, batch_count);
 
                 // update eigenvectors
                 if(ev)
@@ -1877,8 +2222,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                 {
                     // decompose off-diagonal blocks, indexed by top/bottom pairs
                     ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK,
-                                            lmemsizeOK, stream, blocks, n, Acpy, 0, n, n * n, eps,
-                                            J, top, bottom, completed);
+                                            lmemsizeOK, stream, nb_max, n, Acpy, 0, n, n * n, eps,
+                                            J, top, bottom, completed, batch_count);
 
                     // apply rotations calculated by offd_kernel
                     ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
