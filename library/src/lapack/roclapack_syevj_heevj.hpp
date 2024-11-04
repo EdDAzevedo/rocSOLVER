@@ -1784,14 +1784,18 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 gridDK(blocks, 1, batch_count);
         dim3 gridDR(blocks, blocks, batch_count);
         dim3 gridOK(half_blocks, 1, batch_count);
-        dim3 gridOR(half_blocks, 2 * blocks, batch_count);
+
         dim3 gridPairs(1, 1, 1);
         dim3 threadsReset(BS1, 1, 1);
         dim3 threads(BS1, 1, 1);
         dim3 threadsDK(BS2 / 2, BS2 / 2, 1);
         dim3 threadsDR(BS2, BS2, 1);
         dim3 threadsOK(BS2, BS2, 1);
-        dim3 threadsOR(2 * BS2, BS2 / 2, 1);
+
+        // dim3 gridOR(half_blocks, 2 * blocks, batch_count);
+        // dim3 threadsOR(2 * BS2, BS2 / 2, 1);
+        dim3 gridOR(half_blocks, std::max(1, blocks), batch_count);
+        dim3 threadsOR(BS2, BS2, 1);
 
         // shared memory sizes
         size_t const lmemsizeInit = 2 * sizeof(S) * BS1;
