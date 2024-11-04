@@ -1047,11 +1047,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     auto const nby = hipGridDim_y;
     auto const nbz = hipGridDim_z;
 
-    auto const tix = hipThreadIdx_x;
-    auto const tiy = hipThreadIdx_y;
-    auto const bid = ibz;
-    auto const jid = ibx + bid * nbx;
-
     auto const tix_start = hipThreadIdx_x;
     auto const tiy_start = hipThreadIdx_y;
     auto const tix_inc = hipBlockDim_x;
@@ -1059,21 +1054,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
     auto const bid_start = ibz;
     auto const bid_inc = nbz;
-
-    // local variables
-    S c, mag, f, g, r, s;
-    T s1, s2, aij, temp1, temp2;
-    rocblas_int k;
-
-    // if(y1 >= n) return;
-
-    // array pointers
-    T* A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* J_ = (JA ? JA + (jid * 4 * nb_max * nb_max) : nullptr);
-
-    auto const ldj = (2 * nb_max);
-    auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
-    auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
 
     // shared memory
     extern __shared__ double lmem[];
@@ -1099,10 +1079,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     size_t const max_lds = 64 * 1024;
     bool const use_Jsh = (total_bytes <= max_lds);
 
-    T* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
-
-    auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldj]); };
-
     auto bsize = [=](auto iblock) {
         auto const nb_last = n - (blocks - 1) * nb_max;
         bool const is_last_block = (iblock == (blocks - 1));
@@ -1118,11 +1094,16 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
         if(completed[bid + 1])
             continue;
 
+        T* const A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
+        auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+
         for(auto ipair = ipair_start; ipair < npairs; ipair += ipair_inc)
         {
-            auto const iblock = min(top[ibx], bottom[ibx]);
-            auto const jblock = max(top[ibx], bottom[ibx]);
-            if((iblock >= blocks) || (jblock >= blocks))
+            auto const iblock = min(top[ipair], bottom[ipair]);
+            auto const jblock = max(top[ipair], bottom[ipair]);
+
+            bool const is_valid_block = (iblock < blocks) && (jblock < blocks);
+            if(!is_valid_block)
                 continue;
 
             auto const offseti = iblock * nb_max;
@@ -1133,6 +1114,14 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             auto const nrowsJ = ni + nj;
             auto const ncolsJ = nrowsJ;
 
+            auto const jid = ipair + bid * npairs;
+            T* const J_ = ((JA != nullptr) ? JA + (jid * (4 * nb_max * nb_max)) : nullptr);
+
+            auto const ldj = (2 * nb_max);
+            auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
+
+            T* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
+            auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldj]); };
             // ------------------------------------------
             // initialize Jmat to be the identity matrix
             // ------------------------------------------
@@ -1158,6 +1147,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             }
 
             S const small_num = get_safemin<S>() / eps;
+            S const sqrt_small_num = std::sqrt(small_num);
 
             // for each element, calculate the Jacobi rotation and apply it to A
             for(rocblas_int k = 0; k < nb_max; k++)
@@ -1177,20 +1167,24 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
                         if((tiy == 0) && (i < n) && (j < n))
                         {
-                            aij = A(i, j);
-                            mag = std::abs(aij);
+                            auto const aij = A(i, j);
+                            auto const mag = std::abs(aij);
+
+                            // identity rotation
+                            S c = 1;
+                            T s1 = 0;
 
                             // calculate rotation J
-                            if(mag * mag < small_num)
+                            bool const is_small_aij = (mag < sqrt_small_num);
+                            if(!is_small_aij)
                             {
-                                c = 1;
-                                s1 = 0;
-                            }
-                            else
-                            {
-                                g = 2 * mag;
-                                f = std::real(A(j, j) - A(i, i));
+                                S g = 2 * mag;
+                                S f = std::real(A(j, j) - A(i, i));
                                 f += (f < 0) ? -std::hypot(f, g) : std::hypot(f, g);
+
+                                S s = 0;
+                                S r = 1;
+
                                 lartg(f, g, c, s, r);
                                 s1 = s * aij / mag;
                             }
@@ -1211,35 +1205,36 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                         auto const y1 = tiy + offseti;
                         auto const y2 = tiy + offsetj;
 
-                        auto xx1 = tix;
-                        auto xx2 = tix + nb_max;
-                        auto yy1 = tiy;
-                        auto yy2 = tiy + nb_max;
                         // get element indices
                         auto const i = x1;
                         auto const j = (tix + k) % nb_max + offsetj;
 
                         if((i < n) && (j < n))
                         {
-                            c = sh_cosines[tix];
-                            s1 = sh_sines[tix];
-                            s2 = conj(s1);
+                            auto const c = sh_cosines[tix];
+                            auto const s1 = sh_sines[tix];
+                            auto const s2 = conj(s1);
 
                             // store J row-wise
                             if(J_ != nullptr)
                             {
-                                xx1 = i - offseti;
-                                xx2 = j - offsetj + nb_max;
-                                temp1 = Jmat(xx1, yy1);
-                                temp2 = Jmat(xx2, yy1);
+                                auto const xx1 = i - offseti;
+                                auto const xx2 = j - offsetj + nb_max;
+                                auto const yy1 = tiy;
+                                auto const yy2 = tiy + nb_max;
 
-                                Jmat(xx1, yy1) = c * temp1 + s2 * temp2;
-                                Jmat(xx2, yy1) = -s1 * temp1 + c * temp2;
+                                {
+                                    auto const temp1 = Jmat(xx1, yy1);
+                                    auto const temp2 = Jmat(xx2, yy1);
+
+                                    Jmat(xx1, yy1) = c * temp1 + s2 * temp2;
+                                    Jmat(xx2, yy1) = -s1 * temp1 + c * temp2;
+                                }
 
                                 if(y2 < n)
                                 {
-                                    temp1 = Jmat(xx1, yy2);
-                                    temp2 = Jmat(xx2, yy2);
+                                    auto const temp1 = Jmat(xx1, yy2);
+                                    auto const temp2 = Jmat(xx2, yy2);
 
                                     Jmat(xx1, yy2) = c * temp1 + s2 * temp2;
                                     Jmat(xx2, yy2) = -s1 * temp1 + c * temp2;
@@ -1247,15 +1242,17 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                             }
 
                             // apply J from the right
-                            temp1 = A(y1, i);
-                            temp2 = A(y1, j);
-                            A(y1, i) = c * temp1 + s2 * temp2;
-                            A(y1, j) = -s1 * temp1 + c * temp2;
+                            {
+                                auto const temp1 = A(y1, i);
+                                auto const temp2 = A(y1, j);
+                                A(y1, i) = c * temp1 + s2 * temp2;
+                                A(y1, j) = -s1 * temp1 + c * temp2;
+                            }
 
                             if(y2 < n)
                             {
-                                temp1 = A(y2, i);
-                                temp2 = A(y2, j);
+                                auto const temp1 = A(y2, i);
+                                auto const temp2 = A(y2, j);
                                 A(y2, i) = c * temp1 + s2 * temp2;
                                 A(y2, j) = -s1 * temp1 + c * temp2;
                             }
@@ -1279,16 +1276,21 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                         auto const j = (tix + k) % nb_max + offsetj;
                         if(i < n && j < n)
                         {
+                            auto const c = sh_cosines[tix];
+                            auto const s1 = sh_sines[tix];
+                            auto const s2 = conj(s1);
                             // apply J' from the left
-                            temp1 = A(i, y1);
-                            temp2 = A(j, y1);
-                            A(i, y1) = c * temp1 + s1 * temp2;
-                            A(j, y1) = -s2 * temp1 + c * temp2;
+                            {
+                                auto const temp1 = A(i, y1);
+                                auto const temp2 = A(j, y1);
+                                A(i, y1) = c * temp1 + s1 * temp2;
+                                A(j, y1) = -s2 * temp1 + c * temp2;
+                            }
 
                             if(y2 < n)
                             {
-                                temp1 = A(i, y2);
-                                temp2 = A(j, y2);
+                                auto const temp1 = A(i, y2);
+                                auto const temp2 = A(j, y2);
                                 A(i, y2) = c * temp1 + s1 * temp2;
                                 A(j, y2) = -s2 * temp1 + c * temp2;
                             }
@@ -1310,7 +1312,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                         // get element indices
                         auto const i = x1;
                         auto const j = (tix + k) % nb_max + offsetj;
-                        if(tiy == 0 && j < n)
+                        if((tiy == 0) && (j < n))
                         {
                             // round aij and aji to zero
                             A(i, j) = 0;
