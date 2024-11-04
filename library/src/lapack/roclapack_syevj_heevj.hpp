@@ -1161,14 +1161,18 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
 
     auto constexpr max_lds = 64 * 1024;
     auto constexpr len_shmem = max_lds / sizeof(T);
-    __shared__ T shmem[len_shmem];
 
     auto const ldj = 2 * nb_max;
     auto const len_Jsh = ldj * (2 * nb_max);
     auto const len_Ash = (2 * nb_max) * nb_max;
 
-    T* const Ash_ = &(shmem[0]);
-    T* const Jsh_ = Ash_ + len_Ash;
+    extern __shared__ double lmem[];
+    T* pfree = reinterpret_cast<T*>(&(lmem[0]));
+
+    T* const Ash_ = pfree;
+    pfree += len_Ash;
+    T* const Jsh_ = pfree;
+    pfree += len_Jsh;
 
     // ---------------------------------
     // store J into shared memory only if
@@ -1796,6 +1800,18 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         size_t const lmemsizeOK = (sizeof(S) + sizeof(T)) * BS2;
         size_t const lmemsizePairs = (half_blocks > BS1 ? 2 * sizeof(rocblas_int) * half_blocks : 0);
 
+        // ------------------------------------------
+        // store 2x2 block J and 2x1 block of A in LDS if
+        // there is sufficient space,
+        // otherwise store only 2x1 block of A in LDS
+        // ------------------------------------------
+        size_t const size_lds = 64 * 1024;
+
+        size_t const size_Ash = sizeof(T) * 2 * nb_max * nb_max;
+        size_t const size_Jsh = sizeof(T) * 4 * nb_max * nb_max;
+        size_t const lmemsizeOR
+            = ((size_Ash + size_Jsh) <= size_lds) ? (size_Ash + size_Jsh) : size_Ash;
+
         bool const ev = (evect != rocblas_evect_none);
         rocblas_int h_sweeps = 0;
         rocblas_int h_completed = 0;
@@ -1845,9 +1861,11 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
                 // update eigenvectors
                 if(ev)
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR, 0,
-                                            stream, false, nb_max, n, A, shiftA, lda, strideA, J,
-                                            top, bottom, completed, batch_count);
+                {
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
+                                            lmemsizeOR, stream, false, nb_max, n, A, shiftA, lda,
+                                            strideA, J, top, bottom, completed, batch_count);
+                }
             }
             else
             {
@@ -1859,18 +1877,20 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                                             J, top, bottom, completed);
 
                     // apply rotations calculated by offd_kernel
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR, 0,
-                                            stream, true, nb_max, n, Acpy, 0, n, n * n, J, top,
-                                            bottom, completed, batch_count);
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<true, T, S>), gridOR, threadsOR, 0,
-                                            stream, true, nb_max, n, Acpy, 0, n, n * n, J, top,
-                                            bottom, completed, batch_count);
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
+                                            lmemsizeOR, stream, true, nb_max, n, Acpy, 0, n, n * n,
+                                            J, top, bottom, completed, batch_count);
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<true, T, S>), gridOR, threadsOR,
+                                            lmemsizeOR, stream, true, nb_max, n, Acpy, 0, n, n * n,
+                                            J, top, bottom, completed, batch_count);
 
                     // update eigenvectors
                     if(ev)
+                    {
                         ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
-                                                0, stream, false, nb_max, n, A, shiftA, lda,
+                                                lmemsizeOR, stream, false, nb_max, n, A, shiftA, lda,
                                                 strideA, J, top, bottom, completed, batch_count);
+                    }
 
                     // cycle top/bottom pairs
                     ROCSOLVER_LAUNCH_KERNEL(syevj_cycle_pairs<T>, gridPairs, threads, lmemsizePairs,
