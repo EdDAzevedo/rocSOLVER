@@ -1163,11 +1163,18 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
     auto constexpr len_shmem = max_lds / sizeof(T);
     __shared__ T shmem[len_shmem];
 
-    auto const len_Jsh = 4 * nb_max * nb_max;
+    auto const ldj = 2 * nb_max;
+    auto const len_Jsh = ldj * (2 * nb_max);
     auto const len_Ash = (2 * nb_max) * nb_max;
-    T* const Jsh_ = &(shmem[0]);
-    T* const Ash_ = Jsh_ + len_Ash;
-    assert((len_Jsh + len_Ash) <= len_shmem);
+
+    T* const Ash_ = &(shmem[0]);
+    T* const Jsh_ = Ash_ + len_Ash;
+
+    // ---------------------------------
+    // store J into shared memory only if
+    // there is sufficient space
+    // ---------------------------------
+    bool const use_Jsh = ((len_Jsh + len_Ash) <= len_shmem);
 
     for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
@@ -1197,36 +1204,38 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
 
             auto const ni = bsize(iblock);
             auto const nj = bsize(jblock);
-
-            auto const ldj = 2 * nb_max;
+            auto const nrowsJ = (ni + nj);
+            auto const ncolsJ = nrowsJ;
 
             auto const jid = ipair + bid * half_blocks;
-            T const* const __restrict__ J = JA + (jid * 4 * nb_max * nb_max);
+            T const* const __restrict__ J_ = JA + (jid * 4 * nb_max * nb_max);
 
+            // ---------------------------------
+            // store J into shared memory only if
+            // there is sufficient space
+            // ---------------------------------
+            T const* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
+            auto Jmat = [=](auto i, auto j) -> const T { return (Jmat_[i + j * ldj]); };
+
+            if(use_Jsh)
             {
                 // -------------------------
                 // load J into shared memory
                 // -------------------------
 
-                auto const ij_start = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x;
-                auto const ij_inc = hipBlockDim_x * hipBlockDim_y;
+                auto const ij_start = i_start + j_start * nx;
+                auto const ij_inc = nx * ny;
                 auto const len_Jsh = 4 * nb_max * nb_max;
 
                 __syncthreads();
 
                 for(auto ij = ij_start; ij < len_Jsh; ij += ij_inc)
                 {
-                    Jsh_[ij] = J[ij];
+                    Jsh_[ij] = J_[ij];
                 }
                 __syncthreads();
             }
 
-            auto Jsh = [=](auto tix, auto k) -> const T {
-                assert((0 <= tix) && (tix < ldj));
-                assert((0 <= k) && (k < (2 * nb_max)));
-
-                return (Jsh_[tix + k * ldj]);
-            };
             for(auto kb = kb_start; kb < blocks; kb += kb_inc)
             {
                 auto const kblock = kb;
@@ -1244,48 +1253,52 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
 
                 auto const offsetk = kblock * nb_max;
 
-                auto A = [=](auto i, auto j) -> T& {
-                    assert((0 <= i) && (i < n));
-                    assert((0 <= j) && (j < n));
-                    return (A_[idx2D(i, j, lda)]);
-                };
+                auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
 
                 auto const nk = bsize(kblock);
-
-                auto const nrowsJ = (ni + nj);
-                auto const ncolsJ = nrowsJ;
 
                 auto const nrows_Ash = (APPLY_LEFT) ? nrowsJ : nk;
                 auto const ncols_Ash = (APPLY_LEFT) ? nk : nrowsJ;
 
                 auto const ldAsh = nrows_Ash;
-                auto Ash = [=](auto i, auto j) -> T& {
-                    assert((0 <= i) && (i < nrows_Ash));
-                    assert((0 <= j) && (j < ncols_Ash));
-                    return (Ash_[i + j * ldAsh]);
+                auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
+
+                // -------------------------------
+                // expression for global row index
+                // -------------------------------
+                auto get_ia = [=](auto i) {
+                    auto const ia = (APPLY_LEFT) ? ((i < ni) ? (offseti + i) : (offsetj + (i - ni)))
+                                                 : (offsetk + i);
+
+                    return (ia);
+                };
+
+                // ----------------------------------
+                // expression for global column index
+                // ----------------------------------
+                auto get_ja = [=](auto j) {
+                    auto const ja = (APPLY_LEFT) ? (offsetk + j)
+                                                 : ((j < ni) ? (offseti + j) : (offsetj + (j - ni)));
+                    return (ja);
                 };
 
                 {
                     // ------------------------
                     // load A into shared memory
                     // ------------------------
+                    __syncthreads();
 
                     for(auto j = j_start; j < ncols_Ash; j += j_inc)
                     {
+                        auto const ja = get_ja(j);
+
                         for(auto i = i_start; i < nrows_Ash; i += i_inc)
                         {
                             //      -----------------------------------------
                             // Note if (APPLY_LEFT)  [kblock] is the block column
                             //      if (APPLY_RIGHT) [kblock] is the block row
                             //      -----------------------------------------
-
-                            auto const ia = (i < ni) ? offseti + i
-                                : (APPLY_LEFT)       ? offsetj + (i - ni)
-                                                     : offsetk + (i - ni);
-
-                            auto const ja = (j < ni) ? offseti + j
-                                : (APPLY_LEFT)       ? offsetk + (j - ni)
-                                                     : offsetj + (j - ni);
+                            auto const ia = get_ia(i);
 
                             Ash(i, j) = A(ia, ja);
                         }
@@ -1298,31 +1311,29 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                 if(APPLY_RIGHT)
                 {
                     // ------------
-                    // A <- Ash * Jsh
+                    // NOTE: J is stored in row-major order in device memory
+                    // thus Jsh is also stored in row-major order in shared memory
+                    //
+                    // A <- Ash * transpose(Jsh)
                     // ------------
 
                     assert(ncols_Ash == nrowsJ);
 
-                    for(auto i = i_start; i < nrows_Ash; i += i_inc)
+                    for(auto j = j_start; j < ncols_Ash; j += j_inc)
                     {
-                        for(auto j = j_start; j < ncols_Ash; j += j_inc)
+                        auto const ja = get_ja(j);
+
+                        for(auto i = i_start; i < nrows_Ash; i += i_inc)
                         {
                             T aij = 0;
                             for(auto k = 0; k < nrowsJ; k++)
                             {
-                                auto const aik = Ash(i, k);
-                                auto const J_kj = Jsh(k, j);
+                                T const aik = Ash(i, k);
+                                T const J_kj = Jmat(j, k);
                                 aij += aik * J_kj;
                             }
 
-                            auto const ia = (i < ni) ? offseti + i
-                                : (APPLY_LEFT)       ? offsetj + (i - ni)
-                                                     : offsetk + (i - ni);
-
-                            auto const ja = (j < ni) ? offseti + j
-                                : (APPLY_LEFT)       ? offsetk + (j - ni)
-                                                     : offsetj + (j - ni);
-
+                            auto const ia = get_ia(i);
                             A(ia, ja) = aij;
                         }
                     }
@@ -1334,36 +1345,38 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                     // APLLY_LEFT
 
                     // --------------------------------
-                    // A <-  conj( transpose(Jsh) ) * Ash
+                    // NOTE: J is stored in row-major order in device memory
+                    // thus Jsh is also stored in row-major order in shared memory
+                    //
+                    // A <-  conj( (Jsh) ) * Ash
                     // --------------------------------
+
+                    assert(nrows_Ash == nrowsJ);
 
                     for(auto j = j_start; j < ncols_Ash; j += j_inc)
                     {
+                        auto const ja = get_ja(j);
+
                         for(auto i = i_start; i < nrows_Ash; i += i_inc)
                         {
                             T aij = 0;
                             for(auto k = 0; k < nrowsJ; k++)
                             {
-                                auto const Jt_ik = conj(Jsh(k, i));
-                                auto const akj = Ash(k, j);
+                                T const Jc_ik = conj(Jmat(i, k));
+                                T const akj = Ash(k, j);
 
-                                aij += Jt_ik * akj;
+                                aij += Jc_ik * akj;
                             }
-                            auto const ia = (i < ni) ? offseti + i
-                                : (APPLY_LEFT)       ? offsetj + (i - ni)
-                                                     : offsetk + (i - ni);
 
-                            auto const ja = (j < ni) ? offseti + j
-                                : (APPLY_LEFT)       ? offsetk + (j - ni)
-                                                     : offsetj + (j - ni);
+                            auto const ia = get_ia(i);
                             A(ia, ja) = aij;
                         }
                     }
                     __syncthreads();
                 }
 
-            } // end for ipair
-        } // end for kb
+            } // end for kb
+        } // end for ipair
     } // end for bid
 }
 
