@@ -779,14 +779,14 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     will work on a separate off-diagonal block; for a matrix consisting of b * b blocks, use b groups
     in x and b - 1 groups in y. **/
 template <bool APPLY_LEFT, typename T, typename S, typename U>
-ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
-                                        const rocblas_int n,
-                                        U AA,
-                                        const rocblas_int shiftA,
-                                        const rocblas_int lda,
-                                        const rocblas_stride strideA,
-                                        T* JA,
-                                        rocblas_int* completed)
+ROCSOLVER_KERNEL void syevj_diag_rotate_org(const bool skip_block,
+                                            const rocblas_int n,
+                                            U AA,
+                                            const rocblas_int shiftA,
+                                            const rocblas_int lda,
+                                            const rocblas_stride strideA,
+                                            T* JA,
+                                            rocblas_int* completed)
 {
     rocblas_int tix = hipThreadIdx_x;
     rocblas_int tiy = hipThreadIdx_y;
@@ -836,6 +836,247 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
         __syncthreads();
         A[x + y * lda] = temp;
     }
+}
+
+template <bool APPLY_LEFT, typename T, typename S, typename U>
+ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
+                                        const rocblas_int nb_max,
+                                        const rocblas_int n,
+                                        U AA,
+                                        const rocblas_int shiftA,
+                                        const rocblas_int lda,
+                                        const rocblas_stride strideA,
+                                        T* JA,
+                                        rocblas_int* completed,
+                                        rocblas_int batch_count)
+{
+    bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
+
+    // rocblas_int tix = hipThreadIdx_x;
+    // rocblas_int tiy = hipThreadIdx_y;
+    // rocblas_int bix = hipBlockIdx_x;
+    // rocblas_int biy = hipBlockIdx_y;
+    // rocblas_int bid = hipBlockIdx_z;
+    // rocblas_int jid = bid * hipGridDim_x + bix;
+
+    auto const i_start = hipThreadIdx_x;
+    auto const i_inc = hipBlockDim_x;
+
+    auto const j_start = hipThreadIdx_y;
+    auto const j_inc = hipBlockDim_y;
+
+    auto const bix_start = hipBlockIdx_x;
+    auto const bix_inc = hipGridDim_x;
+
+    auto const biy_start = hipBlockIdx_y;
+    auto const biy_inc = hipGridDim_y;
+
+    auto const bid_start = hipBlockIdx_z;
+    auto const bid_inc = hipGridDim_z;
+
+    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+    auto const blocks = ceil(n, nb_max);
+
+    // -------------------------------------------------
+    // function to calculation the size of the i-th block
+    // -------------------------------------------------
+    auto bsize = [=](auto iblock) {
+        auto const nb_last = n - (blocks - 1) * nb_max;
+        bool const is_last_block = (iblock == (blocks - 1));
+        return ((is_last_block) ? nb_last : nb_max);
+    };
+
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+    extern double lmem[];
+    size_t total_bytes = 0;
+    T* pfree = reinterpret_cast<T*>(&(lmem[0]));
+
+    auto const len_Ash = nb_max * nb_max;
+
+    T* Ash_ = pfree;
+    pfree += len_Ash;
+    total_bytes += sizeof(T) * len_Ash;
+
+    auto Ash = [=](auto i, auto j) -> T& {
+        auto const ldAsh = nb_max;
+        return (Ash_[i + j * ldAsh]);
+    };
+
+    // ----------------------------------------------------------------
+    // Need to store a copy of A[iblock,kblock] or A[kblock,iblock] in LDS
+    // to implement in-place update
+    // ----------------------------------------------------------------
+    size_t const max_lds = 64 * 1024;
+    assert(total_bytes <= max_lds);
+
+    size_t const len_Jsh = nb_max * nb_max;
+    T* Jsh_ = pfree;
+    pfree += len_Jsh;
+    total_bytes += sizeof(T) * len_Jsh;
+
+    // ----------------------------------------------------------------
+    // Optional to store J into LDS if there is sufficient space in LDS
+    // ----------------------------------------------------------------
+    bool const use_Jsh = (total_bytes <= max_lds);
+
+    for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        if(completed[bid + 1])
+            continue;
+
+        T* const A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
+
+        auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+
+        for(auto bix = bix_start; bix < blocks; bix += bix_inc)
+        {
+            auto const jid = bix + bid * blocks;
+
+            T* const J_ = JA + (jid * (nb_max * nb_max));
+
+            T* Jmat_ = (use_Jsh) ? Jsh_ : J_;
+            auto Jmat = [=](auto i, auto j) -> const T {
+                auto const ldj = nb_max;
+                return (Jmat_[i + j * ldj]);
+            };
+
+            auto const iblock = bix;
+            auto const nrowsJ = bsize(iblock);
+            auto const ncolsJ = nrowsJ;
+
+            if(use_Jsh)
+            {
+                // ---------------
+                // load J into Jsh in LDS
+                // ---------------
+                __syncthreads();
+                auto const ij_start = i_start + j_start * i_inc;
+                auto const ij_inc = i_inc * j_inc;
+                auto const len_Jsh = nb_max * nb_max;
+
+                for(auto ij = ij_start; ij < len_Jsh; ij += ij_inc)
+                {
+                    Jsh_[ij] = J_[ij];
+                }
+                __syncthreads();
+            }
+
+            for(auto biy = biy_start; biy < blocks; biy += biy_inc)
+            {
+                auto const kblock = biy;
+                bool const is_diagonal_block = (iblock == kblock);
+
+                // -----------------------------------------------------------
+                // need to skip the diagonal when updating matrix A
+                // since the diagonal block has already been updated when
+                // generating the rotation matrix J
+                // However, diagonal block must also be updated when processing
+                // matrix V of eigenvectors
+                // -----------------------------------------------------------
+                if(skip_block && is_diagonal_block)
+                    continue;
+
+                auto const offseti = iblock * nb_max;
+                auto const offsetk = kblock * nb_max;
+
+                //  -------------------------------------
+                //  use A[iblock,kblock] if (APPLY_LEFT)
+                //  use A[kblock,iblock] if (APPLY_RIGHT)
+                //  -------------------------------------
+                auto const nrows_Ash = (APPLY_LEFT) ? bsize(iblock) : bsize(kblock);
+                auto const ncols_Ash = (APPLY_LEFT) ? bsize(kblock) : bsize(iblock);
+
+                // ----------------------------------------------
+                // functions to map between local index (tix,tiy)
+                // to global index (ia,ja)
+                // ----------------------------------------------
+                auto get_ia = [=](auto tix) {
+                    auto const ia = (APPLY_LEFT) ? tix + offseti : tix + offsetk;
+                    return (ia);
+                };
+
+                auto get_ja = [=](auto tiy) {
+                    auto const ja = (APPLY_LEFT) ? tiy + offsetk : tiy + offseti;
+                    return (ja);
+                };
+
+                {
+                    //  ------------------------------------------------
+                    //  load block of A[iblock,kblock]  into Ash in LDS if (APPLY_LEFT)
+                    //  load block of A[kblock,iblock]  into Ash in LDS if (APPLY_RIGHT)
+                    //  ------------------------------------------------
+                    __syncthreads();
+
+                    for(auto j = j_start; j < ncols_Ash; j += j_inc)
+                    {
+                        for(auto i = i_start; i < nrows_Ash; i += i_inc)
+                        {
+                            auto const ia = get_ia(i);
+                            auto const ja = get_ja(j);
+                            Ash(i, j) = A(ia, ja);
+                        }
+                    }
+                    __syncthreads();
+                }
+
+                // ----------------------------
+                // apply J to the current block
+                // ----------------------------
+                if(APPLY_RIGHT)
+                {
+                    // ---------------------
+                    // A <- A * transpose(J)
+                    // ---------------------
+                    for(auto j = j_start; j < ncols_Ash; j += j_inc)
+                    {
+                        for(auto i = i_start; i < nrows_Ash; i += i_inc)
+                        {
+                            T aij = 0;
+                            for(auto k = 0; k < ncolsJ; k++)
+                            {
+                                auto const aik = Ash(i, k);
+                                auto const Jt_kj = Jmat(j, k);
+
+                                aij += aik * Jt_kj;
+                            }
+                            auto const ia = get_ia(i);
+                            auto const ja = get_ja(j);
+                            A(ia, ja) = aij;
+                        }
+                    }
+
+                    __syncthreads();
+                }
+                else
+                {
+                    // ----------------
+                    // APPLY_LEFT
+                    // A <- conj(J) * A
+                    // ----------------
+
+                    for(auto j = j_start; j < ncols_Ash; j += j_inc)
+                    {
+                        for(auto i = i_start; i < nrows_Ash; i += i_inc)
+                        {
+                            T aij = 0;
+                            for(auto k = 0; k < ncolsJ; k++)
+                            {
+                                auto const Jc_ik = conj(Jmat(i, k));
+                                auto const akj = Ash(k, j);
+                                aij += Jc_ik * akj;
+                            }
+                            auto const ia = get_ia(i);
+                            auto const ja = get_ja(j);
+                            A(ia, ja) = aij;
+                        }
+                    }
+                    __syncthreads();
+                }
+
+            } // end for kblock
+        } // end for iblock
+    } // end for bid
 }
 
 /** SYEVJ_OFFD_KERNEL decomposes off-diagonal blocks of size nb <= BS2. For each element in the block
@@ -2133,7 +2374,16 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         // shared memory sizes
         size_t const lmemsizeInit = 2 * sizeof(S) * BS1;
         size_t const lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
-        size_t const lmemsizeDR = (2 * sizeof(rocblas_int)) * (BS2 / 2);
+
+        size_t lmemsizeDR = std::min(size_lds, 2 * sizeof(T) * nb_max * nb_max);
+        {
+            size_t const size_Ash = sizeof(T) * nb_max * nb_max;
+            size_t const size_Jsh = sizeof(T) * nb_max * nb_max;
+            bool const use_Jsh = ((size_Ash + size_Jsh) <= size_lds);
+            lmemsizeDR = (use_Jsh) ? (size_Ash + size_Jsh) : size_Ash;
+
+            assert(size_Ash <= size_lds);
+        }
 
         size_t lmemsizeOK = (sizeof(S) + sizeof(T)) * nb_max;
         {
@@ -2148,7 +2398,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                                    : (size_sh_cosines + size_sh_sines);
         }
 
-        size_t const lmemsizePairs = (half_blocks > BS1 ? 2 * sizeof(rocblas_int) * half_blocks : 0);
+        size_t const lmemsizePairs
+            = ((half_blocks > BS1) ? 2 * sizeof(rocblas_int) * half_blocks : 0);
 
         // ------------------------------------------
         // store 2x2 block J and 2x1 block of A in LDS if
@@ -2161,6 +2412,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
             size_t const size_Ash = sizeof(T) * 2 * nb_max * nb_max;
             size_t const size_Jsh = sizeof(T) * 4 * nb_max * nb_max;
             lmemsizeOR = ((size_Ash + size_Jsh) <= size_lds) ? (size_Ash + size_Jsh) : size_Ash;
+
+            assert(size_Ash <= size_lds);
         }
 
         bool const ev = (evect != rocblas_evect_none);
@@ -2193,15 +2446,17 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
             // apply rotations calculated by diag_kernel
             ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<false, T, S>), gridDR, threadsDR, lmemsizeDR,
-                                    stream, true, n, Acpy, 0, n, n * n, J, completed);
+                                    stream, true, nb_max, n, Acpy, 0, n, n * n, J, completed,
+                                    batch_count);
             ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<true, T, S>), gridDR, threadsDR, lmemsizeDR,
-                                    stream, true, n, Acpy, 0, n, n * n, J, completed);
+                                    stream, true, nb_max, n, Acpy, 0, n, n * n, J, completed,
+                                    batch_count);
 
             // update eigenvectors
             if(ev)
                 ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<false, T, S>), gridDR, threadsDR,
-                                        lmemsizeDR, stream, false, n, A, shiftA, lda, strideA, J,
-                                        completed);
+                                        lmemsizeDR, stream, false, nb_max, n, A, shiftA, lda,
+                                        strideA, J, completed, batch_count);
 
             if(half_blocks == 1)
             {
