@@ -2,11 +2,49 @@
   :description: rocSOLVER documentation and API reference library
   :keywords: rocSOLVER, ROCm, API, documentation
 
-.. _api_logging:
+.. _helpers:
 
 *****************************************************
-rocSOLVER Logging Functions and Library Information
+rocSOLVER Library and Logging Functions
 *****************************************************
+
+
+
+Library information
+===============================
+
+.. contents:: List of library information functions
+   :local:
+   :backlinks: top
+
+rocsolver_get_version_string()
+------------------------------------
+.. doxygenfunction:: rocsolver_get_version_string
+
+rocsolver_get_version_string_size()
+------------------------------------
+.. doxygenfunction:: rocsolver_get_version_string_size
+
+
+
+Algorithm selection
+===============================
+
+.. contents:: List of algorithm selection functions
+   :local:
+   :backlinks: top
+
+rocsolver_set_alg_mode()
+------------------------------------
+.. doxygenfunction:: rocsolver_set_alg_mode
+
+rocsolver_get_alg_mode()
+------------------------------------
+.. doxygenfunction:: rocsolver_get_alg_mode
+
+
+
+.. _api_logging:
 
 Logging functions
 ===============================
@@ -44,23 +82,4 @@ rocsolver_log_write_profile()
 rocsolver_log_flush_profile()
 ---------------------------------
 .. doxygenfunction:: rocsolver_log_flush_profile
-
-
-
-.. _libraryinfo:
-
-Library information
-===============================
-
-.. contents:: List of library information functions
-   :local:
-   :backlinks: top
-
-rocsolver_get_version_string()
-------------------------------------
-.. doxygenfunction:: rocsolver_get_version_string
-
-rocsolver_get_version_string_size()
-------------------------------------
-.. doxygenfunction:: rocsolver_get_version_string_size
 
