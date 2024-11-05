@@ -852,13 +852,6 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
 {
     bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
 
-    // rocblas_int tix = hipThreadIdx_x;
-    // rocblas_int tiy = hipThreadIdx_y;
-    // rocblas_int bix = hipBlockIdx_x;
-    // rocblas_int biy = hipBlockIdx_y;
-    // rocblas_int bid = hipBlockIdx_z;
-    // rocblas_int jid = bid * hipGridDim_x + bix;
-
     auto const i_start = hipThreadIdx_x;
     auto const i_inc = hipBlockDim_x;
 
