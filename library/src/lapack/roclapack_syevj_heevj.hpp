@@ -1821,7 +1821,9 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                             T s1 = 0;
 
                             // calculate rotation J
-                            bool const is_small_aij = (mag < sqrt_small_num);
+                            // bool const is_small_aij = (mag < sqrt_small_num);
+                            bool const is_small_aij = (mag * mag < small_num);
+
                             if(!is_small_aij)
                             {
                                 S g = 2 * mag;
@@ -2027,7 +2029,8 @@ ROCSOLVER_KERNEL void syevj_offd_rotate_org(const bool skip_block,
         return;
     if(i > j)
         swap(i, j);
-    // if(skip_block && (biy / 2 == i || biy / 2 == j)) return;
+    if(skip_block && (biy / 2 == i || biy / 2 == j))
+        return;
 
     rocblas_int nb_max = hipBlockDim_x / 2;
     rocblas_int offseti = i * nb_max;
@@ -2292,8 +2295,6 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                     // A <- Ash * transpose(Jsh)
                     // ------------
 
-                    assert(ncols_Ash == nrowsJ);
-
                     for(auto j = j_start; j < ncols_Ash; j += j_inc)
                     {
                         auto const ja = get_ja(j);
@@ -2325,8 +2326,6 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                     //
                     // A <-  conj( (Jsh) ) * Ash
                     // --------------------------------
-
-                    assert(nrows_Ash == nrowsJ);
 
                     for(auto j = j_start; j < ncols_Ash; j += j_inc)
                     {
@@ -2740,6 +2739,10 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
     }
     else
     {
+        bool constexpr use_offd_kernel_org = false;
+        bool constexpr use_diag_rotate_org = false;
+        bool constexpr use_offd_rotate_org = false;
+
         // *** USE BLOCKED KERNELS ***
         auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
         rocblas_int const nb_max = BS2;
@@ -2763,9 +2766,14 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 threadsDR(BS2, BS2, 1);
         dim3 threadsOK(BS2, BS2, 1);
 
-        // dim3 gridOR(half_blocks, 2 * blocks, batch_count);
-        dim3 gridOR(half_blocks, std::max(1, blocks / 4), batch_count);
-        dim3 threadsOR(BS2, BS2, 1);
+        dim3 gridOR_org(half_blocks, 2 * blocks, batch_count);
+        dim3 threadsOR_org(2 * BS2, BS2 / 2, 1);
+
+        dim3 gridOR_new(half_blocks, std::max(1, blocks / 4), batch_count);
+        dim3 threadsOR_new(BS2, BS2, 1);
+
+        dim3 gridOR = (use_offd_rotate_org) ? gridOR_org : gridOR_new;
+        dim3 threadsOR = (use_offd_rotate_org) ? threadsOR_org : threadsOR_new;
 
         size_t const size_lds = 64 * 1024;
         // shared memory sizes
@@ -2842,12 +2850,24 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                                     nb_max, Acpy, 0, n, n * n, eps, J, completed, batch_count);
 
             // apply rotations calculated by diag_kernel
-            ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<false, T, S>), gridDR, threadsDR, lmemsizeDR,
-                                    stream, true, nb_max, n, Acpy, 0, n, n * n, J, completed,
-                                    batch_count);
-            ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<true, T, S>), gridDR, threadsDR, lmemsizeDR,
-                                    stream, true, nb_max, n, Acpy, 0, n, n * n, J, completed,
-                                    batch_count);
+            if(use_diag_rotate_org)
+            {
+                ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate_org<false, T, S>), gridDR, threadsDR,
+                                        lmemsizeDR, stream, true, n, Acpy, 0, n, n * n, J, completed);
+
+                ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate_org<true, T, S>), gridDR, threadsDR,
+                                        lmemsizeDR, stream, true, n, Acpy, 0, n, n * n, J, completed);
+            }
+            else
+            {
+                ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<false, T, S>), gridDR, threadsDR,
+                                        lmemsizeDR, stream, true, nb_max, n, Acpy, 0, n, n * n, J,
+                                        completed, batch_count);
+
+                ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<true, T, S>), gridDR, threadsDR,
+                                        lmemsizeDR, stream, true, nb_max, n, Acpy, 0, n, n * n, J,
+                                        completed, batch_count);
+            }
 
             // update eigenvectors
             if(ev)
@@ -2858,16 +2878,34 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
             if(half_blocks == 1)
             {
                 // decompose off-diagonal block
-                ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK, lmemsizeOK,
-                                        stream, nb_max, n, Acpy, 0, n, n * n, eps,
-                                        (ev ? J : nullptr), top, bottom, completed, batch_count);
+                if(use_offd_kernel_org)
+                {
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel_org<T, S>), gridOK, threadsOK,
+                                            lmemsizeOK, stream, blocks, n, Acpy, 0, n, n * n, eps,
+                                            (ev ? J : nullptr), top, bottom, completed);
+                }
+                else
+                {
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK,
+                                            lmemsizeOK, stream, nb_max, n, Acpy, 0, n, n * n, eps,
+                                            (ev ? J : nullptr), top, bottom, completed, batch_count);
+                }
 
                 // update eigenvectors
                 if(ev)
                 {
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
-                                            lmemsizeOR, stream, false, nb_max, n, A, shiftA, lda,
-                                            strideA, J, top, bottom, completed, batch_count);
+                    if(use_offd_rotate_org)
+                    {
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate_org<false, T, S>), gridOR,
+                                                threadsOR, lmemsizeOR, stream, false, blocks, n, A,
+                                                shiftA, lda, strideA, J, top, bottom, completed);
+                    }
+                    else
+                    {
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
+                                                lmemsizeOR, stream, false, nb_max, n, A, shiftA, lda,
+                                                strideA, J, top, bottom, completed, batch_count);
+                    }
                 }
             }
             else
@@ -2875,24 +2913,56 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                 for(rocblas_int b = 0; b < even_blocks - 1; b++)
                 {
                     // decompose off-diagonal blocks, indexed by top/bottom pairs
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK,
-                                            lmemsizeOK, stream, nb_max, n, Acpy, 0, n, n * n, eps,
-                                            J, top, bottom, completed, batch_count);
+                    if(use_offd_kernel_org)
+                    {
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel_org<T, S>), gridOK, threadsOK,
+                                                lmemsizeOK, stream, blocks, n, Acpy, 0, n, n * n,
+                                                eps, J, top, bottom, completed);
+                    }
+                    else
+                    {
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK,
+                                                lmemsizeOK, stream, nb_max, n, Acpy, 0, n, n * n,
+                                                eps, J, top, bottom, completed, batch_count);
+                    }
 
                     // apply rotations calculated by offd_kernel
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
-                                            lmemsizeOR, stream, true, nb_max, n, Acpy, 0, n, n * n,
-                                            J, top, bottom, completed, batch_count);
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<true, T, S>), gridOR, threadsOR,
-                                            lmemsizeOR, stream, true, nb_max, n, Acpy, 0, n, n * n,
-                                            J, top, bottom, completed, batch_count);
+                    if(use_offd_rotate_org)
+                    {
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate_org<false, T, S>), gridOR,
+                                                threadsOR, lmemsizeOR, stream, true, blocks, n,
+                                                Acpy, 0, n, n * n, J, top, bottom, completed);
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate_org<true, T, S>), gridOR,
+                                                threadsOR, lmemsizeOR, stream, true, blocks, n,
+                                                Acpy, 0, n, n * n, J, top, bottom, completed);
+                    }
+                    else
+                    {
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
+                                                lmemsizeOR, stream, true, nb_max, n, Acpy, 0, n,
+                                                n * n, J, top, bottom, completed, batch_count);
+                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<true, T, S>), gridOR, threadsOR,
+                                                lmemsizeOR, stream, true, nb_max, n, Acpy, 0, n,
+                                                n * n, J, top, bottom, completed, batch_count);
+                    }
 
                     // update eigenvectors
                     if(ev)
                     {
-                        ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR, threadsOR,
-                                                lmemsizeOR, stream, false, nb_max, n, A, shiftA, lda,
-                                                strideA, J, top, bottom, completed, batch_count);
+                        if(use_offd_rotate_org)
+                        {
+                            ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate_org<false, T, S>), gridOR,
+                                                    threadsOR, lmemsizeOR, stream, false, blocks, n,
+                                                    A, shiftA, lda, strideA, J, top, bottom,
+                                                    completed);
+                        }
+                        else
+                        {
+                            ROCSOLVER_LAUNCH_KERNEL((syevj_offd_rotate<false, T, S>), gridOR,
+                                                    threadsOR, lmemsizeOR, stream, false, nb_max, n,
+                                                    A, shiftA, lda, strideA, J, top, bottom,
+                                                    completed, batch_count);
+                        }
                     }
 
                     // cycle top/bottom pairs
