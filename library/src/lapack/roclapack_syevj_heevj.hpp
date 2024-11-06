@@ -2104,13 +2104,6 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
         return ((is_last_block) ? nb_last : nb_max);
     };
 
-    rocblas_int tix = hipThreadIdx_x;
-    rocblas_int tiy = hipThreadIdx_y;
-    rocblas_int bix = hipBlockIdx_x;
-    rocblas_int biy = hipBlockIdx_y;
-    rocblas_int bid = hipBlockIdx_z;
-    rocblas_int jid = bid * hipGridDim_x + hipBlockIdx_x;
-
     auto const nbx = hipGridDim_x;
     auto const nby = hipGridDim_y;
     auto const nbz = hipGridDim_z;
@@ -2771,8 +2764,7 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 threadsOK(BS2, BS2, 1);
 
         // dim3 gridOR(half_blocks, 2 * blocks, batch_count);
-        // dim3 threadsOR(2 * BS2, BS2 / 2, 1);
-        dim3 gridOR(half_blocks, std::max(1, blocks), batch_count);
+        dim3 gridOR(half_blocks, std::max(1, blocks / 4), batch_count);
         dim3 threadsOR(BS2, BS2, 1);
 
         size_t const size_lds = 64 * 1024;
