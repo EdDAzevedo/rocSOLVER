@@ -36,7 +36,7 @@ struct rocsolver_handle_data_
 {
     rocblas_int checksum;
 
-    rocsolver_alg_mode bdsqr_mode;
+    rocsolver_alg_mode bdsqr_mode = rocsolver_alg_mode_gpu;
 };
 
 typedef struct rocsolver_handle_data_* rocsolver_handle_data;
