@@ -6,13 +6,14 @@ Full documentation for rocSOLVER is available at the [rocSOLVER documentation](h
 
 ### Added
 
+* Application of a sequence of plane rotations to a given matrix
+    - LASR
 * Algorithm selection APIs for hybrid computation
 * SVD of bidiagonal matrices routine:
     - BDSQR now supports hybrid computation
 * SVD of general matrices routine:
     - GESVD now supports hybrid computation
 
-### Optimized
 ### Changed
 ### Removed
 ### Optimized
