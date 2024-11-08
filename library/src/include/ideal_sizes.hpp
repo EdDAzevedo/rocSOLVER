@@ -226,6 +226,16 @@
 
 /************************** potf2/potrf ***************************************
 *******************************************************************************/
+/*! \brief Determines the maximum size at which rocSOLVER can use the small-size POTF2
+    kernel.
+    \details
+    POTF2 will attempt to factorize a small symmetric matrix that can fit entirely
+    within the LDS share memory using compact storage.
+    The amount of LDS shared memory is assumed to be at least (64 * 1024) bytes. */
+#ifndef POTF2_MAX_SMALL_SIZE
+#define POTF2_MAX_SMALL_SIZE(T) ((sizeof(T) == 4) ? 180 : (sizeof(T) == 8) ? 127 : 90)
+#endif
+
 /*! \brief Determines the size of the leading block that is factorized at each step
     when using the blocked algorithm (POTRF). It also applies to the
     corresponding batched and strided-batched routines.*/
@@ -239,26 +249,19 @@
 
     \details POTRF will factorize blocks of POTRF_BLOCKSIZE columns at a time until
     the rest of the matrix has no more than POTRF_POTF2_SWITCHSIZE columns; at this point the last block,
-    if any, will be factorized with the unblocked algorithm (POTF2).*/
+    if any, will be factorized with the unblocked algorithm (POTF2). */
 #ifndef POTRF_POTF2_SWITCHSIZE
 #define POTRF_POTF2_SWITCHSIZE(T) POTRF_BLOCKSIZE(T)
 #endif
 
-/*! \brief Determines the maximum size at which rocSOLVER can use POTF2
-    \details 
-    POTF2 will attempt to factorize a small symmetric matrix that can fit entirely
-    within the LDS share memory using compact storage.  
-    The amount of LDS shared memory is assumed to be at least (64 * 1024) bytes. */
-#ifndef POTF2_MAX_SMALL_SIZE
-#define POTF2_MAX_SMALL_SIZE(T) ((sizeof(T) == 4) ? 180 : (sizeof(T) == 8) ? 127 : 90)
-#endif
-
-/*! \brief Determines the size at which recusive algorithm can terminate
-    \details 
-    Assume there is last level cache that is at least 8 MBytes, so terminate recursion
-    at this level.  */
-#ifndef POTRF_STOPPING_NB
-#define POTRF_STOPPING_NB(T) ((sizeof(T) == 4) ? 1408 : (sizeof(T) == 8) ? 1024 : 704)
+/*! \brief Determines the size at which rocSOLVER switches from
+    the recursive to the right-looking algorithm when executing POTRF. It also applies to the
+    corresponding batched and strided-batched routines.
+    \details POTRF will recursively divide the matrix into submatrices of size n/2 until
+    n/2 is less than POTRF_RECURSIVE_SWITCHSIZE; at this point the the submatrix will be
+    factorized with the right-looking algorithm (POTRF or POTF2). */
+#ifndef POTRF_RECURSIVE_SWITCHSIZE
+#define POTRF_RECURSIVE_SWITCHSIZE(T) ((sizeof(T) == 4) ? 1408 : (sizeof(T) == 8) ? 1024 : 704)
 #endif
 
 /************************** syevj/heevj ***************************************
