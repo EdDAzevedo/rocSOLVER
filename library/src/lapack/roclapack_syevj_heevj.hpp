@@ -2327,9 +2327,12 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
     }
     else
     {
-        bool constexpr use_offd_kernel_org = false;
-        bool constexpr use_diag_rotate_org = false;
-        bool constexpr use_offd_rotate_org = false;
+        // use original algorithm for small problems
+        auto const n_threshold = 1024;
+
+        bool const use_offd_kernel_org = (n <= n_threshold);
+        bool const use_diag_rotate_org = (n <= n_threshold);
+        bool const use_offd_rotate_org = (n <= n_threshold);
 
         // *** USE BLOCKED KERNELS ***
         auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
