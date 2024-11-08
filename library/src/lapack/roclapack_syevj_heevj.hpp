@@ -784,7 +784,14 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                                         rocblas_int* completed,
                                         const rocblas_int batch_count)
 {
+    auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
+
+    auto min = [](auto x, auto y) { return ((x < y) ? x : y); };
+    auto max = [](auto x, auto y) { return ((x > y) ? x : y); };
+
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
     auto const blocks = ceil(n, nb_max);
     // -------------------------------------------------
     // function to calculation the size of the i-th block
@@ -806,12 +813,22 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     auto const j_start = hipThreadIdx_y;
     auto const j_inc = hipBlockDim_y;
 
+    // --------------------------------------
+    // combined (i,j) into single index "ij"
+    // --------------------------------------
+    auto const ij_start = i_start + j_start * i_inc;
+    auto const ij_inc = i_inc * j_inc;
+
     auto const tix_start = i_start;
     auto const tix_inc = i_inc;
     auto const tiy_start = j_start;
     auto const tiy_inc = j_inc;
 
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + j + static_cast<int64_t>(ld)); };
+    auto const n_even = n + (n % 2);
+    auto const half_n = n_even / 2;
+
+    auto const nb_max_even = nb_max + (nb_max % 2);
+    auto const half_nb_max = nb_max_even / 2;
 
     // shared memory
     size_t const size_lds = 64 * 1024;
@@ -819,39 +836,56 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     std::byte* pfree = reinterpret_cast<std::byte*>(&(lmem[0]));
     size_t total_bytes = 0;
 
-    size_t const size_sh_cosines = sizeof(S) * ceil(nb_max, 2);
+    // ---------------------------------
+    // allocate sh_sines[], sh_cosines[]
+    // ---------------------------------
+    size_t const size_sh_cosines = sizeof(S) * half_nb_max;
     S* sh_cosines = reinterpret_cast<S*>(pfree);
     pfree += size_sh_cosines;
     total_bytes += size_sh_cosines;
 
-    size_t const size_sh_sines = sizeof(T) * ceil(nb_max, 2);
+    size_t const size_sh_sines = sizeof(T) * half_nb_max;
     T* sh_sines = reinterpret_cast<T*>(pfree);
     pfree += size_sh_sines;
     total_bytes += size_sh_sines;
 
-    size_t const size_sh_top = sizeof(rocblas_int) * ceil(nb_max, 2);
-    rocblas_int* sh_top = reinterpret_cast<rocblas_int*>(pfree);
-    pfree += size_sh_top;
-    total_bytes += size_sh_top;
+    // -------------------------------------
+    // allocate arrays for independent pairs
+    // -------------------------------------
 
-    size_t const size_sh_bottom = sizeof(rocblas_int) * ceil(nb_max, 2);
-    rocblas_int* sh_bottom = reinterpret_cast<rocblas_int*>(pfree);
-    pfree += size_sh_bottom;
-    total_bytes += size_sh_bottom;
+    typedef uint16_t Itype;
+
+    size_t const len_vec = nb_max_even;
+    size_t const size_vec = sizeof(Itype) * nb_max_even;
+    Itype* vec = reinterpret_cast<Itype*>(pfree);
+    pfree += size_vec;
+    total_bytes += size_vec;
 
     assert(total_bytes <= size_lds);
 
-    size_t const size_Jsh = sizeof(T) * nb_max * nb_max;
-    T* const Jsh_ = reinterpret_cast<T*>(pfree);
-    pfree += size_Jsh;
-    total_bytes += size_Jsh;
-    bool const use_Jsh = (total_bytes <= size_lds);
+    // ------------------------
+    // allocate  Ash_[]
+    // ------------------------
 
-    size_t const size_Ash = sizeof(T) * nb_max * nb_max;
+    auto const ldAsh = nb_max;
+    size_t const size_Ash = sizeof(T) * (ldAsh * nb_max);
     T* const Ash_ = reinterpret_cast<T*>(pfree);
     pfree += size_Ash;
     total_bytes += size_Ash;
     bool const use_Ash = (total_bytes <= size_lds);
+
+    auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
+
+    // ------------------------
+    // allocate  Jsh_[]
+    // ------------------------
+    auto const ldj = nb_max;
+    size_t const len_Jsh = (ldj * nb_max);
+    size_t const size_Jsh = sizeof(T) * len_Jsh;
+    T* const Jsh_ = reinterpret_cast<T*>(pfree);
+    pfree += size_Jsh;
+    total_bytes += size_Jsh;
+    bool const use_Jsh = (total_bytes <= size_lds);
 
     S const small_num = get_safemin<S>() / eps;
     S const sqrt_small_num = std::sqrt(small_num);
@@ -873,27 +907,106 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             T* J_ = (JA ? JA + (jid * (nb_max * nb_max)) : nullptr);
 
             bool const use_J = (J_ != nullptr);
-            auto const ldj = nb_max;
             auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
 
             T* Jmat_ = (use_Jsh) ? Jsh_ : J_;
             auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldj]); };
 
             auto const offset = iblock * nb_max;
-            auto const half_n = ceil(n, 2);
-            auto const nb = std::min(2 * half_n - offset, nb_max);
-            auto const half_nb = nb / 2;
 
-            auto const nrowsJ = bsize(iblock);
+            auto const iblock_size = bsize(iblock);
+            auto const nb = iblock_size;
+            auto const nb_even = nb + (nb % 2);
+            auto const half_nb = nb_even / 2;
+
+            auto const nrowsJ = iblock_size;
             auto const ncolsJ = nrowsJ;
             auto const nrowsAmat = nrowsJ;
             auto const ncolsAmat = ncolsJ;
+
+            auto map = [=](auto ip) {
+                auto const m = nb_even;
+                auto const ival0 = (m - 1) - 1;
+                bool const is_even = ((ip % 2) == 0);
+                bool const is_last = (ip == (m - 1));
+
+                return (is_last ? (m - 1) : is_even ? ip / 2 : ival0 - (ip - 1) / 2);
+            };
+
+            auto tb_pair = [=](auto i, auto ipair) {
+                auto const player1 = vec[map(2 * ipair + i)];
+                return (player1);
+            };
+
+            auto rotate = [&]() {
+                // ------------------------------------------
+                // parallel algorithms need to have
+                // sufficient number of threads and registers
+                //
+                // note the last position vec[m-1] stays fixed
+                // ------------------------------------------
+                // bool use_serial = (  ij_inc < (m-1) );
+
+                auto const m = nb_even;
+                bool use_serial = true;
+                bool const is_root = (ij_start == 0);
+
+                if(use_serial && is_root)
+                {
+                    auto const v0 = vec[0];
+                    for(auto i = 1; i < (m - 1); i++)
+                    {
+                        vec[i - 1] = vec[i];
+                    };
+                    vec[m - 2] = v0;
+                }
+                else
+                {
+                    assert(ij_inc >= (m - 1));
+
+                    auto const ij = ij_start;
+                    auto const v_ij = (ij < (m - 1)) ? vec[ij] : 0;
+
+                    // for(auto ij=ij_start; ij < (m-1); ij += ij_inc) { v_ij = vec[ ij ]; }
+
+                    __syncthreads();
+
+                    for(auto ij = ij_start; ij < (m - 1); ij += ij_inc)
+                    {
+                        if(ij == 0)
+                        {
+                            vec[m - 2] = v_ij;
+                        }
+                        else
+                        {
+                            vec[ij - 1] = v_ij;
+                        }
+                    }
+
+                } // end if use_serial
+                __syncthreads();
+            };
+
+            auto init_tb_pair = [=]() {
+                __syncthreads();
+                for(auto ij = ij_start; ij < nb_even; ij += ij_inc)
+                {
+                    vec[ij] = ij;
+                };
+                __syncthreads();
+            };
+
+            T* const Amat_ = (use_Ash) ? Ash_ : A_ + idx2D(offset, offset, lda);
+            auto const ldAmat = (use_Ash) ? ldAsh : lda;
+            auto Amat = [=](auto i, auto j) -> T& { return (Amat_[i + j * ldAmat]); };
 
             if(use_J)
             {
                 // -----------------------------
                 // initialize to identity matrix
                 // -----------------------------
+                __syncthreads();
+
                 for(auto j = j_start; j < ncolsJ; j += j_inc)
                 {
                     for(auto i = i_start; i < nrowsJ; i += i_inc)
@@ -905,15 +1018,13 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 __syncthreads();
             }
 
-            auto Amat = [=](auto ia, auto ja) -> T& {
-                return ((use_Ash) ? Ash((ia - offset), (ja - offset)) : A(ia, ja));
-            };
-
             if(use_Ash)
             {
                 // -----------------------------
                 // load A into LDS shared memory
                 // -----------------------------
+                __syncthreads();
+
                 for(auto j = j_start; j < ncolsAmat; j += j_inc)
                 {
                     for(auto i = i_start; i < nrowsAmat; i += i_inc)
@@ -926,235 +1037,188 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 __syncthreads();
             }
 
-            {
-                // ---------------------
-                // sh_top[], sh_bottom[]
-                // ---------------------
-                auto const npairs = half_nb;
-                if(tiy_start == 0)
-                {
-                    for(auto tix = tix_start; tix < npairs; tix += tix_inc)
-                    {
-                        auto const ia = offset + 2 * tix;
-                        sh_top[tix] = ia;
-                        sh_bottom[tix] = ia + 1;
-                    }
-                }
-                __syncthreads();
-            }
+            auto const npairs = half_nb;
 
-            for(auto ipass = 0; ipass < (nrowsJ - 1); ipass++)
+            init_tb_pair();
+
+            auto const num_pass = (nrowsJ - 1);
+            for(auto ipass = 0; ipass < num_pass; ipass++)
             {
                 // ---------------------------------
                 // generate sh_cosines[], sh_sines[]
                 // ---------------------------------
-                if(tiy == 0)
+                for(auto ij = ij_start; ij < npairs; ij += ij_inc)
                 {
-                    for(auto tix = tix_start; tix < npairs; tix += tix_inc)
+                    auto const ipair = ij;
+                    auto const p = tb_pair(0, ipair);
+                    auto const q = tb_pair(1, ipair);
+                    auto const i = min(p, q);
+                    auto const j = max(p, q);
+
+                    // ----------------------------------------------
+                    // default initialized value as identity rotation
+                    // ----------------------------------------------
+                    double c = 1;
+                    T s1 = 0;
+
+                    sh_cosines[ij] = c;
+                    sh_sines[ij] = s1;
+
+                    // ----------------------------------------------------------
+                    // for each off-diagonal element (indexed using top/bottom pairs),
+                    // calculate the Jacobi rotation and apply it to A
+                    // ----------------------------------------------------------
+
+                    bool is_valid = (i < nrowsJ) && (j < ncolsJ);
+                    if(!is_valid)
+                        continue;
+
                     {
-                        auto const ia = std::min(sh_top[tix], sh_bottom[tix]);
-                        auto const ja = std::min(sh_top[tix], sh_bottom[tix]);
+                        auto const aij = Amat(i, j);
+                        auto const mag = std::abs(aij);
 
-                        // ----------------------------------------------------------
-                        // for each off-diagonal element (indexed using top/bottom pairs),
-                        // calculate the Jacobi rotation and apply it to A
-                        // ----------------------------------------------------------
-
-                        if((ia < n) && (ja < n))
+                        bool const is_small = (mag < sqrt_small_num);
+                        // calculate rotation J
+                        if(!is_small)
                         {
-                            aij = Amat(ia, ja);
-                            mag = std::abs(aij);
-                            S c = 1;
-                            T s1 = 0;
+                            double r = 1;
+                            double s = 0;
 
-                            bool const is_small = (mag < sqrt_small_num);
-                            // calculate rotation J
-                            if(!is_small)
-                            {
-                                S g = 2 * mag;
-                                S f = std::real(Amat(ja, ja) - Amat(ia, ia));
-                                f += (f < 0) ? -std::hypot(f, g) : std::hypot(f, g);
-                                lartg(f, g, c, s, r);
-                                s1 = s * aij / mag;
-                            }
+                            auto const aii = Amat(i, i);
+                            auto const ajj = Amat(j, j);
 
-                            sh_cosines[tix] = c;
-                            sh_sines[tix] = s1;
+                            double const real_aii = std::real(aii);
+                            double const real_ajj = std::real(ajj);
+
+                            double g = 2 * mag;
+                            // S f = std::real(Amat(ja, ja) - Amat(ia, ia));
+                            double f = real_ajj - real_aii;
+                            f += (f < 0) ? -std::hypot(f, g) : std::hypot(f, g);
+                            lartg(f, g, c, s, r);
+                            s1 = aij * (s / mag);
                         }
 
-                    } // end for tix
-                }
+                        sh_cosines[ij] = c;
+                        sh_sines[ij] = s1;
+                    }
+
+                } // end for ij
 
                 __syncthreads();
 
-                for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
+                for(auto tiy = tiy_start; tiy < npairs; tiy += tiy_inc)
                 {
-                    for(auto tix = tix_start; tix < nrowsJ; tix += tix_inc)
+                    auto const ipair = tiy;
+                    auto const p = min(tb_pair(0, ipair), tb_pair(1, ipair));
+                    auto const q = max(tb_pair(0, ipair), tb_pair(1, ipair));
+
+                    bool const is_valid = (p < nrowsJ) && (q < ncolsJ);
+                    if(!is_valid)
+                        continue;
+
+                    S const c = sh_cosines[ipair];
+                    T const s1 = sh_sines[ipair];
+                    T const s2 = conj(s1);
+
+                    for(auto tix = tix_start; tix < ncolsJ; tix += tix_inc)
                     {
-                        if((tix >= half_nb) || (tiy >= half_nb))
-                            continue;
-
-                        auto const yy1 = 2 * tiy;
-                        auto const yy2 = yy1 + 1;
-                        auto const x1 = xx1 + offset;
-                        auto const x2 = x1 + 1;
-                        auto const y1 = yy1 + offset;
-                        auto const y2 = y1 + 1;
-
-                        auto const ia = std::min(sh_top[tix], sh_bottom[tix]);
-                        auto const ja = std::min(sh_top[tix], sh_bottom[tix]);
-
-                        bool const is_valid = (ia < n) && (ja < n);
-                        if(!is_valid)
-                            continue;
-
-                        c = sh_cosines[tix];
-                        s1 = sh_sines[tix];
-                        s2 = conj(s1);
-
+                        // ----------------
                         // store J row-wise
+                        // ----------------
                         if(use_J)
                         {
-                            {
-                                auto const xx1 = ia - offset;
-                                auto const xx2 = ja - offset;
-                                auto const temp1 = Jmat(xx1, yy1);
-                                auto const temp2 = Jmat(xx2, yy1);
-                                Jmat(xx1, yy1) = c * temp1 + s2 * temp2;
-                                Jmat(xx2, yy1) = -s1 * temp1 + c * temp2;
-                            }
-
-                            if(y2 < n)
-                            {
-                                auto const temp1 = Jmat(xx1, yy2);
-                                auto const temp2 = Jmat(xx2, yy2);
-                                Jmat(xx1, yy2) = c * temp1 + s2 * temp2;
-                                Jmat(xx2, yy2) = -s1 * temp1 + c * temp2;
-                            }
+                            auto const temp1 = Jmat(p, tix);
+                            auto const temp2 = Jmat(q, tix);
+                            Jmat(p, tix) = c * temp1 + s2 * temp2;
+                            Jmat(q, tix) = -s1 * temp1 + c * temp2;
                         }
 
-                        // apply J from the right
+                        // -----------------------------
+                        // apply rotation from the right
+                        // -----------------------------
                         {
-                            auto const temp1 = A(y1, ia);
-                            auto const temp2 = A(y1, ja);
-                            Amat(y1, ia) = c * temp1 + s2 * temp2;
-                            Amat(y1, ja) = -s1 * temp1 + c * temp2;
-                        }
-
-                        if(y2 < n)
-                        {
-                            auto const temp1 = Amat(y2, ia);
-                            auto const temp2 = Amat(y2, ja);
-                            Amat(y2, ia) = c * temp1 + s2 * temp2;
-                            Amat(y2, ja) = -s1 * temp1 + c * temp2;
+                            auto const temp1 = A(tix, p);
+                            auto const temp2 = A(tix, q);
+                            Amat(tix, p) = c * temp1 + s2 * temp2;
+                            Amat(tix, q) = -s1 * temp1 + c * temp2;
                         }
                     } // end for tix
                 } // end for tiy
+
                 __syncthreads();
 
-                for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
+                for(auto tiy = tiy_start; tiy < npairs; tiy += tiy_inc)
                 {
+                    auto const ipair = tiy;
+                    auto const p = min(tb_pair(0, ipair), tb_pair(1, ipair));
+                    auto const q = max(tb_pair(0, ipair), tb_pair(1, ipair));
+
+                    bool const is_valid = (p < nrowsJ) && (q < nrowsJ);
+                    if(!is_valid)
+                        continue;
+
+                    S const c = sh_cosines[ipair];
+                    T const s1 = sh_sines[ipair];
+                    T const s2 = conj(s1);
+
                     for(auto tix = tix_start; tix < nrowsJ; tix += tix_inc)
                     {
-                        if((tix >= half_nb) || (tiy >= half_nb))
-                            continue;
-
-                        auto const yy1 = 2 * tiy;
-                        auto const yy2 = yy1 + 1;
-                        auto const x1 = xx1 + offset;
-                        auto const x2 = x1 + 1;
-                        auto const y1 = yy1 + offset;
-                        auto const y2 = y1 + 1;
-
-                        auto const i = std::min(sh_top[tix], sh_bottom[tix]);
-                        auto const j = std::min(sh_top[tix], sh_bottom[tix]);
-                        bool const is_valid = (ia < n) && (ja < n);
-                        if(!is_valid)
-                            continue;
-
+                        // ----------------------
                         // apply J' from the left
+                        // ----------------------
                         {
-                            auto const temp1 = Amat(ia, y1);
-                            auto const temp2 = Amat(ja, y1);
-                            Amat(ia, y1) = c * temp1 + s1 * temp2;
-                            Amat(ja, y1) = -s2 * temp1 + c * temp2;
+                            auto const temp1 = Amat(p, tix);
+                            auto const temp2 = Amat(q, tix);
+                            Amat(p, tix) = c * temp1 + s1 * temp2;
+                            Amat(q, tix) = -s2 * temp1 + c * temp2;
                         }
-
-                        if(y2 < n)
-                        {
-                            auto const temp1 = Amat(ia, y2);
-                            auto const temp2 = Amat(ja, y2);
-                            Amat(ia, y2) = c * temp1 + s1 * temp2;
-                            Amat(ja, y2) = -s2 * temp1 + c * temp2;
-                        }
-
                     } // end for tix
                 } // end for tiy
 
                 __syncthreads();
 
-                for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
+                for(auto ij = ij_start; ij < npairs; ij += ij_inc)
                 {
-                    for(auto tix = tix_start; tix < nrowsJ; tix += tix_inc)
+                    auto const ipair = ij;
+                    auto const p = tb_pair(0, ipair);
+                    auto const q = tb_pair(1, ipair);
+
+                    bool const is_valid = (p < nrowsJ) && (q < nrowsJ);
+                    if(!is_valid)
+                        continue;
+
                     {
-                        if((tix >= half_nb) || (tiy >= half_nb))
-                            continue;
-
-                        auto const yy1 = 2 * tiy;
-                        auto const yy2 = yy1 + 1;
-                        auto const x1 = xx1 + offset;
-                        auto const x2 = x1 + 1;
-                        auto const y1 = yy1 + offset;
-                        auto const y2 = y1 + 1;
-
-                        auto const ia = std::min(sh_top[tix], sh_bottom[tix]);
-                        auto const ja = std::min(sh_top[tix], sh_bottom[tix]);
-                        bool const is_valid = (ia < n) && (ja < n);
-                        if(!is_valid)
-                            continue;
-
-                        {
-                            // round aij and aji to zero
-                            Amat(ia, ja) = 0;
-                            Amat(ja, ia) = 0;
-                        }
+                        // round aij and aji to zero
+                        Amat(p, q) = 0;
+                        Amat(q, p) = 0;
                     }
-                }
-                __syncthreads();
-
-                // cycle top/bottom pairs
-                if(tix == 1)
-                    ia = sh_bottom[0];
-                else if(tix > 1)
-                    ia = sh_top[tix - 1];
-                if(tix == half_nb - 1)
-                    ja = sh_top[half_nb - 1];
-                else
-                    ja = sh_bottom[tix + 1];
+                } // end for ij
 
                 __syncthreads();
 
-                if(tiy == 0)
-                {
-                    sh_top[tix] = ia;
-                    sh_bottom[tix] = ja;
-                }
-            }
+                // ---------------------
+                // rotate cycle pairs
+                // ---------------------
+
+                rotate();
+
+                __syncthreads();
+
+            } // end for ipass
 
             if(use_J && use_Jsh)
             {
                 // ---------------------------------------------------
                 // write out rotation matrix from LDS to device memory
                 // ---------------------------------------------------
+
                 __syncthreads();
 
-                for(auto j = j_start; j < ni; j += j_inc)
+                for(auto ij = ij_start; ij < len_Jsh; ij += ij_inc)
                 {
-                    for(auto i = i_start; i < ni; i += i_inc)
-                    {
-                        J(i, j) = Jmat(i, j);
-                    }
-                }
+                    J_[ij] = Jsh_[ij];
+                };
+
                 __syncthreads();
             }
 
@@ -1162,9 +1226,9 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             {
                 __syncthreads();
 
-                for(auto j = j_start; j < ncolsAsh; j += j_inc)
+                for(auto j = j_start; j < iblock_size; j += j_inc)
                 {
-                    for(auto i = i_start; i < nrowsAsh; i += i_inc)
+                    for(auto i = i_start; i < iblock_size; i += i_inc)
                     {
                         auto const ia = i + offset;
                         auto const ja = j + offset;
@@ -1173,6 +1237,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 }
                 __syncthreads();
             }
+            __syncthreads();
         } // end for iblock
     } // end for bid
 }
@@ -1257,18 +1322,14 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
 {
     bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
 
-    // rocblas_int tix = hipThreadIdx_x;
-    // rocblas_int tiy = hipThreadIdx_y;
-    // rocblas_int bix = hipBlockIdx_x;
-    // rocblas_int biy = hipBlockIdx_y;
-    // rocblas_int bid = hipBlockIdx_z;
-    // rocblas_int jid = bid * hipGridDim_x + bix;
-
     auto const i_start = hipThreadIdx_x;
     auto const i_inc = hipBlockDim_x;
 
     auto const j_start = hipThreadIdx_y;
     auto const j_inc = hipBlockDim_y;
+
+    auto const ij_start = i_start + j_start * i_inc;
+    auto const ij_inc = i_inc * j_inc;
 
     auto const bix_start = hipBlockIdx_x;
     auto const bix_inc = hipGridDim_x;
@@ -1356,9 +1417,6 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
                 // load J into Jsh in LDS
                 // ---------------
                 __syncthreads();
-                auto const ij_start = i_start + j_start * i_inc;
-                auto const ij_inc = i_inc * j_inc;
-                auto const len_Jsh = nb_max * nb_max;
 
                 for(auto ij = ij_start; ij < len_Jsh; ij += ij_inc)
                 {
@@ -2742,6 +2800,7 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         bool constexpr use_offd_kernel_org = false;
         bool constexpr use_diag_rotate_org = false;
         bool constexpr use_offd_rotate_org = false;
+        bool constexpr use_diag_kernel_org = false;
 
         // *** USE BLOCKED KERNELS ***
         auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
@@ -2755,17 +2814,50 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
         dim3 gridReset(blocksReset, 1, 1);
         dim3 grid(1, batch_count, 1);
-        dim3 gridDK(blocks, 1, batch_count);
-        dim3 gridDR(blocks, blocks, batch_count);
-        dim3 gridOK(half_blocks, 1, batch_count);
 
         dim3 gridPairs(1, 1, 1);
         dim3 threadsReset(BS1, 1, 1);
         dim3 threads(BS1, 1, 1);
-        dim3 threadsDK(BS2 / 2, BS2 / 2, 1);
-        dim3 threadsDR(BS2, BS2, 1);
-        dim3 threadsOK(BS2, BS2, 1);
 
+        // -------------------------------------
+        // launch configuration for diag_kernel()
+        // -------------------------------------
+        dim3 gridDK_org(blocks, 1, batch_count);
+        dim3 threadsDK_org(BS2 / 2, BS2 / 2, 1);
+
+        dim3 gridDK_new(blocks, 1, batch_count);
+        dim3 threadsDK_new(BS2 / 2, BS2 / 2, 1);
+
+        dim3 gridDK = (use_diag_kernel_org) ? gridDK_org : gridDK_new;
+        dim3 threadsDK = (use_offd_kernel_org) ? threadsDK_org : threadsDK_new;
+
+        // --------------------------------------
+        // launch configuration for diag_rotate()
+        // --------------------------------------
+        dim3 gridDR_org(blocks, blocks, batch_count);
+        dim3 threadsDR_org(BS2, BS2, 1);
+
+        dim3 gridDR_new(blocks, blocks, batch_count);
+        dim3 threadsDR_new(BS2, BS2, 1);
+
+        dim3 gridDR = (use_diag_rotate_org) ? gridDR_org : gridDR_new;
+        dim3 threadsDR = (use_diag_rotate_org) ? threadsDR_org : threadsDR_new;
+
+        // ------------------------------------
+        // launch configuration for offd_kernel
+        // ------------------------------------
+        dim3 gridOK_org(half_blocks, 1, batch_count);
+        dim3 threadsOK_org(BS2, BS2, 1);
+
+        dim3 gridOK_new(half_blocks, 1, batch_count);
+        dim3 threadsOK_new(BS2, BS2, 1);
+
+        dim3 gridOK = (use_offd_kernel_org) ? gridOK_org : gridOK_new;
+        dim3 threadsOK = (use_offd_kernel_org) ? threadsOK_org : threadsOK_new;
+
+        // ------------------------------------
+        // launch configuration for offd_rotate
+        // ------------------------------------
         dim3 gridOR_org(half_blocks, 2 * blocks, batch_count);
         dim3 threadsOR_org(2 * BS2, BS2 / 2, 1);
 
@@ -2775,10 +2867,37 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 gridOR = (use_offd_rotate_org) ? gridOR_org : gridOR_new;
         dim3 threadsOR = (use_offd_rotate_org) ? threadsOR_org : threadsOR_new;
 
-        size_t const size_lds = 64 * 1024;
+        // -------------------
         // shared memory sizes
+        // -------------------
+        size_t const size_lds = 64 * 1024;
         size_t const lmemsizeInit = 2 * sizeof(S) * BS1;
-        size_t const lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
+
+        size_t lmemsizeDK = size_lds;
+        {
+            typedef uint16_t Itype;
+            size_t total_bytes;
+            auto const nb_max_even = ceil(nb_max, 2) * 2;
+            size_t const size_vec = sizeof(Itype) * nb_max_even;
+            size_t const size_map = sizeof(Itype) * nb_max_even;
+            total_bytes += (size_vec + size_map);
+
+            size_t const size_Ash = sizeof(T) * nb_max * nb_max;
+            bool const use_Ash = (total_bytes + size_Ash) <= size_lds;
+            if(use_Ash)
+            {
+                total_bytes += size_Ash;
+            };
+
+            size_t const size_Jsh = sizeof(T) * nb_max * nb_max;
+            bool const use_Jsh = (total_bytes + size_Jsh) <= size_lds;
+            if(use_Jsh)
+            {
+                total_bytes += size_Jsh;
+            };
+
+            lmemsizeDK = min(size_lds, total_bytes);
+        }
 
         size_t lmemsizeDR = std::min(size_lds, 2 * sizeof(T) * nb_max * nb_max);
         {
@@ -2846,8 +2965,16 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                 break;
 
             // decompose diagonal blocks
-            ROCSOLVER_LAUNCH_KERNEL(syevj_diag_kernel<T>, gridDK, threadsDK, lmemsizeDK, stream, n,
-                                    nb_max, Acpy, 0, n, n * n, eps, J, completed, batch_count);
+            if(use_diag_kernel_org)
+            {
+                ROCSOLVER_LAUNCH_KERNEL(syevj_diag_kernel_org<T>, gridDK, threadsDK, lmemsizeDK,
+                                        stream, n, Acpy, 0, n, n * n, eps, J, completed);
+            }
+            else
+            {
+                ROCSOLVER_LAUNCH_KERNEL(syevj_diag_kernel<T>, gridDK, threadsDK, lmemsizeDK, stream,
+                                        n, nb_max, Acpy, 0, n, n * n, eps, J, completed, batch_count);
+            }
 
             // apply rotations calculated by diag_kernel
             if(use_diag_rotate_org)
