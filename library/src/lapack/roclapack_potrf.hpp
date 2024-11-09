@@ -545,7 +545,7 @@ rocblas_status rocsolver_potrf_template(rocblas_handle handle,
     }
 
     rocblas_set_pointer_mode(handle, old_mode);
-    return istat;
+    return rocblas_status_success;
 }
 
 ROCSOLVER_END_NAMESPACE
