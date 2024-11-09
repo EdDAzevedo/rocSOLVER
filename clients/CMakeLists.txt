@@ -75,6 +75,7 @@ if(BUILD_CLIENTS_BENCHMARKS OR BUILD_CLIENTS_TESTS)
     common/auxiliary/testing_larf.cpp
     common/auxiliary/testing_larft.cpp
     common/auxiliary/testing_larfb.cpp
+    common/auxiliary/testing_lasr.cpp
     common/auxiliary/testing_latrd.cpp
     common/auxiliary/testing_labrd.cpp
     common/auxiliary/testing_lauum.cpp
@@ -159,6 +160,7 @@ if(BUILD_CLIENTS_BENCHMARKS OR BUILD_CLIENTS_TESTS)
     common/misc/clients_utility.cpp
     common/misc/program_options.cpp
     common/misc/client_environment_helpers.cpp
+    common/matrix_utils/matrix_utils.cpp
     ${rocauxiliary_inst_files}
     ${roclapack_inst_files}
     ${rocrefact_inst_files}

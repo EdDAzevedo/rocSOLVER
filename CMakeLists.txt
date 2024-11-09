@@ -57,6 +57,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(ROCSOLVER_EMBED_FMT "Hide libfmt symbols" ON)
 option(OPTIMAL "Build specialized kernels for small matrix sizes" ON)
 option(ROCSOLVER_FIND_PACKAGE_LAPACK_CONFIG "Skip module mode search for LAPACK" ON)
+option(ROCSOLVER_USE_INTERNAL_BLAS "Use internal implementation of GEMM and TRSM for debugging." OFF)
 
 # Add our CMake helper files to the lookup path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -87,7 +88,7 @@ get_os_id(OS_ID)
 message(STATUS "OS detected is ${OS_ID}")
 
 # Versioning via rocm-cmake
-set(VERSION_STRING "3.27.0")
+set(VERSION_STRING "3.28.0")
 rocm_setup_version(VERSION ${VERSION_STRING})
 
 # Workaround until llvm and hip CMake modules fix symlink logic in their config files
@@ -119,15 +120,22 @@ option(BUILD_SHARED_LIBS "Build rocSOLVER as a shared library" ON)
 # Include helper functions and wrapper functions
 include(util)
 include(CMakeDependentOption)
+include(CheckCXXCompilerFlag)
 
 option(BUILD_TESTING "Build rocSOLVER tests" OFF)
 if(BUILD_TESTING)
   enable_testing()
 endif()
 
+if(BUILD_SHARED_LIBS)
+  set(BUILD_WITH_SPARSE_DEFAULT OFF)
+else()
+  set(BUILD_WITH_SPARSE_DEFAULT ON)
+endif()
+
 option(BUILD_LIBRARY "Build rocSOLVER library" ON)
 option_opposite(BUILD_LIBRARY SKIP_LIBRARY)
-option(BUILD_WITH_SPARSE "Build rocSOLVER sparse re-factorization and solvers" ON)
+option(BUILD_WITH_SPARSE "Build with rocsparse available at build time" "${BUILD_WITH_SPARSE_DEFAULT}")
 option(BUILD_CLIENTS_TESTS "Build rocSOLVER test client" "${BUILD_TESTING}")
 option(BUILD_CLIENTS_BENCHMARKS "Build rocSOLVER benchmark client" OFF)
 option(BUILD_CLIENTS_SAMPLES "Build rocSOLVER samples" OFF)
@@ -136,6 +144,8 @@ option(BUILD_ADDRESS_SANITIZER "Build with address sanitizer enabled" OFF)
 option(BUILD_CODE_COVERAGE "Build rocSOLVER with code coverage enabled" OFF)
 option(WERROR "Treat warnings as errors" OFF)
 option(BUILD_COMPRESSED_DBG "Enable compressed debug symbols" ON)
+check_cxx_compiler_flag("--offload-compress" CXX_COMPILER_SUPPORTS_OFFLOAD_COMPRESS)
+cmake_dependent_option(BUILD_OFFLOAD_COMPRESS "Build with offload compression" ON CXX_COMPILER_SUPPORTS_OFFLOAD_COMPRESS OFF)
 
 cmake_dependent_option(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY
   "Build with file/folder reorg backward compatibility enabled" OFF "NOT WIN32" OFF)
@@ -159,12 +169,11 @@ if(NOT DEFINED AMDGPU_TARGETS)
     TARGETS
       gfx90a:xnack-
       gfx90a:xnack+
-      gfx940
-      gfx941
       gfx942
       gfx1100
       gfx1101
       gfx1102
+      gfx1151
       gfx1200
       gfx1201
   )
@@ -202,6 +211,9 @@ if(BUILD_WITH_SPARSE)
   rocm_package_add_dependencies(SHARED_DEPENDS "rocsparse >= ${rocsparse_minimum}")
   rocm_package_add_rpm_dependencies(STATIC_DEPENDS "rocsparse-static-devel >= ${rocsparse_minimum}")
   rocm_package_add_deb_dependencies(STATIC_DEPENDS "rocsparse-static-dev >= ${rocsparse_minimum}")
+else()
+  list(APPEND CPACK_DEBIAN_RUNTIME_PACKAGE_RECOMMENDS "rocsparse")
+  list(APPEND CPACK_RPM_RUNTIME_PACKAGE_SUGGESTS "rocsparse")
 endif()
 
 find_package(rocprim REQUIRED CONFIG PATHS ${ROCM_PATH})
@@ -228,7 +240,7 @@ if(BUILD_CLIENTS_TESTS OR BUILD_CLIENTS_BENCHMARKS OR BUILD_CLIENTS_SAMPLES)
     endif()
   elseif(CLIENTS_OS STREQUAL "ubuntu" AND CLIENTS_OS_VERSION VERSION_GREATER_EQUAL "20.04")
     set(GFORTRAN_DEB "libgfortran5")
-  elseif(CLIENTS_OS STREQUAL "mariner")
+  elseif(CLIENTS_OS STREQUAL "mariner" OR CLIENTS_OS STREQUAL "azurelinux")
     set(GFORTRAN_RPM "gfortran")
   endif()
   rocm_package_setup_component(clients)
