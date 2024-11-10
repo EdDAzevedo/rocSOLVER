@@ -856,7 +856,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     typedef uint16_t Itype;
 
     size_t const len_vec = nb_max_even;
-    size_t const size_vec = sizeof(Itype) * nb_max_even;
+    size_t const size_vec = sizeof(Itype) * len_vec;
     Itype* vec = reinterpret_cast<Itype*>(pfree);
     pfree += size_vec;
     total_bytes += size_vec;
@@ -903,16 +903,10 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
         // -------------------------------------------
         for(auto iblock = iblock_start; iblock < blocks; iblock += iblock_inc)
         {
-            auto const jid = iblock + bid * blocks;
-            T* J_ = (JA ? JA + (jid * (nb_max * nb_max)) : nullptr);
-
-            bool const use_J = (J_ != nullptr);
-            auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
-
-            T* Jmat_ = (use_Jsh) ? Jsh_ : J_;
-            auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldj]); };
-
             auto const offset = iblock * nb_max;
+            auto const jid = iblock + bid * blocks;
+            T* const J_ = (JA ? JA + (jid * (nb_max * nb_max)) : nullptr);
+            bool const use_J = (J_ != nullptr);
 
             auto const iblock_size = bsize(iblock);
             auto const nb = iblock_size;
@@ -924,21 +918,56 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             auto const nrowsAmat = nrowsJ;
             auto const ncolsAmat = ncolsJ;
 
+            auto J = [=](auto i, auto j) -> T& {
+                assert(use_J);
+
+                assert((0 <= i) && (i < nrowsJ));
+                assert((0 <= j) && (j < ncolsJ));
+
+                return (J_[i + j * ldj]);
+            };
+
+            auto Jsh = [=](auto i, auto j) -> T& {
+                assert(use_Jsh);
+
+                assert((0 <= i) && (i < nrowsJ));
+                assert((0 <= j) && (j < ncolsJ));
+
+                return (Jsh_[i + j * ldj]);
+            };
+
+            T* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
+            auto Jmat = [=](auto i, auto j) -> T& {
+                assert(use_J);
+
+                assert((0 <= i) && (i < nrowsJ));
+                assert((0 <= j) && (j < ncolsJ));
+
+                return (Jmat_[i + j * ldj]);
+            };
+
             auto map = [=](auto ip) {
                 auto const m = nb_even;
                 auto const ival0 = (m - 1) - 1;
                 bool const is_even = ((ip % 2) == 0);
                 bool const is_last = (ip == (m - 1));
+                auto const j = (ip - 1) / 2;
 
-                return (is_last ? (m - 1) : is_even ? ip / 2 : ival0 - (ip - 1) / 2);
+                return (is_last ? (m - 1) : is_even ? (ip / 2) : ival0 - j);
             };
 
             auto tb_pair = [=](auto i, auto ipair) {
-                auto const player1 = vec[map(2 * ipair + i)];
+                assert((0 <= i) && (i <= 1));
+                assert((0 <= ipair) && (ipair < half_nb));
+
+                auto const ip = map(i + 2 * ipair);
+                assert((0 <= ip) && (ip < nb_even));
+
+                auto const player1 = vec[ip];
                 return (player1);
             };
 
-            auto rotate = [&]() {
+            auto rotate = [&](auto const m) {
                 // ------------------------------------------
                 // parallel algorithms need to have
                 // sufficient number of threads and registers
@@ -947,7 +976,6 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 // ------------------------------------------
                 // bool use_serial = (  ij_inc < (m-1) );
 
-                auto const m = nb_even;
                 bool use_serial = true;
                 bool const is_root = (ij_start == 0);
 
@@ -975,6 +1003,9 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                     {
                         if(ij == 0)
                         {
+                            // ---------------------------
+                            // equivalent to vec[m-2] = v0
+                            // ---------------------------
                             vec[m - 2] = v_ij;
                         }
                         else
@@ -987,18 +1018,26 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 __syncthreads();
             };
 
-            auto init_tb_pair = [=]() {
+            auto init_tb_pair = [=](auto m) {
                 __syncthreads();
-                for(auto ij = ij_start; ij < nb_even; ij += ij_inc)
+                for(auto ij = ij_start; ij < m; ij += ij_inc)
                 {
                     vec[ij] = ij;
                 };
                 __syncthreads();
             };
 
+            // -----------------------------------
+            // note Amat looks like nb by nb matrix
+            // -----------------------------------
             T* const Amat_ = (use_Ash) ? Ash_ : A_ + idx2D(offset, offset, lda);
             auto const ldAmat = (use_Ash) ? ldAsh : lda;
-            auto Amat = [=](auto i, auto j) -> T& { return (Amat_[i + j * ldAmat]); };
+            auto Amat = [=](auto i, auto j) -> T& {
+                assert((0 <= i) && (i < nb));
+                assert((0 <= j) && (j < nb));
+
+                return (Amat_[i + j * ldAmat]);
+            };
 
             if(use_J)
             {
@@ -1037,9 +1076,29 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 __syncthreads();
             }
 
+#ifdef NDEBUG
+#else
+            double offdiag_norm_init = 0;
+            if(ij_start == 0)
+            {
+                for(auto j = 0; j < ncolsJ; j++)
+                {
+                    for(auto i = 0; i < nrowsJ; i++)
+                    {
+                        bool const is_diagonal = (i == j);
+                        auto const ia = offset + i;
+                        auto const ja = offset + j;
+                        T const aij = (is_diagonal) ? 0 : A(ia, ja);
+                        offdiag_norm_init += std::norm(aij);
+                    }
+                }
+                offdiag_norm_init = std::sqrt(offdiag_norm_init);
+            }
+#endif
+
             auto const npairs = half_nb;
 
-            init_tb_pair();
+            init_tb_pair(nb_even);
 
             auto const num_pass = (nrowsJ - 1);
             for(auto ipass = 0; ipass < num_pass; ipass++)
@@ -1052,8 +1111,6 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                     auto const ipair = ij;
                     auto const p = tb_pair(0, ipair);
                     auto const q = tb_pair(1, ipair);
-                    auto const i = min(p, q);
-                    auto const j = max(p, q);
 
                     // ----------------------------------------------
                     // default initialized value as identity rotation
@@ -1069,11 +1126,14 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                     // calculate the Jacobi rotation and apply it to A
                     // ----------------------------------------------------------
 
-                    bool is_valid = (i < nrowsJ) && (j < ncolsJ);
+                    bool is_valid = (p < nrowsJ) && (q < ncolsJ);
                     if(!is_valid)
                         continue;
 
                     {
+                        auto const i = min(p, q);
+                        auto const j = max(p, q);
+
                         auto const aij = Amat(i, j);
                         auto const mag = std::abs(aij);
 
@@ -1200,7 +1260,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 // rotate cycle pairs
                 // ---------------------
 
-                rotate();
+                rotate(nb_even);
 
                 __syncthreads();
 
@@ -1224,11 +1284,15 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
 
             if(use_Ash)
             {
+                // ------------------------------------------
+                // write out modified diagonal submatrix of A
+                // from LDS to device memory
+                // ------------------------------------------
                 __syncthreads();
 
-                for(auto j = j_start; j < iblock_size; j += j_inc)
+                for(auto j = j_start; j < ncolsJ; j += j_inc)
                 {
-                    for(auto i = i_start; i < iblock_size; i += i_inc)
+                    for(auto i = i_start; i < nrowsJ; i += i_inc)
                     {
                         auto const ia = i + offset;
                         auto const ja = j + offset;
@@ -1238,6 +1302,76 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 __syncthreads();
             }
             __syncthreads();
+
+#ifdef NDEBUG
+#else
+
+            {
+                // ----------------------------
+                // double check J is orthogonal
+                // check  J' * J == identity
+                // ----------------------------
+                __syncthreads();
+
+                if(use_J)
+                {
+                    double const tol = 1e-6;
+                    auto nerrors = 0;
+                    for(auto j = j_start; j < ncolsJ; j += j_inc)
+                    {
+                        for(auto i = i_start; i < nrowsJ; i += i_inc)
+                        {
+                            T eij = 0;
+                            for(auto k = 0; k < nrowsJ; k++)
+                            {
+                                auto const Jt_ik = conj(Jmat(k, i));
+                                auto const J_kj = Jmat(k, j);
+                                eij += Jt_ik * J_kj;
+                            }
+                            T const id_ij = (i == j) ? 1 : 0;
+                            double const diff = std::abs(id_ij - eij);
+
+                            bool const isok = (diff <= tol);
+                            if(!isok)
+                            {
+                                printf("iblock=%d,i=%d,j=%d,diff=%le,eij=%le\n", iblock, i, j, diff,
+                                       (double)std::real(eij));
+                                nerrors += 1;
+                            }
+                        }
+                    }
+                    assert(nerrors == 0);
+                }
+
+                __syncthreads();
+
+                // compute norm of off diagonal
+
+                double offdiag_norm_final = 0;
+
+                if(ij_start == 0)
+                {
+                    offdiag_norm_final = 0;
+
+                    for(auto j = 0; j < ncolsJ; j++)
+                    {
+                        for(auto i = 0; i < nrowsJ; i++)
+                        {
+                            bool const is_diagonal = (i == j);
+                            auto const ia = offset + i;
+                            auto const ja = offset + j;
+                            T const aij = (is_diagonal) ? 0 : A(ia, ja);
+                            offdiag_norm_final = std::norm(aij);
+                        }
+                    }
+                    offdiag_norm_final = std::sqrt(offdiag_norm_final);
+
+                    assert(offdiag_norm_final < offdiag_norm_init);
+                }
+                __syncthreads();
+            }
+#endif
+
         } // end for iblock
     } // end for bid
 }
@@ -1318,7 +1452,7 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
                                         const rocblas_stride strideA,
                                         T* JA,
                                         rocblas_int* completed,
-                                        const rocblas_int batch_count)
+                                        rocblas_int batch_count)
 {
     bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
 
@@ -1327,9 +1461,6 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
 
     auto const j_start = hipThreadIdx_y;
     auto const j_inc = hipBlockDim_y;
-
-    auto const ij_start = i_start + j_start * i_inc;
-    auto const ij_inc = i_inc * j_inc;
 
     auto const bix_start = hipBlockIdx_x;
     auto const bix_inc = hipGridDim_x;
@@ -1417,6 +1548,9 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
                 // load J into Jsh in LDS
                 // ---------------
                 __syncthreads();
+                auto const ij_start = i_start + j_start * i_inc;
+                auto const ij_inc = i_inc * j_inc;
+                auto const len_Jsh = nb_max * nb_max;
 
                 for(auto ij = ij_start; ij < len_Jsh; ij += ij_inc)
                 {
@@ -2147,7 +2281,7 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                                         rocblas_int* top,
                                         rocblas_int* bottom,
                                         rocblas_int* completed,
-                                        const rocblas_int batch_count)
+                                        rocblas_int const batch_count)
 {
     bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
@@ -2803,7 +2937,7 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         bool const use_offd_kernel_org = (n <= n_threshold);
         bool const use_diag_rotate_org = (n <= n_threshold);
         bool const use_offd_rotate_org = (n <= n_threshold);
-        bool const use_diag_kernel_org = (n <= n_threshold);
+        bool const use_diag_kernel_org = false;
 
         // *** USE BLOCKED KERNELS ***
         auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
@@ -2817,50 +2951,17 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
         dim3 gridReset(blocksReset, 1, 1);
         dim3 grid(1, batch_count, 1);
+        dim3 gridDK(blocks, 1, batch_count);
+        dim3 gridDR(blocks, blocks, batch_count);
+        dim3 gridOK(half_blocks, 1, batch_count);
 
         dim3 gridPairs(1, 1, 1);
         dim3 threadsReset(BS1, 1, 1);
         dim3 threads(BS1, 1, 1);
+        dim3 threadsDK(BS2 / 2, BS2 / 2, 1);
+        dim3 threadsDR(BS2, BS2, 1);
+        dim3 threadsOK(BS2, BS2, 1);
 
-        // -------------------------------------
-        // launch configuration for diag_kernel()
-        // -------------------------------------
-        dim3 gridDK_org(blocks, 1, batch_count);
-        dim3 threadsDK_org(BS2 / 2, BS2 / 2, 1);
-
-        dim3 gridDK_new(blocks, 1, batch_count);
-        dim3 threadsDK_new(BS2 / 2, BS2 / 2, 1);
-
-        dim3 gridDK = (use_diag_kernel_org) ? gridDK_org : gridDK_new;
-        dim3 threadsDK = (use_offd_kernel_org) ? threadsDK_org : threadsDK_new;
-
-        // --------------------------------------
-        // launch configuration for diag_rotate()
-        // --------------------------------------
-        dim3 gridDR_org(blocks, blocks, batch_count);
-        dim3 threadsDR_org(BS2, BS2, 1);
-
-        dim3 gridDR_new(blocks, blocks, batch_count);
-        dim3 threadsDR_new(BS2, BS2, 1);
-
-        dim3 gridDR = (use_diag_rotate_org) ? gridDR_org : gridDR_new;
-        dim3 threadsDR = (use_diag_rotate_org) ? threadsDR_org : threadsDR_new;
-
-        // ------------------------------------
-        // launch configuration for offd_kernel
-        // ------------------------------------
-        dim3 gridOK_org(half_blocks, 1, batch_count);
-        dim3 threadsOK_org(BS2, BS2, 1);
-
-        dim3 gridOK_new(half_blocks, 1, batch_count);
-        dim3 threadsOK_new(BS2, BS2, 1);
-
-        dim3 gridOK = (use_offd_kernel_org) ? gridOK_org : gridOK_new;
-        dim3 threadsOK = (use_offd_kernel_org) ? threadsOK_org : threadsOK_new;
-
-        // ------------------------------------
-        // launch configuration for offd_rotate
-        // ------------------------------------
         dim3 gridOR_org(half_blocks, 2 * blocks, batch_count);
         dim3 threadsOR_org(2 * BS2, BS2 / 2, 1);
 
@@ -2870,37 +2971,10 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 gridOR = (use_offd_rotate_org) ? gridOR_org : gridOR_new;
         dim3 threadsOR = (use_offd_rotate_org) ? threadsOR_org : threadsOR_new;
 
-        // -------------------
-        // shared memory sizes
-        // -------------------
         size_t const size_lds = 64 * 1024;
+        // shared memory sizes
         size_t const lmemsizeInit = 2 * sizeof(S) * BS1;
-
-        size_t lmemsizeDK = size_lds;
-        {
-            typedef uint16_t Itype;
-            size_t total_bytes;
-            auto const nb_max_even = ceil(nb_max, 2) * 2;
-            size_t const size_vec = sizeof(Itype) * nb_max_even;
-            size_t const size_map = sizeof(Itype) * nb_max_even;
-            total_bytes += (size_vec + size_map);
-
-            size_t const size_Ash = sizeof(T) * nb_max * nb_max;
-            bool const use_Ash = (total_bytes + size_Ash) <= size_lds;
-            if(use_Ash)
-            {
-                total_bytes += size_Ash;
-            };
-
-            size_t const size_Jsh = sizeof(T) * nb_max * nb_max;
-            bool const use_Jsh = (total_bytes + size_Jsh) <= size_lds;
-            if(use_Jsh)
-            {
-                total_bytes += size_Jsh;
-            };
-
-            lmemsizeDK = min(size_lds, total_bytes);
-        }
+        size_t const lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
 
         size_t lmemsizeDR = std::min(size_lds, 2 * sizeof(T) * nb_max * nb_max);
         {
