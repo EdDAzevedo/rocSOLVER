@@ -872,7 +872,8 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     T* const Ash_ = reinterpret_cast<T*>(pfree);
     pfree += size_Ash;
     total_bytes += size_Ash;
-    bool const use_Ash = (total_bytes <= size_lds);
+    // bool const use_Ash = (total_bytes <= size_lds);
+    bool const use_Ash = false;
 
     auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
 
@@ -885,7 +886,8 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     T* const Jsh_ = reinterpret_cast<T*>(pfree);
     pfree += size_Jsh;
     total_bytes += size_Jsh;
-    bool const use_Jsh = (total_bytes <= size_lds);
+    // bool const use_Jsh = (total_bytes <= size_lds);
+    bool const use_Jsh = false;
 
     S const small_num = get_safemin<S>() / eps;
     S const sqrt_small_num = std::sqrt(small_num);
@@ -939,6 +941,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             T* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
             auto Jmat = [=](auto i, auto j) -> T& {
                 assert(use_J);
+                assert(Jmat_ != nullptr);
 
                 assert((0 <= i) && (i < nrowsJ));
                 assert((0 <= j) && (j < ncolsJ));
@@ -967,7 +970,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 return (player1);
             };
 
-            auto rotate = [&](auto const m) {
+            auto rotate = [&](auto const npairs) {
                 // ------------------------------------------
                 // parallel algorithms need to have
                 // sufficient number of threads and registers
@@ -976,17 +979,21 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 // ------------------------------------------
                 // bool use_serial = (  ij_inc < (m-1) );
 
+                auto const m = 2 * npairs;
                 bool use_serial = true;
                 bool const is_root = (ij_start == 0);
 
-                if(use_serial && is_root)
+                if(use_serial)
                 {
-                    auto const v0 = vec[0];
-                    for(auto i = 1; i < (m - 1); i++)
+                    if(is_root)
                     {
-                        vec[i - 1] = vec[i];
-                    };
-                    vec[m - 2] = v0;
+                        auto const v0 = vec[0];
+                        for(auto i = 1; i < (m - 1); i++)
+                        {
+                            vec[i - 1] = vec[i];
+                        };
+                        vec[m - 2] = v0;
+                    }
                 }
                 else
                 {
@@ -1018,7 +1025,8 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 __syncthreads();
             };
 
-            auto init_tb_pair = [=](auto m) {
+            auto init_tb_pair = [=](auto npairs) {
+                auto const m = 2 * npairs;
                 __syncthreads();
                 for(auto ij = ij_start; ij < m; ij += ij_inc)
                 {
@@ -1093,12 +1101,23 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                     }
                 }
                 offdiag_norm_init = std::sqrt(offdiag_norm_init);
+
+                for(auto j = 0; j < ncolsJ; j++)
+                {
+                    for(auto i = 0; i < nrowsJ; i++)
+                    {
+                        bool const is_diag = (i == j);
+                        T const id_ij = (is_diag) ? 1 : 0;
+                        bool const isok = (Jmat(i, j) == id_ij);
+                        assert(isok);
+                    }
+                }
             }
 #endif
 
             auto const npairs = half_nb;
 
-            init_tb_pair(nb_even);
+            init_tb_pair(npairs);
 
             auto const num_pass = (nrowsJ - 1);
             for(auto ipass = 0; ipass < num_pass; ipass++)
@@ -1160,6 +1179,11 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
 
                         sh_cosines[ij] = c;
                         sh_sines[ij] = s1;
+
+                        {
+                            double const tol = 1e-6;
+                            assert(std::abs((c * c + s1 * conj(s1)) - 1) <= tol);
+                        }
                     }
 
                 } // end for ij
@@ -1260,7 +1284,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                 // rotate cycle pairs
                 // ---------------------
 
-                rotate(nb_even);
+                rotate(npairs);
 
                 __syncthreads();
 
@@ -1306,10 +1330,12 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
 #ifdef NDEBUG
 #else
 
+            bool const check_J = true;
+            if(check_J)
             {
                 // ----------------------------
                 // double check J is orthogonal
-                // check  J' * J == identity
+                // check  J * J' == identity
                 // ----------------------------
                 __syncthreads();
 
@@ -1324,9 +1350,9 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                             T eij = 0;
                             for(auto k = 0; k < nrowsJ; k++)
                             {
-                                auto const Jt_ik = conj(Jmat(k, i));
-                                auto const J_kj = Jmat(k, j);
-                                eij += Jt_ik * J_kj;
+                                auto const J_ik = (Jmat(k, i));
+                                auto const Jt_kj = conj(Jmat(j, k));
+                                eij += J_ik * Jt_kj;
                             }
                             T const id_ij = (i == j) ? 1 : 0;
                             double const diff = std::abs(id_ij - eij);
@@ -2974,7 +3000,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         size_t const size_lds = 64 * 1024;
         // shared memory sizes
         size_t const lmemsizeInit = 2 * sizeof(S) * BS1;
-        size_t const lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
+        // size_t const lmemsizeDK = (sizeof(S) + sizeof(T) + 2 * sizeof(rocblas_int)) * (BS2 / 2);
+        size_t const lmemsizeDK = size_lds;
 
         size_t lmemsizeDR = std::min(size_lds, 2 * sizeof(T) * nb_max * nb_max);
         {
