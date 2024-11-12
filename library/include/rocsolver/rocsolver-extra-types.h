@@ -164,6 +164,8 @@ typedef enum rocsolver_rfinfo_mode_
     = 272, /**< To work with Cholesky factorization (for symmetric positive definite sparse matrices). */
 } rocsolver_rfinfo_mode;
 
+/*! \brief Used to specify the planes on which a sequence of Givens rotations is applied.
+ ********************************************************************************/
 typedef enum rocblas_pivot_
 {
     rocblas_pivot_variable = 281, /**< The i-th rotation is applied on plane (i,i+1). */
@@ -187,7 +189,5 @@ typedef enum rocsolver_function_
     rocsolver_function_bdsqr = 401,
     rocsolver_function_gesvd = 402,
 } rocsolver_function;
-/*! \brief Used to specify the planes on which a sequence of Givens rotations is applied.
- ********************************************************************************/
 
 #endif /* ROCSOLVER_EXTRA_TYPES_H */
