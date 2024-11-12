@@ -39,6 +39,8 @@
 #include <cstdint>
 #include <stdio.h>
 
+#include "rocauxiliary_lasr.hpp"
+
 #include "hip/hip_runtime.h"
 #include "hip/hip_runtime_api.h"
 
@@ -51,547 +53,6 @@ ROCSOLVER_BEGIN_NAMESPACE
         assert(istat == hipSuccess);    \
     }
 #endif
-
-#ifndef LASR_MAX_NTHREADS
-#define LASR_MAX_NTHREADS 64
-#endif
-
-template <typename S, typename T, typename I>
-__host__ __device__ static void lasr_body(char const side,
-                                          char const pivot,
-                                          char const direct,
-                                          I const m,
-                                          I const n,
-                                          S const* const __restrict__ c_,
-                                          S const* const __restrict__ s_,
-                                          T* const __restrict__ A_,
-                                          I const lda,
-                                          I const tid,
-                                          I const i_inc)
-{
-    auto max = [](auto x, auto y) { return ((x > y) ? x : y); };
-    auto min = [](auto x, auto y) { return ((x < y) ? x : y); };
-
-    auto indx2f = [](auto i, auto j, auto lda) {
-        assert((1 <= i));
-        assert((1 <= lda));
-        assert((1 <= j));
-
-        return (i + j * lda - (1 + lda));
-    };
-
-    auto indx1f = [](auto i) -> int64_t {
-        assert((1 <= i));
-        return (i - (1));
-    };
-
-    auto c = [&](auto i) -> const S { return (c_[(i)-1]); };
-    auto s = [&](auto i) -> const S { return (s_[(i)-1]); };
-    auto A = [&](auto i, auto j) -> T& { return (A_[indx2f(i, j, lda)]); };
-
-    const S one = 1;
-    const S zero = 0;
-
-    constexpr bool use_reorder = true;
-
-    // ----------------
-    // check arguments
-    // ----------------
-
-    const bool is_side_Left = (side == 'L') || (side == 'l');
-    const bool is_side_Right = (side == 'R') || (side == 'r');
-
-    const bool is_pivot_Variable = (pivot == 'V') || (pivot == 'v');
-    const bool is_pivot_Bottom = (pivot == 'B') || (pivot == 'b');
-    const bool is_pivot_Top = (pivot == 'T') || (pivot == 't');
-
-    const bool is_direct_Forward = (direct == 'F') || (direct == 'f');
-    const bool is_direct_Backward = (direct == 'B') || (direct == 'b');
-
-    {
-        const bool isok_side = is_side_Left || is_side_Right;
-        const bool isok_pivot = is_pivot_Variable || is_pivot_Bottom || is_pivot_Top;
-        const bool isok_direct = is_direct_Forward || is_direct_Backward;
-
-        const I info = (!isok_side) ? 1
-            : (!isok_pivot)         ? 2
-            : (!isok_direct)        ? 3
-            : (m < 0)               ? 4
-            : (n < 0)               ? 5
-            : (c_ == nullptr)       ? 6
-            : (s_ == nullptr)       ? 7
-            : (A_ == nullptr)       ? 8
-            : (lda < max(1, m))     ? 9
-                                    : 0;
-        if(info != 0)
-            return;
-    };
-
-    {
-        const bool has_work = (m >= 1) && (n >= 1);
-        if(!has_work)
-        {
-            return;
-        };
-    };
-
-    if(is_side_Left && is_pivot_Variable && is_direct_Forward)
-    {
-        //  -----------------------------
-        //  A := P*A
-        //  Variable pivot, the plane (k,k+1)
-        //  P = P(z-1) * ... * P(2) * P(1)
-        //  -----------------------------
-        {
-            if constexpr(use_reorder)
-            {
-                for(I i = 1 + tid; i <= n; i += i_inc)
-                {
-                    for(I j = 1; j <= (m - 1); j++)
-                    {
-                        const auto ctemp = c(j);
-                        const auto stemp = s(j);
-                        const auto temp = A(j + 1, i);
-                        A(j + 1, i) = ctemp * temp - stemp * A(j, i);
-                        A(j, i) = stemp * temp + ctemp * A(j, i);
-                    }
-                }
-            }
-            else
-            {
-                for(I j = 1; j <= (m - 1); j++)
-                {
-                    const auto ctemp = c(j);
-                    const auto stemp = s(j);
-                    if((ctemp != one) || (stemp != zero))
-                    {
-                        for(I i = 1 + tid; i <= n; i += i_inc)
-                        {
-                            const auto temp = A(j + 1, i);
-                            A(j + 1, i) = ctemp * temp - stemp * A(j, i);
-                            A(j, i) = stemp * temp + ctemp * A(j, i);
-                        }
-                    }
-                }
-            }
-        }
-
-        return;
-    };
-
-    if(is_side_Left && is_pivot_Variable && is_direct_Backward)
-    {
-        //  -----------------------------
-        //  A := P*A
-        //  Variable pivot, the plane (k,k+1)
-        //  P = P(1)*P(2)*...*P(z-1)
-        //  -----------------------------
-
-        auto const jend = (m - 1);
-        auto const jstart = 1;
-        auto const istart = 1;
-        auto const iend = n;
-
-        if constexpr(use_reorder)
-        {
-            for(I i = istart + tid; i <= iend; i += i_inc)
-            {
-                for(I j = jend; j >= jstart; j--)
-                {
-                    const auto ctemp = c(j);
-                    const auto stemp = s(j);
-                    const auto temp = A(j + 1, i);
-                    A(j + 1, i) = ctemp * temp - stemp * A(j, i);
-                    A(j, i) = stemp * temp + ctemp * A(j, i);
-                }
-            }
-        }
-        else
-        {
-            for(I j = jend; j >= jstart; j--)
-            {
-                const auto ctemp = c(j);
-                const auto stemp = s(j);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(j + 1, i);
-                        A(j + 1, i) = ctemp * temp - stemp * A(j, i);
-                        A(j, i) = stemp * temp + ctemp * A(j, i);
-                    }
-                }
-            }
-        }
-
-        return;
-    };
-
-    if(is_side_Left && is_pivot_Top && is_direct_Forward)
-    {
-        //  -----------------------------
-        //  A := P*A
-        //  Top pivot, the plane (1,k+1)
-        //  P = P(z-1) * ... * P(2) * P(1)
-        //  -----------------------------
-        {
-            for(I j = 2; j <= m; j++)
-            {
-                const auto ctemp = c(j - 1);
-                const auto stemp = s(j - 1);
-                for(I i = 1 + tid; i <= n; i += i_inc)
-                {
-                    const auto temp = A(j, i);
-                    A(j, i) = ctemp * temp - stemp * A(1, i);
-                    A(1, i) = stemp * temp + ctemp * A(1, i);
-                };
-            };
-        };
-
-        return;
-    };
-
-    if(is_side_Left && is_pivot_Top && is_direct_Backward)
-    {
-        //  -----------------------------
-        //  A := P*A
-        //  Top pivot, the plane (1,k+1)
-        //  P = P(1)*P(2)*...*P(z-1)
-        //  -----------------------------
-        {
-            auto const jend = m;
-            auto const jstart = 2;
-            auto const istart = 1;
-            auto const iend = n;
-
-            for(I j = jend; j >= jstart; j--)
-            {
-                const auto ctemp = c(j - 1);
-                const auto stemp = s(j - 1);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(j, i);
-
-                        A(j, i) = ctemp * temp - stemp * A(1, i);
-                        A(1, i) = stemp * temp + ctemp * A(1, i);
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    if(is_side_Left && is_pivot_Bottom && is_direct_Forward)
-    {
-        //  -----------------------------
-        //  A := P*A
-        //  Bottom pivot, the plane (k,z)
-        //  P = P(z-1) * ... * P(2) * P(1)
-        //  -----------------------------
-        {
-            auto const jstart = 1;
-            auto const jend = (m - 1);
-            auto const istart = 1;
-            auto const iend = n;
-
-            for(I j = jstart; j <= jend; j++)
-            {
-                const auto ctemp = c(j);
-                const auto stemp = s(j);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(j, i);
-                        A(j, i) = stemp * A(m, i) + ctemp * temp;
-                        A(m, i) = ctemp * A(m, i) - stemp * temp;
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    if(is_side_Left && is_pivot_Bottom && is_direct_Backward)
-    {
-        //  -----------------------------
-        //  A := P*A
-        //  Bottom pivot, the plane (k,z)
-        //  P = P(1)*P(2)*...*P(z-1)
-        //  -----------------------------
-        {
-            auto const jend = (m - 1);
-            auto const jstart = 1;
-            auto const istart = 1;
-            auto const iend = n;
-
-            for(I j = jend; j >= jstart; j--)
-            {
-                const auto ctemp = c(j);
-                const auto stemp = s(j);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(j, i);
-                        A(j, i) = stemp * A(m, i) + ctemp * temp;
-                        A(m, i) = ctemp * A(m, i) - stemp * temp;
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    if(is_side_Right && is_pivot_Variable && is_direct_Forward)
-    {
-        //  -----------------------------
-        //  A := A*P**T
-        //  Variable pivot, the plane (k,k+1)
-        //  P = P(z-1) * ... * P(2) * P(1)
-        //  -----------------------------
-
-        {
-            auto const jstart = 1;
-            auto const jend = (n - 1);
-            auto const istart = 1;
-            auto const iend = m;
-
-            for(I j = jstart; j <= jend; j++)
-            {
-                const auto ctemp = c(j);
-                const auto stemp = s(j);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(i, j + 1);
-                        A(i, j + 1) = ctemp * temp - stemp * A(i, j);
-                        A(i, j) = stemp * temp + ctemp * A(i, j);
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    if(is_side_Right && is_pivot_Variable && is_direct_Backward)
-    {
-        //  -----------------------------
-        //  A := A*P**T
-        //  Variable pivot, the plane (k,k+1)
-        //  P = P(1)*P(2)*...*P(z-1)
-        //  -----------------------------
-
-        {
-            auto const jend = (n - 1);
-            auto const jstart = 1;
-            auto const istart = 1;
-            auto const iend = m;
-
-            for(I j = jend; j >= jstart; j--)
-            {
-                const auto ctemp = c(j);
-                const auto stemp = s(j);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(i, j + 1);
-                        A(i, j + 1) = ctemp * temp - stemp * A(i, j);
-                        A(i, j) = stemp * temp + ctemp * A(i, j);
-                    };
-                };
-            };
-        }
-        return;
-    };
-
-    if(is_side_Right && is_pivot_Top && is_direct_Forward)
-    {
-        //  -----------------------------
-        //  A := A*P**T
-        //  Top pivot, the plane (1,k+1)
-        //  P = P(z-1) * ... * P(2) * P(1)
-        //  -----------------------------
-
-        {
-            auto const jstart = 2;
-            auto const jend = n;
-            auto const istart = 1;
-            auto const iend = m;
-
-            for(I j = jstart; j <= jend; j++)
-            {
-                const auto ctemp = c(j - 1);
-                const auto stemp = s(j - 1);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(i, j);
-
-                        A(i, j) = ctemp * temp - stemp * A(i, 1);
-                        A(i, 1) = stemp * temp + ctemp * A(i, 1);
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    if(is_side_Right && is_pivot_Top && is_direct_Backward)
-    {
-        //  -----------------------------
-        //  A := A*P**T
-        //  Top pivot, the plane (1,k+1)
-        //  P = P(1)*P(2)*...*P(z-1)
-        //  -----------------------------
-
-        {
-            auto const jend = n;
-            auto const jstart = 2;
-            auto const istart = 1;
-            auto const iend = m;
-
-            for(I j = jend; j >= jstart; j--)
-            {
-                const auto ctemp = c(j - 1);
-                const auto stemp = s(j - 1);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(i, j);
-
-                        A(i, j) = ctemp * temp - stemp * A(i, 1);
-                        A(i, 1) = stemp * temp + ctemp * A(i, 1);
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    if(is_side_Right && is_pivot_Bottom && is_direct_Forward)
-    {
-        //  -----------------------------
-        //  A := A*P**T
-        //  Bottom pivot, the plane (k,z)
-        //  P = P(z-1) * ... * P(2) * P(1)
-        //  -----------------------------
-
-        {
-            auto const jstart = 1;
-            auto const jend = (n - 1);
-            auto const istart = 1;
-            auto const iend = m;
-
-            for(I j = jstart; j <= jend; j++)
-            {
-                const auto ctemp = c(j);
-                const auto stemp = s(j);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(i, j);
-
-                        A(i, j) = stemp * A(i, n) + ctemp * temp;
-                        A(i, n) = ctemp * A(i, n) - stemp * temp;
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    if(is_side_Right && is_pivot_Bottom && is_direct_Backward)
-    {
-        //  -----------------------------
-        //  A := A*P**T
-        //  Bottom pivot, the plane (k,z)
-        //  P = P(1)*P(2)*...*P(z-1)
-        //  -----------------------------
-
-        {
-            auto const jend = (n - 1);
-            auto const jstart = 1;
-            auto const istart = 1;
-            auto const iend = m;
-
-            for(I j = jend; j >= jstart; j--)
-            {
-                const auto ctemp = c(j);
-                const auto stemp = s(j);
-                if((ctemp != one) || (stemp != zero))
-                {
-                    for(I i = istart + tid; i <= iend; i += i_inc)
-                    {
-                        const auto temp = A(i, j);
-                        A(i, j) = stemp * A(i, n) + ctemp * temp;
-                        A(i, n) = ctemp * A(i, n) - stemp * temp;
-                    };
-                };
-            };
-        }
-
-        return;
-    };
-
-    return;
-}
-
-template <typename S, typename T, typename I>
-__global__ static void __launch_bounds__(LASR_MAX_NTHREADS) lasr_kernel(char const side,
-                                                                        char const pivot,
-                                                                        char const direct,
-                                                                        I const m,
-                                                                        I const n,
-                                                                        S const* const c_,
-                                                                        S const* const s_,
-                                                                        T* const A_,
-                                                                        I const lda)
-{
-    const auto nblocks = hipGridDim_x;
-    const auto nthreads_per_block = hipBlockDim_x;
-    const auto nthreads = nblocks * nthreads_per_block;
-    I const tid = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
-    I const i_inc = nthreads;
-
-    lasr_body<S, T, I>(side, pivot, direct, m, n, c_, s_, A_, lda, tid, i_inc);
-}
-
-template <typename S, typename T, typename I>
-static void lasr_template_gpu(char const side,
-                              char const pivot,
-                              char const direct,
-                              I const m,
-                              I const n,
-                              S const* const c_,
-                              S const* const s_,
-                              T* const A_,
-                              I const lda,
-                              hipStream_t stream = 0)
-{
-    auto const nthreads = LASR_MAX_NTHREADS;
-
-    bool const is_left_side = (side == 'L') || (side == 'l');
-    auto const mn = (is_left_side) ? n : m;
-
-    auto const nblocks = (mn - 1) / nthreads + 1;
-    hipLaunchKernelGGL((lasr_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
-                       side, pivot, direct, m, n, c_, s_, A_, lda);
-}
 
 template <typename S, typename T, typename I>
 __global__ static void
@@ -1370,16 +831,25 @@ static void call_lasv2(T& f, T& g, T& h, T& ssmin, T& ssmax, T& snr, T& csr, T& 
 }
 
 template <typename S, typename T, typename I>
-static void call_lasr(char& side, char& pivot, char& direct, I& m, I& n, S& c, S& s, T& A, I& lda)
+static void call_lasr(rocblas_side& side,
+                      rocblas_pivot& pivot,
+                      rocblas_direct& direct,
+                      I& m,
+                      I& n,
+                      S& c,
+                      S& s,
+                      T& A,
+                      I& lda)
 {
     I const tid = 0;
     I const i_inc = 1;
 
-    lasr_body<S, T, I>(side, pivot, direct, m, n, &c, &s, &A, lda, tid, i_inc);
+    lasr_body<T, S, I>(side, pivot, direct, m, n, &c, &s, &A, lda, tid, i_inc);
 };
 
 template <typename S, typename T, typename I>
-static void bdsqr_single_template(char uplo,
+static void bdsqr_single_template(rocblas_handle handle,
+                                  char uplo,
                                   I n,
                                   I ncvt,
                                   I nru,
@@ -1463,31 +933,34 @@ static void bdsqr_single_template(char uplo,
     auto call_scal_gpu
         = [=](I n, auto da, T& x, I incx) { scal_template<S, T, I>(n, da, &x, incx, stream); };
 
-    auto call_lasr_gpu_nocopy = [=](char const side, char const pivot, char const direct, I const m,
-                                    I const n, S& dc, S& ds, T& A, I const lda, hipStream_t stream) {
-        bool const is_left_side = (side == 'L') || (side == 'l');
-        auto const mn = (is_left_side) ? m : n;
-        auto const mn_m1 = (mn - 1);
-
-        lasr_template_gpu(side, pivot, direct, m, n, &dc, &ds, &A, lda, stream);
-    };
-
-    auto call_lasr_gpu
-        = [=](char const side, char const pivot, char const direct, I const m, I const n, S& c,
-              S& s, T& A, I const lda, S* const dwork_, hipStream_t stream) {
-              bool const is_left_side = (side == 'L') || (side == 'l');
+    auto call_lasr_gpu_nocopy
+        = [=](rocblas_side const side, rocblas_pivot const pivot, rocblas_direct const direct,
+              I const m, I const n, S& dc, S& ds, T& A, I const lda, hipStream_t stream) {
+              bool const is_left_side = (side == rocblas_side_left);
               auto const mn = (is_left_side) ? m : n;
               auto const mn_m1 = (mn - 1);
-              S* const dc = dwork_;
-              S* const ds = dwork_ + mn_m1;
-              CHECK_HIP(hipStreamSynchronize(stream));
 
-              CHECK_HIP(hipMemcpyAsync(dc, &c, sizeof(S) * mn_m1, hipMemcpyHostToDevice, stream));
-              CHECK_HIP(hipMemcpyAsync(ds, &s, sizeof(S) * mn_m1, hipMemcpyHostToDevice, stream));
-
-              lasr_template_gpu(side, pivot, direct, m, n, dc, ds, &A, lda, stream);
-              CHECK_HIP(hipStreamSynchronize(stream));
+              rocsolver_lasr_template<T, S>(handle, side, pivot, direct, m, n, &dc, 0, &ds, 0, &A,
+                                            0, lda, 0, I(1));
           };
+
+    auto call_lasr_gpu = [=](rocblas_side const side, rocblas_pivot const pivot,
+                             rocblas_direct const direct, I const m, I const n, S& c, S& s, T& A,
+                             I const lda, S* const dwork_, hipStream_t stream) {
+        bool const is_left_side = (side == rocblas_side_left);
+        auto const mn = (is_left_side) ? m : n;
+        auto const mn_m1 = (mn - 1);
+        S* const dc = dwork_;
+        S* const ds = dwork_ + mn_m1;
+        CHECK_HIP(hipStreamSynchronize(stream));
+
+        CHECK_HIP(hipMemcpyAsync(dc, &c, sizeof(S) * mn_m1, hipMemcpyHostToDevice, stream));
+        CHECK_HIP(hipMemcpyAsync(ds, &s, sizeof(S) * mn_m1, hipMemcpyHostToDevice, stream));
+
+        rocsolver_lasr_template<T, S>(handle, side, pivot, direct, m, n, dc, 0, ds, 0, &A, 0, lda,
+                                      0, I(1));
+        CHECK_HIP(hipStreamSynchronize(stream));
+    };
 
     auto abs = [](auto x) { return (std::abs(x)); };
 
@@ -1639,9 +1112,9 @@ static void bdsqr_single_template(char uplo,
         if(nru > 0)
         {
             // call_lasr( 'r', 'v', 'f', nru, n, work( 1 ), work( n ), u, ldu );
-            char side = 'R';
-            char pivot = 'V';
-            char direct = 'F';
+            rocblas_side side = rocblas_side_right;
+            rocblas_pivot pivot = rocblas_pivot_variable;
+            rocblas_direct direct = rocblas_forward_direction;
             if(use_gpu)
             {
                 if(use_lasr_gpu_nocopy)
@@ -1663,9 +1136,9 @@ static void bdsqr_single_template(char uplo,
         if(ncc > 0)
         {
             // call_lasr( 'l', 'v', 'f', n, ncc, work( 1 ), work( n ), c, ldc );
-            char side = 'L';
-            char pivot = 'V';
-            char direct = 'F';
+            rocblas_side side = rocblas_side_left;
+            rocblas_pivot pivot = rocblas_pivot_variable;
+            rocblas_direct direct = rocblas_forward_direction;
             if(use_gpu)
             {
                 if(use_lasr_gpu_nocopy)
@@ -2095,9 +1568,9 @@ L90:
             {
                 // call_lasr( 'l', 'v', 'f', m-ll+1, ncvt, work( 1 ), work( n ), vt(
                 // ll, 1 ), ldvt )
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'F';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_forward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2121,9 +1594,9 @@ L90:
             {
                 // call_lasr( 'r', 'v', 'f', nru, m-ll+1, work( nm12+1 ), work( nm13+1
                 // ), u( 1, ll ), ldu )
-                char side = 'R';
-                char pivot = 'V';
-                char direct = 'F';
+                rocblas_side side = rocblas_side_right;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_forward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2148,9 +1621,9 @@ L90:
             {
                 // call_lasr( 'l', 'v', 'f', m-ll+1, ncc, work( nm12+1 ), work( nm13+1
                 // ), c( ll, 1 ), ldc )
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'F';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_forward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2262,9 +1735,9 @@ L90:
                 // call_lasr( 'l', 'v', 'b', m-ll+1, ncvt, work( nm12+1 ), work(
                 // nm13+1
                 // ), vt( ll, 1 ), ldvt );
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'B';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_backward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2290,9 +1763,9 @@ L90:
                 // call_lasr( 'r', 'v', 'b', nru, m-ll+1, work( 1 ), work( n ), u( 1,
                 // ll
                 // ), ldu )
-                char side = 'R';
-                char pivot = 'V';
-                char direct = 'B';
+                rocblas_side side = rocblas_side_right;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_backward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2317,9 +1790,9 @@ L90:
                 // call_lasr( 'l', 'v', 'b', m-ll+1, ncc, work( 1 ), work( n ), c( ll,
                 // 1
                 // ), ldc )
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'B';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_backward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2439,9 +1912,9 @@ L90:
             {
                 // call_lasr( 'l', 'v', 'f', m-ll+1, ncvt, work( 1 ), work( n ), vt(
                 // ll, 1 ), ldvt )
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'F';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_forward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2466,9 +1939,9 @@ L90:
             {
                 // call_lasr( 'r', 'v', 'f', nru, m-ll+1, work( nm12+1 ), work( nm13+1
                 // ), u( 1, ll ), ldu )
-                char side = 'R';
-                char pivot = 'V';
-                char direct = 'F';
+                rocblas_side side = rocblas_side_right;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_forward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2493,9 +1966,9 @@ L90:
             {
                 // call_lasr( 'l', 'v', 'f', m-ll+1, ncc, work( nm12+1 ), work( nm13+1
                 // ), c( ll, 1 ), ldc )
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'F';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_forward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2616,9 +2089,9 @@ L90:
                 // call_lasr( 'l', 'v', 'b', m-ll+1, ncvt, work( nm12+1 ), work(
                 // nm13+1
                 // ), vt( ll, 1 ), ldvt )
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'B';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_backward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2644,9 +2117,9 @@ L90:
                 // call_lasr( 'r', 'v', 'b', nru, m-ll+1, work( 1 ), work( n ), u( 1,
                 // ll
                 // ), ldu )
-                char side = 'R';
-                char pivot = 'V';
-                char direct = 'B';
+                rocblas_side side = rocblas_side_right;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_backward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -2671,9 +2144,9 @@ L90:
                 // call_lasr( 'l', 'v', 'b', m-ll+1, ncc, work( 1 ), work( n ), c( ll,
                 // 1
                 // ), ldc )
-                char side = 'L';
-                char pivot = 'V';
-                char direct = 'B';
+                rocblas_side side = rocblas_side_left;
+                rocblas_pivot pivot = rocblas_pivot_variable;
+                rocblas_direct direct = rocblas_backward_direction;
                 auto mm = m - ll + 1;
                 if(use_gpu)
                 {
@@ -3045,13 +2518,8 @@ rocblas_status rocsolver_bdsqr_host_batch_template(rocblas_handle handle,
         I ncvt = nv;
         bool const values_only = (ncvt == 0) && (nru == 0) && (ncc == 0);
 
-        bdsqr_single_template<S, T, I>(uplo, n, ncvt, nru, ncc,
-
-                                       d_, e_,
-
-                                       vt_, ldvt, u_, ldu, c_, ldc,
-
-                                       work_, info, dwork_, stream);
+        bdsqr_single_template<S, T, I>(handle, uplo, n, ncvt, nru, ncc, d_, e_, vt_, ldvt, u_, ldu,
+                                       c_, ldc, work_, info, dwork_, stream);
 
         if(info == 0)
         {
