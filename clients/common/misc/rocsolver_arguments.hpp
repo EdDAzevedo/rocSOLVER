@@ -114,6 +114,7 @@ public:
         to_consume.erase("batch_count");
         to_consume.erase("verify");
         to_consume.erase("iters");
+        to_consume.erase("alg_mode");
         to_consume.erase("mem_query");
         to_consume.erase("profile");
         to_consume.erase("profile_kernels");
