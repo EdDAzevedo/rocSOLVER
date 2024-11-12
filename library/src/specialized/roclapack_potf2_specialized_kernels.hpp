@@ -154,11 +154,13 @@ __device__ static void potf2_simple(bool const is_upper, I const n, T* const A, 
             // ------------------------------------------------------------
 
             auto const conj_lkk = conj(lkk);
+            auto const inv_conj_lkk = 1.0 / conj_lkk;
             for(I j0 = (kcol + 1) + j0_start; j0 < n; j0 += j0_inc)
             {
                 auto const j0k = idx_lower(j0, kcol, lda);
 
-                A[j0k] = (A[j0k] / conj_lkk);
+                // A[j0k] = (A[j0k] / conj_lkk);
+                A[j0k] = (A[j0k] * inv_conj_lkk);
             }
 
             __syncthreads();
@@ -172,10 +174,9 @@ __device__ static void potf2_simple(bool const is_upper, I const n, T* const A, 
             for(I j = (kcol + 1) + j_start; j < n; j += j_inc)
             {
                 auto const vj = A[idx_lower(j, kcol, lda)];
-                for(I i = (kcol + 1) + i_start; i < n; i += i_inc)
+                for(I i = j + i_start; i < n; i += i_inc)
                 {
-                    bool const lower_part = (i >= j);
-                    if(lower_part)
+                    assert(i >= j);
                     {
                         auto const vi = A[idx_lower(i, kcol, lda)];
                         auto const ij = idx_lower(i, j, lda);
@@ -232,11 +233,13 @@ __device__ static void potf2_simple(bool const is_upper, I const n, T* const A, 
             // ----------------------------------------------
             // (2) vU12' * u11 = vA12', or u11' * vU12 = vA12
             // ----------------------------------------------
+            auto const inv_ukk = 1.0 / ukk;
             for(I j0 = (kcol + 1) + j0_start; j0 < n; j0 += j0_inc)
             {
                 auto const kj0 = idx_upper(kcol, j0, lda);
 
-                A[kj0] = A[kj0] / ukk;
+                // A[kj0] = A[kj0] / ukk;
+                A[kj0] = A[kj0] * inv_ukk;
             }
 
             __syncthreads();
@@ -249,10 +252,9 @@ __device__ static void potf2_simple(bool const is_upper, I const n, T* const A, 
             for(I j = (kcol + 1) + j_start; j < n; j += j_inc)
             {
                 auto const vj = A[idx_upper(kcol, j, lda)];
-                for(I i = (kcol + 1) + i_start; i < n; i += i_inc)
+                for(I i = (kcol + 1) + i_start; i <= j; i += i_inc)
                 {
-                    bool const upper_part = (i <= j);
-                    if(upper_part)
+                    assert(i <= j);
                     {
                         auto const vi = A[idx_upper(kcol, i, lda)];
                         auto const ij = idx_upper(i, j, lda);
