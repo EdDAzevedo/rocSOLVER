@@ -147,7 +147,7 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_log_flush_profile(void);
  * ===========================================================================
  */
 
-/*! \brief SET_ALG_MODE sets the algorithm mode to be used by a specific function.
+/*! \brief SET_ALG_MODE sets the algorithm mode to be used by the specified function.
 
     @param[in]
     handle      rocblas_handle.
@@ -163,17 +163,17 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_set_alg_mode(rocblas_handle handle,
                                                        const rocsolver_function func,
                                                        const rocsolver_alg_mode mode);
 
-/*! \brief GET_ALG_MODE gets the algorithm mode selected for use by a specific function.
+/*! \brief GET_ALG_MODE gets the algorithm mode being used by the specified function.
 
     @param[in]
     handle      rocblas_handle.
     @param[in]
     func        #rocsolver_function.
-                A function.
+                The specified function.
     @param[out]
     mode        pointer to #rocsolver_alg_mode.
-                On exit, the value is overwritten by the algorithm mode that will
-                be used by the specified function.
+                On exit, the value is overwritten by the algorithm mode used
+                by the specified function.
     *************************************************************************/
 
 ROCSOLVER_EXPORT rocblas_status rocsolver_get_alg_mode(rocblas_handle handle,
@@ -3871,7 +3871,7 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zunmtr(rocblas_handle handle,
     rocblas_handle.
 
     \note
-    A hybrid (CPU+GPU) approach is available for BDSQR. Use \ref rocsolver_set_alg_mode "SET_ALG_MODE"
+    A hybrid (CPU+GPU) approach is available for BDSQR. Use \ref rocsolver_set_alg_mode
     to enable it.
 
     @param[in]
@@ -12613,7 +12613,7 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zpotri_strided_batched(rocblas_handle 
     within the rocblas_handle.
 
     \note
-    A hybrid (CPU+GPU) approach is available for GESVD. Use \ref rocsolver_set_alg_mode "SET_ALG_MODE"
+    A hybrid (CPU+GPU) approach is available for GESVD. Use \ref rocsolver_set_alg_mode
     to enable it.
 
     @param[in]
@@ -12794,7 +12794,7 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zgesvd(rocblas_handle handle,
     within the rocblas_handle.
 
     \note
-    A hybrid (CPU+GPU) approach is available for GESVD_BATCHED. Use \ref rocsolver_set_alg_mode "SET_ALG_MODE"
+    A hybrid (CPU+GPU) approach is available for GESVD_BATCHED. Use \ref rocsolver_set_alg_mode
     to enable it.
 
     @param[in]
@@ -13016,7 +13016,7 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zgesvd_batched(rocblas_handle handle,
     within the rocblas_handle.
 
     \note
-    A hybrid (CPU+GPU) approach is available for GESVD_STRIDED_BATCHED. Use \ref rocsolver_set_alg_mode "SET_ALG_MODE"
+    A hybrid (CPU+GPU) approach is available for GESVD_STRIDED_BATCHED. Use \ref rocsolver_set_alg_mode
     to enable it.
 
     @param[in]
