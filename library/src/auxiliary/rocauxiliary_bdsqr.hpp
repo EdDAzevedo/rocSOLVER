@@ -1254,15 +1254,15 @@ rocblas_status rocsolver_bdsqr_template(rocblas_handle handle,
     ROCSOLVER_LAUNCH_KERNEL((bdsqr_init<T>), gridBasic, threadsBasic, 0, stream, n, D, strideD, E,
                             strideE, info, maxiter, sfm, tol, splits_map, work, strideW, completed);
 
-    if(alg_mode == rocsolver_alg_mode_hybrid)
+    if(n > 1)
     {
-        ROCBLAS_CHECK(rocsolver_bdsqr_host_batch_template<T, S, W1, W2, W3, rocblas_int>(
-            handle, uplo, n, nv, nu, nc, D, strideD, E, strideE, V, shiftV, ldv, strideV, U, shiftU,
-            ldu, strideU, C, shiftC, ldc, strideC, info, batch_count, splits_map, work));
-    }
-    else
-    {
-        if(n > 1)
+        if(alg_mode == rocsolver_alg_mode_hybrid)
+        {
+            ROCBLAS_CHECK(rocsolver_bdsqr_host_batch_template<T, S, W1, W2, W3, rocblas_int>(
+                handle, uplo, n, nv, nu, nc, D, strideD, E, strideE, V, shiftV, ldv, strideV, U,
+                shiftU, ldu, strideU, C, shiftC, ldc, strideC, info, batch_count, splits_map, work));
+        }
+        else
         {
             // rotate to upper bidiagonal if necessary
             if(uplo == rocblas_fill_lower)
