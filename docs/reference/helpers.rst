@@ -8,7 +8,16 @@
 rocSOLVER Library and Logging Functions
 *****************************************************
 
+These are helper functions that retrieve information and control some functions of the library.
+The helper functions are divided into the following categories:
 
+* :ref:`lib_info`. These functions return information about the library version.
+* :ref:`algo_select`. Functions to select different algorithm modes of certain APIs.
+* :ref:`api_logging`. These functions control the :ref:`logging-label` capabilities.
+
+
+
+.. _lib_info:
 
 Library information
 ===============================
@@ -26,6 +35,8 @@ rocsolver_get_version_string_size()
 .. doxygenfunction:: rocsolver_get_version_string_size
 
 
+
+.. _algo_select:
 
 Algorithm selection
 ===============================
@@ -48,8 +59,6 @@ rocsolver_get_alg_mode()
 
 Logging functions
 ===============================
-
-These functions control rocSOLVER's :ref:`logging-label` capabilities.
 
 .. contents:: List of logging functions
    :local:

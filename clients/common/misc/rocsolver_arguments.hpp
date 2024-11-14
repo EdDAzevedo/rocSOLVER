@@ -33,7 +33,6 @@
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
 #include <rocblas/rocblas.h>
-#include <rocsolver/rocsolver.h>
 
 #include "program_options.hpp"
 

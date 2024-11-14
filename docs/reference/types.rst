@@ -73,8 +73,8 @@ rocsolver_rfinfo_mode
 
 rocsolver_alg_mode
 ------------------------
-.. doxygentypedef:: rocsolver_alg_mode
+.. doxygenenum:: rocsolver_alg_mode
 
 rocsolver_function
 ------------------------
-.. doxygentypedef:: rocsolver_function
+.. doxygenenum:: rocsolver_function

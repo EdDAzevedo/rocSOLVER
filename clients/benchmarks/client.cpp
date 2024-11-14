@@ -127,9 +127,9 @@ try
 
         ("alg_mode",
          value<rocblas_int>(&argus.alg_mode)->default_value(0),
-            "Select different algorithm mode? 0 = GPU-only, 1 = Hybrid\n"
+            "0 = GPU-only, 1 = Hybrid\n"
             "                           This will change how the algorithm operates.\n"
-            "                           Only applicable to functions with hybrid support."
+            "                           Only applicable to functions with hybrid support.\n"
             "                           ")
 
         ("mem_query",
