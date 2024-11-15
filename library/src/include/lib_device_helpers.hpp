@@ -1238,7 +1238,7 @@ __device__ static void permute_swap(const I n, T* C, I ldc, I* map, const I nev 
 }
 
 template <typename S, typename T, typename I>
-__global__ static void swap_kernel(I const n, T* const x, I const incx, T* const y, I const incy)
+ROCSOLVER_KERNEL void swap_kernel(I const n, T* const x, I const incx, T* const y, I const incy)
 {
     if(n <= 0)
         return;

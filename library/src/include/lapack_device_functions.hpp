@@ -1112,7 +1112,7 @@ ROCSOLVER_KERNEL void axpy_kernel(const rocblas_int n,
 }
 
 template <typename S, typename T, typename I>
-__global__ static void
+ROCSOLVER_KERNEL void
     rot_kernel(I const n, T* const x, I const incx, T* const y, I const incy, S const c, S const s)
 {
     if(n <= 0)
@@ -1162,7 +1162,7 @@ static void
 }
 
 template <typename S, typename T, typename I>
-__global__ static void scal_kernel(I const n, S const da, T* const x, I const incx)
+ROCSOLVER_KERNEL void scal_kernel(I const n, S const da, T* const x, I const incx)
 {
     if(n <= 0)
         return;
