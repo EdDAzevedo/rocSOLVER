@@ -1111,6 +1111,9 @@ ROCSOLVER_KERNEL void axpy_kernel(const rocblas_int n,
     }
 }
 
+/** ROT applies a Givens rotation between to vector x y of dimension n.
+    Launch this kernel with a desired number of threads organized in
+    NG groups in the x direction with NT threads in the x direction. **/
 template <typename S, typename T, typename I>
 ROCSOLVER_KERNEL void
     rot_kernel(I const n, T* const x, I const incx, T* const y, I const incy, S const c, S const s)
@@ -1150,17 +1153,9 @@ ROCSOLVER_KERNEL void
     }
 }
 
-template <typename S, typename T, typename I>
-static void
-    rot_template(I const n, T* x, I const incx, T* y, I const incy, S const c, S const s, hipStream_t stream)
-{
-    auto nthreads = warpSize * 2;
-    auto nblocks = (n - 1) / nthreads + 1;
-
-    hipLaunchKernelGGL((rot_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
-                       n, x, incx, y, incy, c, s);
-}
-
+/** SCAL scales a vector x of dimension n by a factor da.
+    Launch this kernel with a desired number of threads organized in
+    NG groups in the x direction with NT threads in the x direction. **/
 template <typename S, typename T, typename I>
 ROCSOLVER_KERNEL void scal_kernel(I const n, S const da, T* const x, I const incx)
 {
@@ -1191,16 +1186,6 @@ ROCSOLVER_KERNEL void scal_kernel(I const n, S const da, T* const x, I const inc
             x[ix] = (is_da_zero) ? zero : da * x[ix];
         }
     }
-}
-
-template <typename S, typename T, typename I>
-static void scal_template(I const n, S const da, T* const x, I const incx, hipStream_t stream)
-{
-    auto nthreads = warpSize * 2;
-    auto nblocks = (n - 1) / nthreads + 1;
-
-    hipLaunchKernelGGL((scal_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
-                       n, da, x, incx);
 }
 
 ROCSOLVER_END_NAMESPACE

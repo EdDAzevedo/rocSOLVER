@@ -38,6 +38,43 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
+/************************************************************************************/
+/***************** Kernel launchers *************************************************/
+/************************************************************************************/
+
+template <typename S, typename T, typename I>
+static void swap_template(I const n, T* x, I const incx, T* y, I const incy, hipStream_t stream)
+{
+    auto nthreads = warpSize * 2;
+    auto nblocks = (n - 1) / nthreads + 1;
+
+    hipLaunchKernelGGL((swap_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
+                       n, x, incx, y, incy);
+}
+
+template <typename S, typename T, typename I>
+static void
+    rot_template(I const n, T* x, I const incx, T* y, I const incy, S const c, S const s, hipStream_t stream)
+{
+    auto nthreads = warpSize * 2;
+    auto nblocks = (n - 1) / nthreads + 1;
+
+    hipLaunchKernelGGL((rot_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
+                       n, x, incx, y, incy, c, s);
+}
+
+template <typename S, typename T, typename I>
+static void scal_template(I const n, S const da, T* const x, I const incx, hipStream_t stream)
+{
+    auto nthreads = warpSize * 2;
+    auto nblocks = (n - 1) / nthreads + 1;
+
+    hipLaunchKernelGGL((scal_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
+                       n, da, x, incx);
+}
+
+/** Call to lasr functionality.
+    lasr_body can be executed as a host or device function **/
 template <typename S, typename T, typename I>
 static void call_lasr(rocblas_side& side,
                       rocblas_pivot& pivot,
