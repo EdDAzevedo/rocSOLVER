@@ -1111,4 +1111,96 @@ ROCSOLVER_KERNEL void axpy_kernel(const rocblas_int n,
     }
 }
 
+template <typename S, typename T, typename I>
+__global__ static void
+    rot_kernel(I const n, T* const x, I const incx, T* const y, I const incy, S const c, S const s)
+{
+    if(n <= 0)
+        return;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+
+    if((incx == 1) && (incy == 1))
+    {
+        // ------------
+        // special case
+        // ------------
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            auto const temp = c * x[i] + s * y[i];
+            y[i] = c * y[i] - s * x[i];
+            x[i] = temp;
+        }
+    }
+    else
+    {
+        // ---------------------------
+        // code for unequal increments
+        // ---------------------------
+
+        for(auto i = i_start; i < n; i += i_inc)
+        {
+            auto const ix = 0 + i * static_cast<int64_t>(incx);
+            auto const iy = 0 + i * static_cast<int64_t>(incy);
+            auto const temp = c * x[ix] + s * y[iy];
+            y[iy] = c * y[iy] - s * x[ix];
+            x[ix] = temp;
+        }
+    }
+}
+
+template <typename S, typename T, typename I>
+static void
+    rot_template(I const n, T* x, I const incx, T* y, I const incy, S const c, S const s, hipStream_t stream)
+{
+    auto nthreads = warpSize * 2;
+    auto nblocks = (n - 1) / nthreads + 1;
+
+    hipLaunchKernelGGL((rot_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
+                       n, x, incx, y, incy, c, s);
+}
+
+template <typename S, typename T, typename I>
+__global__ static void scal_kernel(I const n, S const da, T* const x, I const incx)
+{
+    if(n <= 0)
+        return;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+
+    S const zero = 0;
+    bool const is_da_zero = (da == zero);
+    if(incx == 1)
+    {
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            x[i] = (is_da_zero) ? zero : da * x[i];
+        }
+    }
+    else
+    {
+        // ---------------------------
+        // code for non-unit increments
+        // ---------------------------
+
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            auto const ix = 0 + i * static_cast<int64_t>(incx);
+            x[ix] = (is_da_zero) ? zero : da * x[ix];
+        }
+    }
+}
+
+template <typename S, typename T, typename I>
+static void scal_template(I const n, S const da, T* const x, I const incx, hipStream_t stream)
+{
+    auto nthreads = warpSize * 2;
+    auto nblocks = (n - 1) / nthreads + 1;
+
+    hipLaunchKernelGGL((scal_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
+                       n, da, x, incx);
+}
+
 ROCSOLVER_END_NAMESPACE

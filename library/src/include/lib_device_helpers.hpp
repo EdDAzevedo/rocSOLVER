@@ -1237,4 +1237,53 @@ __device__ static void permute_swap(const I n, T* C, I ldc, I* map, const I nev 
 #endif
 }
 
+template <typename S, typename T, typename I>
+__global__ static void swap_kernel(I const n, T* const x, I const incx, T* const y, I const incy)
+{
+    if(n <= 0)
+        return;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+
+    if((incx == 1) && (incy == 1))
+    {
+        // ------------
+        // special case
+        // ------------
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            auto const temp = y[i];
+            y[i] = x[i];
+            x[i] = temp;
+        }
+    }
+    else
+    {
+        // ---------------------------
+        // code for unequal increments
+        // ---------------------------
+
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            auto const ix = 0 + i * static_cast<int64_t>(incx);
+            auto const iy = 0 + i * static_cast<int64_t>(incy);
+
+            auto const temp = y[iy];
+            y[iy] = x[ix];
+            x[ix] = temp;
+        }
+    }
+}
+
+template <typename S, typename T, typename I>
+static void swap_template(I const n, T* x, I const incx, T* y, I const incy, hipStream_t stream)
+{
+    auto nthreads = warpSize * 2;
+    auto nblocks = (n - 1) / nthreads + 1;
+
+    hipLaunchKernelGGL((swap_kernel<S, T, I>), dim3(nblocks, 1, 1), dim3(nthreads, 1, 1), 0, stream,
+                       n, x, incx, y, incy);
+}
+
 ROCSOLVER_END_NAMESPACE
