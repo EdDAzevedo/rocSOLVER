@@ -44,7 +44,7 @@ static void call_lamch(char& cmach, double& eps)
 {
     eps = ((cmach == 'E') || (cmach == 'e')) ? std::numeric_limits<double>::epsilon()
         : ((cmach == 'S') || (cmach == 's')) ? std::numeric_limits<double>::min()
-        : ((cmach == 'B') || (cmach == 's')) ? FLT_RADIX
+        : ((cmach == 'B') || (cmach == 'b')) ? FLT_RADIX
                                              : std::numeric_limits<double>::min();
 }
 
@@ -52,7 +52,7 @@ static void call_lamch(char& cmach, float& eps)
 {
     eps = ((cmach == 'E') || (cmach == 'e')) ? std::numeric_limits<float>::epsilon()
         : ((cmach == 'S') || (cmach == 's')) ? std::numeric_limits<float>::min()
-        : ((cmach == 'B') || (cmach == 's')) ? FLT_RADIX
+        : ((cmach == 'B') || (cmach == 'b')) ? FLT_RADIX
                                              : std::numeric_limits<float>::min();
 }
 
@@ -137,7 +137,6 @@ static void call_lartg(T& f, T& g, S& cs, T& sn, T& r)
     // if f == 0, then cs = 0, sn is chosen so that r is real
     // ------------------------------------------------------
 
-    auto Not = [](bool x) { return (!x); };
     auto dble = [](auto z) { return (static_cast<double>(real_part(z))); };
     auto dimag = [](auto z) { return (static_cast<double>(imag_part(z))); };
     auto disnan = [](auto x) -> bool { return (isnan(x)); };
@@ -177,7 +176,7 @@ static void call_lartg(T& f, T& g, S& cs, T& sn, T& r)
         if(y_is_nan)
             ddlapy2 = y;
 
-        if(Not(x_is_nan || y_is_nan))
+        if(!(x_is_nan || y_is_nan))
         {
             auto const xabs = std::abs(x);
             auto const yabs = std::abs(y);
@@ -231,14 +230,12 @@ static void call_lartg(T& f, T& g, S& cs, T& sn, T& r)
 
     if(scale >= safmx2)
     {
-    L10:
         do
         {
             count = count + 1;
             fs = fs * safmn2;
             gs = gs * safmn2;
             scale = scale * safmn2;
-            // if( (scale >= safmx2) &&  (count  <  20) ) go to L10
             has_work = ((scale >= safmx2) && (count < 20));
         } while(has_work);
     }
@@ -253,14 +250,12 @@ static void call_lartg(T& f, T& g, S& cs, T& sn, T& r)
                 r = f;
                 return;
             }
-        L20:
             do
             {
                 count = count - 1;
                 fs = fs * safmx2;
                 gs = gs * safmx2;
                 scale = scale * safmx2;
-                // if( scale <= safmn2 )        goto L20;
                 has_work = (scale <= safmn2);
             } while(has_work);
         }
