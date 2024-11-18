@@ -53,6 +53,26 @@ inline int64_t idx2D(const int64_t i, const int64_t j, const int64_t inca, const
     return j * lda + i * inca;
 }
 
+inline int64_t idx2D(const int32_t i, const int32_t j, const int32_t lda)
+{
+    return j * static_cast<int64_t>(lda) + i;
+}
+
+inline int64_t idx2D(const int32_t i, const int32_t j, const int32_t inca, const int32_t lda)
+{
+    return j * static_cast<int64_t>(lda) + i * static_cast<int64_t>(inca);
+}
+
+inline int32_t ceil(const int32_t n, const int32_t nb)
+{
+    return ((n - 1) / nb) + 1;
+}
+
+inline int64_t ceil(const int64_t n, const int64_t nb)
+{
+    return ((n - 1) / nb) + 1;
+}
+
 template <typename T>
 T const* cast2constType(T* array)
 {
