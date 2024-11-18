@@ -879,8 +879,6 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
         return ((is_last_block) ? nb_last : nb_max);
     };
 
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
-
     extern double lmem[];
     size_t total_bytes = 0;
     T* pfree = reinterpret_cast<T*>(&(lmem[0]));
@@ -920,7 +918,7 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
 
         T* const A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
 
-        auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+        auto A = [=](auto i, auto j) -> T& { return (A_[i + j * static_cast<int64_t>(lda)]); };
 
         for(auto bix = bix_start; bix < blocks; bix += bix_inc)
         {
@@ -1265,9 +1263,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                                         rocblas_int batch_count)
 {
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-    auto max = [](auto x, auto y) { return ((x > y) ? x : y); };
-    auto min = [](auto x, auto y) { return ((x < y) ? x : y); };
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
     auto const blocks = ceil(n, nb_max);
     auto const even_blocks = blocks + (blocks % 2);
@@ -1329,12 +1324,12 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             continue;
 
         T* const A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-        auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+        auto A = [=](auto i, auto j) -> T& { return (A_[i + j * static_cast<int64_t>(lda)]); };
 
         for(auto ipair = ipair_start; ipair < npairs; ipair += ipair_inc)
         {
-            auto const iblock = min(top[ipair], bottom[ipair]);
-            auto const jblock = max(top[ipair], bottom[ipair]);
+            auto const iblock = std::min(top[ipair], bottom[ipair]);
+            auto const jblock = std::max(top[ipair], bottom[ipair]);
 
             bool const is_valid_block = (iblock < blocks) && (jblock < blocks);
             if(!is_valid_block)
@@ -1681,9 +1676,6 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
 {
     bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-    auto max = [](auto x, auto y) { return ((x > y) ? x : y); };
-    auto min = [](auto x, auto y) { return ((x < y) ? x : y); };
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
     auto const blocks = ceil(n, nb_max);
     auto const even_blocks = blocks + (blocks % 2);
@@ -1757,8 +1749,8 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
             // consider blocks in upper triangular
             // want   (iblock < jblock)
             // ------------------------------------
-            auto const iblock = min(top[ipair], bottom[ipair]);
-            auto const jblock = max(top[ipair], bottom[ipair]);
+            auto const iblock = std::min(top[ipair], bottom[ipair]);
+            auto const jblock = std::max(top[ipair], bottom[ipair]);
 
             if((iblock >= blocks) || (jblock >= blocks))
             {
@@ -1819,7 +1811,8 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
 
                 auto const offsetk = kblock * nb_max;
 
-                auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+                auto A
+                    = [=](auto i, auto j) -> T& { return (A_[i + j * static_cast<int64_t>(lda)]); };
 
                 auto const nk = bsize(kblock);
 
