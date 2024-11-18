@@ -159,12 +159,6 @@ static void bdsqr_single_template(rocblas_handle handle,
         CHECK_HIP(hipStreamSynchronize(stream));
     };
 
-    auto indx2f = [](auto i, auto j, auto ld) -> int64_t {
-        assert((1 <= i) && (i <= ld));
-        assert((1 <= j));
-        return ((i - 1) + (j - 1) * int64_t(ld));
-    };
-
     auto d = [=](auto i) -> S& {
         assert((1 <= i) && (i <= n));
         return (d_[i - 1]);
@@ -182,19 +176,19 @@ static void bdsqr_single_template(rocblas_handle handle,
     auto c = [=](auto i, auto j) -> T& {
         assert((1 <= i) && (i <= nrc) && (nrc <= ldc));
         assert((1 <= j) && (j <= ncc));
-        return (c_[indx2f(i, j, ldc)]);
+        return (c_[idx2D(i - 1, j - 1, ldc)]);
     };
 
     auto u = [=](auto i, auto j) -> T& {
         assert((1 <= i) && (i <= nru) && (nru <= ldu));
         assert((1 <= j) && (j <= ncu));
-        return (u_[indx2f(i, j, ldu)]);
+        return (u_[idx2D(i - 1, j - 1, ldu)]);
     };
 
     auto vt = [=](auto i, auto j) -> T& {
         assert((1 <= i) && (i <= nrvt) && (nrvt <= ldvt));
         assert((1 <= j) && (j <= ncvt));
-        return (vt_[indx2f(i, j, ldvt)]);
+        return (vt_[idx2D(i - 1, j - 1, ldvt)]);
     };
 
     auto sign = [](auto a, auto b) {
