@@ -40,20 +40,32 @@ ROCSOLVER_BEGIN_NAMESPACE
  * ===========================================================================
  */
 
-static void call_lamch(char& cmach, double& eps)
-{
-    eps = ((cmach == 'E') || (cmach == 'e')) ? std::numeric_limits<double>::epsilon()
-        : ((cmach == 'S') || (cmach == 's')) ? std::numeric_limits<double>::min()
-        : ((cmach == 'B') || (cmach == 'b')) ? FLT_RADIX
-                                             : std::numeric_limits<double>::min();
-}
-
 static void call_lamch(char& cmach, float& eps)
 {
-    eps = ((cmach == 'E') || (cmach == 'e')) ? std::numeric_limits<float>::epsilon()
-        : ((cmach == 'S') || (cmach == 's')) ? std::numeric_limits<float>::min()
-        : ((cmach == 'B') || (cmach == 'b')) ? FLT_RADIX
-                                             : std::numeric_limits<float>::min();
+    switch(cmach)
+    {
+    case 'E':
+    case 'e': eps = std::numeric_limits<float>::epsilon(); return;
+    case 'S':
+    case 's': eps = std::numeric_limits<float>::min(); return;
+    case 'B':
+    case 'b': eps = FLT_RADIX; return;
+    default: eps = std::numeric_limits<float>::min();
+    }
+}
+
+static void call_lamch(char& cmach, double& eps)
+{
+    switch(cmach)
+    {
+    case 'E':
+    case 'e': eps = std::numeric_limits<double>::epsilon(); return;
+    case 'S':
+    case 's': eps = std::numeric_limits<double>::min(); return;
+    case 'B':
+    case 'b': eps = FLT_RADIX; return;
+    default: eps = std::numeric_limits<double>::min();
+    }
 }
 
 template <typename T>
@@ -141,8 +153,7 @@ static void call_lartg(T& f, T& g, S& cs, T& sn, T& r)
     auto dimag = [](auto z) { return (static_cast<double>(imag_part(z))); };
     auto disnan = [](auto x) -> bool { return (isnan(x)); };
     auto dcmplx = [](auto x, auto y) -> T {
-        bool constexpr is_complex_type
-            = !(std::is_same<T, float>::value || std::is_same<T, double>::value);
+        bool constexpr is_complex_type = rocblas_is_complex<T>;
 
         if constexpr(is_complex_type)
         {
@@ -348,15 +359,8 @@ static void call_scal(I& n, S& a, T& x_in, I& incx)
     for(I i = 0; i < n; i++)
     {
         auto const ip = i * incx;
-        if(is_zero)
-        {
-            x[ip] = 0;
-        }
-        else
-        {
-            x[ip] *= a;
-        }
-    };
+        x[ip] *= a;
+    }
 }
 
 template <typename T, typename S, typename I>

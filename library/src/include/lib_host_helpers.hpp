@@ -99,8 +99,8 @@ static void call_swap(I& n, T& x_in, I& incx, T& y_in, I& incy)
     T* const y = &(y_in);
     for(I i = 0; i < n; i++)
     {
-        I const ix = i * incx;
-        I const iy = i * incy;
+        auto const ix = i * static_cast<int64_t>(incx);
+        auto const iy = i * static_cast<int64_t>(incy);
 
         T const temp = x[ix];
         x[ix] = y[iy];
@@ -111,54 +111,54 @@ static void call_swap(I& n, T& x_in, I& incx, T& y_in, I& incy)
 static float real_part(float z)
 {
     return (z);
-};
+}
 static float real_part(std::complex<float> z)
 {
     return (z.real());
-};
+}
 static float real_part(rocblas_complex_num<float> z)
 {
     return (z.real());
-};
+}
 
 static double real_part(double z)
 {
     return (z);
-};
+}
 static double real_part(std::complex<double> z)
 {
     return (z.real());
-};
+}
 static double real_part(rocblas_complex_num<double> z)
 {
     return (z.real());
-};
+}
 
 static float imag_part(float z)
 {
     return (0);
-};
+}
 static float imag_part(std::complex<float> z)
 {
     return (z.imag());
-};
+}
 static float imag_part(rocblas_complex_num<float> z)
 {
     return (z.imag());
-};
+}
 
 static double imag_part(double z)
 {
     return (0);
-};
+}
 static double imag_part(std::complex<double> z)
 {
     return (z.imag());
-};
+}
 static double imag_part(rocblas_complex_num<double> z)
 {
     return (z.imag());
-};
+}
 
 #ifdef ROCSOLVER_VERIFY_ASSUMPTIONS
 // Ensure __assert_fail is declared.

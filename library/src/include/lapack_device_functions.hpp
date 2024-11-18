@@ -1144,8 +1144,8 @@ ROCSOLVER_KERNEL void
 
         for(auto i = i_start; i < n; i += i_inc)
         {
-            auto const ix = 0 + i * static_cast<int64_t>(incx);
-            auto const iy = 0 + i * static_cast<int64_t>(incy);
+            auto const ix = i * static_cast<int64_t>(incx);
+            auto const iy = i * static_cast<int64_t>(incy);
             auto const temp = c * x[ix] + s * y[iy];
             y[iy] = c * y[iy] - s * x[ix];
             x[ix] = temp;
@@ -1171,7 +1171,7 @@ ROCSOLVER_KERNEL void scal_kernel(I const n, S const da, T* const x, I const inc
     {
         for(I i = i_start; i < n; i += i_inc)
         {
-            x[i] = (is_da_zero) ? zero : da * x[i];
+            x[i] = da * x[i];
         }
     }
     else
@@ -1182,8 +1182,8 @@ ROCSOLVER_KERNEL void scal_kernel(I const n, S const da, T* const x, I const inc
 
         for(I i = i_start; i < n; i += i_inc)
         {
-            auto const ix = 0 + i * static_cast<int64_t>(incx);
-            x[ix] = (is_da_zero) ? zero : da * x[ix];
+            auto const ix = i * static_cast<int64_t>(incx);
+            x[ix] = da * x[ix];
         }
     }
 }
