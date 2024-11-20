@@ -46,6 +46,14 @@ ROCSOLVER_BEGIN_NAMESPACE
 
 #define SYEVJ_BDIM 1024 // Max number of threads per thread-block used in syevj_small kernel
 
+static int get_num_cu(int deviceId = 0)
+{
+    int ival = 0;
+    auto const attr = hipDeviceAttributeMultiprocessorCount;
+    HIP_CHECK(hipDeviceGetAttribute(&ival, attr, deviceId));
+    return (ival);
+}
+
 /** SYEVJ_SMALL_KERNEL/RUN_SYEVJ applies the Jacobi eigenvalue algorithm to matrices of size
     n <= SYEVJ_BLOCKED_SWITCH. For each off-diagonal element A[i,j], a Jacobi rotation J is
     calculated so that (J'AJ)[i,j] = 0. J only affects rows i and j, and J' only affects
@@ -2350,7 +2358,12 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 gridOR_org(half_blocks, 2 * blocks, batch_count);
         dim3 threadsOR_org(2 * BS2, BS2 / 2, 1);
 
-        dim3 gridOR_new(half_blocks, std::max(1, blocks / 4), batch_count);
+        // ---------------------------------------------------------------
+        // number of thread blocks related to number of compute units (CU)
+        // ---------------------------------------------------------------
+        auto const num_cu = get_num_cu();
+        auto const nbx = std::max(1, std::min(blocks / 4, ceil(num_cu, blocks * batch_count)));
+        dim3 gridOR_new(half_blocks, nbx, batch_count);
         dim3 threadsOR_new(BS2, BS2, 1);
 
         dim3 gridOR = (use_offd_rotate_org) ? gridOR_org : gridOR_new;
