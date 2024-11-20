@@ -43,14 +43,25 @@ ROCSOLVER_BEGIN_NAMESPACE
  * ===========================================================================
  */
 
-inline int64_t idx2D(const int64_t i, const int64_t j, const int64_t lda)
+__device__ __host__ inline int64_t idx2D(const int64_t i, const int64_t j, const int64_t lda)
 {
     return j * lda + i;
 }
 
-inline int64_t idx2D(const int64_t i, const int64_t j, const int64_t inca, const int64_t lda)
+__device__ __host__ inline int64_t
+    idx2D(const int64_t i, const int64_t j, const int64_t inca, const int64_t lda)
 {
     return j * lda + i * inca;
+}
+
+inline int32_t ceil(const int32_t n, const int32_t nb)
+{
+    return ((n - 1) / nb) + 1;
+}
+
+inline int64_t ceil(const int64_t n, const int64_t nb)
+{
+    return ((n - 1) / nb) + 1;
 }
 
 template <typename T>
