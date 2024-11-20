@@ -1281,6 +1281,9 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     auto const tix_inc = hipBlockDim_x;
     auto const tiy_inc = hipBlockDim_y;
 
+    auto const tixy_start = tix_start + tiy_start * tix_inc;
+    auto const tixy_inc = tix_inc * tiy_inc;
+
     auto const bid_start = ibz;
     auto const bid_inc = nbz;
 
@@ -1345,6 +1348,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
             auto const jid = ipair + bid * npairs;
             T* const J_ = ((JA != nullptr) ? JA + (jid * (4 * nb_max * nb_max)) : nullptr);
+            bool const use_J = (J_ != nullptr);
 
             auto const ldj = (2 * nb_max);
             auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
@@ -1354,7 +1358,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             // ------------------------------------------
             // initialize Jmat to be the identity matrix
             // ------------------------------------------
-            if(J_ != nullptr)
+            if(use_J)
             {
                 __syncthreads();
 
@@ -1381,49 +1385,48 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             // for each element, calculate the Jacobi rotation and apply it to A
             for(rocblas_int k = 0; k < nb_max; k++)
             {
-                for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
+                for(auto ipair = tixy_start; ipair < nb_max; ipair += tixy_inc)
                 {
-                    for(auto tix = tix_start; tix < nb_max; tix += tix_inc)
+                    auto const i = ipair + offseti;
+                    auto const j = (ipair + k) % nb_max + offsetj;
+                    S c = 1;
+                    T s1 = 0;
+                    sh_cosines[ipair] = c;
+                    sh_sines[ipair] = s1;
+
+                    bool const is_valid = (i < n) && (j < n);
+                    if(!is_valid)
+                        continue;
+
+                    auto const aij = A(i, j);
+                    auto const mag = std::abs(aij);
+
+                    // calculate rotation J
+                    // bool const is_small_aij = (mag < sqrt_small_num);
+                    bool const is_small_aij = (mag < sqrt_small_num);
+
+                    if(!is_small_aij)
                     {
-                        auto const x1 = tix + offseti;
-                        auto const x2 = tix + offsetj;
-                        auto const y1 = tiy + offseti;
-                        auto const y2 = tiy + offsetj;
+                        S g = 2 * mag;
 
-                        // get element indices
-                        auto const i = x1;
-                        auto const j = (tix + k) % nb_max + offsetj;
+                        double const real_ajj = std::real(A(j, j));
+                        double const real_aii = std::real(A(i, i));
+                        S f = real_ajj - real_aii;
+                        S const hypot_f_g = std::hypot(f, g);
 
-                        if((tiy == 0) && (i < n) && (j < n))
-                        {
-                            auto const aij = A(i, j);
-                            auto const mag = std::abs(aij);
+                        // f += (f < 0) ? -std::hypot(f, g) : std::hypot(f, g);
+                        f += (f < 0) ? -hypot_f_g : hypot_f_g;
 
-                            // identity rotation
-                            S c = 1;
-                            T s1 = 0;
+                        S s = 0;
+                        S r = 1;
 
-                            // calculate rotation J
-                            // bool const is_small_aij = (mag < sqrt_small_num);
-                            bool const is_small_aij = (mag * mag < small_num);
-
-                            if(!is_small_aij)
-                            {
-                                S g = 2 * mag;
-                                S f = std::real(A(j, j) - A(i, i));
-                                f += (f < 0) ? -std::hypot(f, g) : std::hypot(f, g);
-
-                                S s = 0;
-                                S r = 1;
-
-                                lartg(f, g, c, s, r);
-                                s1 = s * aij / mag;
-                            }
-
-                            sh_cosines[tix] = c;
-                            sh_sines[tix] = s1;
-                        }
+                        lartg(f, g, c, s, r);
+                        // s1 = s * aij / mag;
+                        s1 = aij * (s / mag);
                     }
+
+                    sh_cosines[ipair] = c;
+                    sh_sines[ipair] = s1;
                 }
                 __syncthreads();
 
@@ -1447,7 +1450,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                             auto const s2 = conj(s1);
 
                             // store J row-wise
-                            if(J_ != nullptr)
+                            if(use_J)
                             {
                                 auto const xx1 = i - offseti;
                                 auto const xx2 = j - offsetj + nb_max;
@@ -1488,8 +1491,8 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                                 A(y2, j) = -s1 * temp1 + c * temp2;
                             }
                         }
-                    }
-                }
+                    } // end tix
+                } // end for tiy
 
                 __syncthreads();
 
@@ -1526,37 +1529,28 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                                 A(j, y2) = -s2 * temp1 + c * temp2;
                             }
                         }
-                    }
-                }
+                    } // end for tix
+                } // end for tiy
 
                 __syncthreads();
 
-                for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
+                for(auto tixy = tixy_start; tixy < nb_max; tixy += tixy_inc)
                 {
-                    for(auto tix = tix_start; tix < nb_max; tix += tix_inc)
+                    auto const i = tixy + offseti;
+                    auto const j = ((tixy + k) % nb_max) + offsetj;
+                    if((i < n) && (j < n))
                     {
-                        auto const x1 = tix + offseti;
-                        auto const x2 = tix + offsetj;
-                        auto const y1 = tiy + offseti;
-                        auto const y2 = tiy + offsetj;
-
-                        // get element indices
-                        auto const i = x1;
-                        auto const j = (tix + k) % nb_max + offsetj;
-                        if((tiy == 0) && (j < n))
-                        {
-                            // round aij and aji to zero
-                            A(i, j) = 0;
-                            A(j, i) = 0;
-                        }
+                        A(i, j) = 0;
+                        A(j, i) = 0;
                     }
                 }
+                __syncthreads();
             } // end for k
 
             // -----------------------------------
             // write out Jsh to J in device memory
             // -----------------------------------
-            if((J_ != nullptr) && use_Jsh)
+            if(use_J && use_Jsh)
             {
                 __syncthreads();
 
@@ -2323,9 +2317,12 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         // use original algorithm for small problems
         auto const n_threshold = 1024;
 
-        bool const use_offd_kernel_org = (n <= n_threshold);
-        bool const use_diag_rotate_org = (n <= n_threshold);
-        bool const use_offd_rotate_org = (n <= n_threshold);
+        // bool const use_offd_kernel_org = (n <= n_threshold);
+        // bool const use_diag_rotate_org = (n <= n_threshold);
+        // bool const use_offd_rotate_org = (n <= n_threshold);
+        bool const use_offd_kernel_org = false;
+        bool const use_diag_rotate_org = false;
+        bool const use_offd_rotate_org = false;
 
         // *** USE BLOCKED KERNELS ***
         auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
