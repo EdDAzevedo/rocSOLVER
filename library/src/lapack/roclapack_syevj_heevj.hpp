@@ -875,7 +875,6 @@ ROCSOLVER_KERNEL void syevj_diag_rotate(const bool skip_block,
     auto const bid_start = hipBlockIdx_z;
     auto const bid_inc = hipGridDim_z;
 
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
     auto const blocks = ceil(n, nb_max);
 
     // -------------------------------------------------
@@ -1270,8 +1269,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                                         rocblas_int* completed,
                                         rocblas_int batch_count)
 {
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-
     auto const blocks = ceil(n, nb_max);
     auto const even_blocks = blocks + (blocks % 2);
     auto const half_blocks = even_blocks / 2;
@@ -1728,7 +1725,6 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                                         rocblas_int const batch_count)
 {
     bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
     auto const blocks = ceil(n, nb_max);
     auto const even_blocks = blocks + (blocks % 2);
@@ -2222,8 +2218,6 @@ void rocsolver_syevj_heevj_getMemorySize(const rocblas_evect evect,
         return;
     }
 
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-
     rocblas_int const nb_max = BS2;
     auto const half_n = ceil(n, 2);
     auto const blocks = ceil(n, nb_max);
@@ -2384,7 +2378,6 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         bool const use_offd_rotate_org = false;
 
         // *** USE BLOCKED KERNELS ***
-        auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
         rocblas_int const nb_max = BS2;
 
         // kernel dimensions
@@ -2516,9 +2509,20 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
 
             // update eigenvectors
             if(ev)
-                ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<false, T, S>), gridDR, threadsDR,
-                                        lmemsizeDR, stream, false, nb_max, n, A, shiftA, lda,
-                                        strideA, J, completed, batch_count);
+            {
+                if(use_diag_rotate_org)
+                {
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate_org<false, T, S>), gridDR, threadsDR,
+                                            lmemsizeDR, stream, false, n, A, shiftA, lda, strideA,
+                                            J, completed);
+                }
+                else
+                {
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_diag_rotate<false, T, S>), gridDR, threadsDR,
+                                            lmemsizeDR, stream, false, nb_max, n, A, shiftA, lda,
+                                            strideA, J, completed, batch_count);
+                }
+            }
 
             if(half_blocks == 1)
             {
