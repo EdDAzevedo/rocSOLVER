@@ -1335,8 +1335,8 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     T* const Ash_ = reinterpret_cast<T*>(pfree);
     pfree += size_Ash;
     total_bytes += size_Ash;
-    bool const use_Ash = (total_bytes <= max_lds);
-    // bool const use_Ash = false;
+    // bool const use_Ash = (total_bytes <= max_lds);
+    bool const use_Ash = false;
 
     auto const ldAsh = 2 * nb_max;
     auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
@@ -1364,8 +1364,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             auto const offsetj = jblock * nb_max;
 
             auto const ni = bsize(iblock);
-            assert(ni == nb_max);
-
             auto const nj = bsize(jblock);
             auto const nrowsJ = ni + nj;
             auto const ncolsJ = nrowsJ;
@@ -1385,32 +1383,35 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
             auto l2g_index = [=](auto i) {
                 assert((0 <= i) && (i < (ni + nj)));
-                return ((i < nb_max) ? i + offseti : (i - nb_max) + offsetj);
+                return ((i < ni) ? i + offseti : (i - ni) + offsetj);
             };
 
-            auto g2l_index = [=](auto ia_global) {
-                assert(ia_global >= offseti);
-                bool const is_in_block_i = (offseti <= ia_global) && (ia_global < (offseti + nb_max));
-                auto const ia_local
-                    = is_in_block_i ? (ia_global - offseti) : nb_max + (ia_global - offsetj);
+            auto g2l_index = [=](auto ia) {
+                assert(ia >= offseti);
+                bool const is_in_block_i = (offseti <= ia) && (ia < (offseti + ni));
+                auto const ip = is_in_block_i ? (ia - offseti) : ni + (ia - offsetj);
 
-                bool const isok = (l2g_index(ia_local) == ia_global);
+                bool const isok = (l2g_index(ip) == ia);
                 if(!isok)
                 {
-                    printf("g2l_index: ia_global=%d, ia_local=%d, iblock=%d, jblock=%d\n",
-                           ia_global, ia_local, iblock, jblock);
+                    printf("g2l_index: ia=%d, ip=%d, iblock=%d, jblock=%d\n", ia, ip, iblock, jblock);
                 }
                 assert(isok);
-                return (ia_local);
+                return (ip);
             };
 
-            auto const Amat = [=](auto ia, auto ja) -> T& {
+            auto const Amat = [=](auto i, auto j) -> T& {
+                assert((0 <= i) && (i < (ni + nj)));
+                assert((0 <= j) && (j < (ni + nj)));
                 if(use_Ash)
                 {
-                    auto const i = g2l_index(ia);
-                    auto const j = g2l_index(ja);
                     return (Ash(i, j));
                 }
+                auto const ia = l2g_index(i);
+                auto const ja = l2g_index(j);
+
+                assert((0 <= ia) && (ia < n));
+                assert((0 <= ja) && (ja < n));
                 return (A(ia, ja));
             };
 
@@ -1459,14 +1460,14 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                 // -------------------------------
                 for(auto tixy = tixy_start; tixy < nb_max; tixy += tixy_inc)
                 {
-                    auto const i = tixy + offseti;
-                    auto const j = (tixy + k) % nb_max + offsetj;
+                    auto const i = tixy;
+                    auto const j = (tixy + k) % nb_max + nb_max;
                     S c = 1;
                     T s1 = 0;
                     sh_cosines[tixy] = c;
                     sh_sines[tixy] = s1;
 
-                    bool const is_valid = (i < n) && (j < n);
+                    bool const is_valid = (i < nrowsAmat) && (j < nrowsAmat);
                     if(!is_valid)
                         continue;
 
@@ -1474,7 +1475,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                     auto const mag = std::abs(aij);
 
                     // calculate rotation J
-                    // bool const is_small_aij = (mag < sqrt_small_num);
                     bool const is_small_aij = (mag < sqrt_small_num);
 
                     if(!is_small_aij)
@@ -1507,13 +1507,9 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                 // ----------------------------------
                 for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
                 {
-                    auto const x1 = tiy + offseti;
-                    auto const x2 = tiy + offsetj;
-
-                    // get element indices
-                    auto const i = x1;
-                    auto const j = (tiy + k) % nb_max + offsetj;
-                    bool const is_valid = (i < n) && (j < n);
+                    auto const i = tiy;
+                    auto const j = (tiy + k) % nb_max + nb_max;
+                    bool const is_valid = (i < nrowsAmat) && (j < nrowsAmat);
                     if(!is_valid)
                         continue;
 
@@ -1523,16 +1519,13 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
                     if(use_J)
                     {
-                        auto const ii = g2l_index(i);
-                        auto const jj = g2l_index(j);
-
                         for(auto tix = tix_start; tix < ncolsJ; tix += tix_inc)
                         {
-                            auto const temp1 = Jmat(ii, tix);
-                            auto const temp2 = Jmat(jj, tix);
+                            auto const temp1 = Jmat(i, tix);
+                            auto const temp2 = Jmat(j, tix);
 
-                            Jmat(ii, tix) = c * temp1 + s2 * temp2;
-                            Jmat(jj, tix) = -s1 * temp1 + c * temp2;
+                            Jmat(i, tix) = c * temp1 + s2 * temp2;
+                            Jmat(j, tix) = -s1 * temp1 + c * temp2;
                         }
                     }
 
@@ -1541,7 +1534,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                     // --------------------------------------------------
                     for(auto tix = tix_start; tix < nrowsAmat; tix += tix_inc)
                     {
-                        auto const ia = l2g_index(tix);
+                        auto const ia = tix;
 
                         auto const temp1 = Amat(ia, i);
                         auto const temp2 = Amat(ia, j);
@@ -1557,13 +1550,9 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                 // -------------------------------------------
                 for(auto ipair = tiy_start; ipair < nb_max; ipair += tiy_inc)
                 {
-                    auto const x1 = ipair + offseti;
-                    auto const x2 = ipair + offsetj;
-
-                    // get element indices
-                    auto const i = x1;
-                    auto const j = (ipair + k) % nb_max + offsetj;
-                    bool const is_valid = (i < n) && (j < n);
+                    auto const i = ipair;
+                    auto const j = (ipair + k) % nb_max + nb_max;
+                    bool const is_valid = (i < nrowsAmat) && (j < nrowsAmat);
                     if(!is_valid)
                         continue;
 
@@ -1573,11 +1562,10 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
                     for(auto tix = tix_start; tix < ncolsAmat; tix += tix_inc)
                     {
-                        auto const ja = l2g_index(tix);
-                        auto const temp1 = Amat(i, ja);
-                        auto const temp2 = Amat(j, ja);
-                        Amat(i, ja) = c * temp1 + s1 * temp2;
-                        Amat(j, ja) = -s2 * temp1 + c * temp2;
+                        auto const temp1 = Amat(i, tix);
+                        auto const temp2 = Amat(j, tix);
+                        Amat(i, tix) = c * temp1 + s1 * temp2;
+                        Amat(j, tix) = -s2 * temp1 + c * temp2;
                     }
                 } // end for ipair
 
@@ -1585,9 +1573,11 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
                 for(auto tixy = tixy_start; tixy < nb_max; tixy += tixy_inc)
                 {
-                    auto const i = tixy + offseti;
-                    auto const j = ((tixy + k) % nb_max) + offsetj;
-                    if((i < n) && (j < n))
+                    auto const i = tixy;
+                    auto const j = (tixy + k) % nb_max + nb_max;
+                    bool const is_valid = (i < nrowsAmat) && (j < nrowsAmat);
+
+                    if(is_valid)
                     {
                         Amat(i, j) = 0;
                         Amat(j, i) = 0;
@@ -1624,7 +1614,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
                 __syncthreads();
             }
-        } // end for ipair
+        } // end for ibpair
 
     } // end for bid
 }
@@ -1815,7 +1805,7 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
             auto const ncolsJ = nrowsJ;
 
             auto const jid = ipair + bid * half_blocks;
-            T const* const __restrict__ J_ = JA + (jid * 4 * nb_max * nb_max);
+            T const* const __restrict__ J_ = JA + (jid * (2 * nb_max) * (2 * nb_max));
 
             // ---------------------------------
             // store J into shared memory only if
