@@ -1267,7 +1267,8 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                                         rocblas_int* top,
                                         rocblas_int* bottom,
                                         rocblas_int* completed,
-                                        rocblas_int batch_count)
+                                        rocblas_int batch_count,
+                                        size_t lmem_size = 64 * 1024)
 {
     auto const blocks = ceil(n, nb_max);
     auto const even_blocks = blocks + (blocks % 2);
@@ -1295,7 +1296,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     auto const tixy_inc = tix_inc * tiy_inc;
 
     // shared memory
-    size_t const max_lds = 64 * 1024;
     extern __shared__ double lmem[];
 
     size_t total_bytes = 0;
@@ -1324,7 +1324,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     pfree += size_Jsh;
     total_bytes += size_Jsh;
 
-    bool const use_Jsh = (total_bytes <= max_lds);
+    bool const use_Jsh = (total_bytes <= lmem_size);
 
     // ------------
     // allocate Ash
@@ -1335,11 +1335,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     T* const Ash_ = reinterpret_cast<T*>(pfree);
     pfree += size_Ash;
     total_bytes += size_Ash;
-    // bool const use_Ash = (total_bytes <= max_lds);
-    bool const use_Ash = false;
-
-    auto const ldAsh = 2 * nb_max;
-    auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
+    bool const use_Ash = (total_bytes <= lmem_size);
 
     auto const nbpairs = half_blocks;
 
@@ -1400,9 +1396,13 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                 return (ip);
             };
 
+            auto Ash = [=](auto i, auto j) -> T& {
+                auto const ldAsh = 2 * nb_max;
+
+                return (Ash_[i + j * ldAsh]);
+            };
+
             auto const Amat = [=](auto i, auto j) -> T& {
-                assert((0 <= i) && (i < (ni + nj)));
-                assert((0 <= j) && (j < (ni + nj)));
                 if(use_Ash)
                 {
                     return (Ash(i, j));
@@ -1410,8 +1410,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                 auto const ia = l2g_index(i);
                 auto const ja = l2g_index(j);
 
-                assert((0 <= ia) && (ia < n));
-                assert((0 <= ja) && (ja < n));
                 return (A(ia, ja));
             };
 
@@ -1420,14 +1418,74 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             // ---------------
             if(use_Ash)
             {
-                for(auto j = tiy_start; j < ncolsAmat; j += tiy_inc)
-                {
-                    for(auto i = tix_start; i < nrowsAmat; i += tix_inc)
-                    {
-                        auto const ia = l2g_index(i);
-                        auto const ja = l2g_index(j);
+                __syncthreads();
 
-                        Ash(i, j) = A(ia, ja);
+                bool const use_l2g = true;
+                if(use_l2g)
+                {
+                    for(auto j = tiy_start; j < ncolsAmat; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < nrowsAmat; i += tix_inc)
+                        {
+                            auto const ia = l2g_index(i);
+                            auto const ja = l2g_index(j);
+
+                            Ash(i, j) = A(ia, ja);
+                        }
+                    }
+                }
+                else
+                {
+                    // ----------------------
+                    // Ash contain 2x2 blocks
+                    // ----------------------
+
+                    // 1x1 (iblock,iblock)
+                    for(auto j = tiy_start; j < ni; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < ni; i += tix_inc)
+                        {
+                            auto const ia = i + offseti;
+                            auto const ja = j + offseti;
+                            Ash(i, j) = A(ia, ja);
+                        }
+                    }
+
+                    __syncthreads();
+                    // 1x2  (iblock,jblock)
+                    for(auto j = tiy_start; j < nj; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < ni; i += tix_inc)
+                        {
+                            auto const ia = i + offseti;
+                            auto const ja = j + offsetj;
+
+                            Ash(i, j + nb_max) = A(ia, ja);
+                        }
+                    }
+                    __syncthreads();
+
+                    // 2x1 (jblock,iblock)
+                    for(auto j = tiy_start; j < ni; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < nj; i += tix_inc)
+                        {
+                            auto const ia = i + offsetj;
+                            auto const ja = j + offseti;
+                            Ash(i + nb_max, j) = A(ia, ja);
+                        }
+                    }
+                    __syncthreads();
+
+                    //  2x2 (jblock,jblock)
+                    for(auto j = tiy_start; j < nj; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < nj; i += tix_inc)
+                        {
+                            auto const ia = i + offsetj;
+                            auto const ja = j + offsetj;
+                            Ash(i + nb_max, j + nb_max) = A(ia, ja);
+                        }
                     }
                 }
                 __syncthreads();
@@ -1534,12 +1592,10 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                     // --------------------------------------------------
                     for(auto tix = tix_start; tix < nrowsAmat; tix += tix_inc)
                     {
-                        auto const ia = tix;
-
-                        auto const temp1 = Amat(ia, i);
-                        auto const temp2 = Amat(ia, j);
-                        Amat(ia, i) = c * temp1 + s2 * temp2;
-                        Amat(ia, j) = -s1 * temp1 + c * temp2;
+                        auto const temp1 = Amat(tix, i);
+                        auto const temp2 = Amat(tix, j);
+                        Amat(tix, i) = c * temp1 + s2 * temp2;
+                        Amat(tix, j) = -s1 * temp1 + c * temp2;
                     }
                 }
 
@@ -1591,13 +1647,73 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             // -----------------------------------
             if(use_Ash)
             {
-                for(auto j = tiy_start; j < ncolsAmat; j += tiy_inc)
+                __syncthreads();
+
+                bool const use_l2g = false;
+                if(use_l2g)
                 {
-                    for(auto i = tix_start; i < nrowsAmat; i += tix_inc)
+                    for(auto j = tiy_start; j < ncolsAmat; j += tiy_inc)
                     {
-                        auto const ia = l2g_index(i);
-                        auto const ja = l2g_index(j);
-                        A(ia, ja) = Ash(i, j);
+                        for(auto i = tix_start; i < nrowsAmat; i += tix_inc)
+                        {
+                            auto const ia = l2g_index(i);
+                            auto const ja = l2g_index(j);
+                            A(ia, ja) = Ash(i, j);
+                        }
+                    }
+                }
+                else
+                {
+                    // ----------------------
+                    // Ash contain 2x2 blocks
+                    // ----------------------
+
+                    // 1x1 (iblock,iblock)
+                    for(auto j = tiy_start; j < ni; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < ni; i += tix_inc)
+                        {
+                            auto const ia = i + offseti;
+                            auto const ja = j + offseti;
+                            A(ia, ja) = Ash(i, j);
+                        }
+                    }
+
+                    __syncthreads();
+                    // 1x2  (iblock,jblock)
+                    for(auto j = tiy_start; j < nj; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < ni; i += tix_inc)
+                        {
+                            auto const ia = i + offseti;
+                            auto const ja = j + offsetj;
+
+                            A(ia, ja) = Ash(i, j + nb_max);
+                        }
+                    }
+
+                    __syncthreads();
+                    // 2x1 (jblock,iblock)
+                    for(auto j = tiy_start; j < ni; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < nj; i += tix_inc)
+                        {
+                            auto const ia = i + offsetj;
+                            auto const ja = j + offseti;
+                            A(ia, ja) = Ash(i + nb_max, j);
+                        }
+                    }
+                    __syncthreads();
+
+                    //  2x2 (jblock,jblock)
+                    for(auto j = tiy_start; j < nj; j += tiy_inc)
+                    {
+                        for(auto i = tix_start; i < nj; i += tix_inc)
+                        {
+                            auto const ia = i + offsetj;
+                            auto const ja = j + offsetj;
+                            A(ia, ja) = Ash(i + nb_max, j + nb_max);
+                        }
                     }
                 }
                 __syncthreads();
@@ -2525,8 +2641,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                 }
                 else
                 {
-                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK,
-                                            lmemsizeOK, stream, nb_max, n, Acpy, 0, n, n * n, eps,
+                    ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK, size_lds,
+                                            stream, nb_max, n, Acpy, 0, n, n * n, eps,
                                             (ev ? J : nullptr), top, bottom, completed, batch_count);
                 }
 
@@ -2561,8 +2677,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
                     else
                     {
                         ROCSOLVER_LAUNCH_KERNEL((syevj_offd_kernel<T, S>), gridOK, threadsOK,
-                                                lmemsizeOK, stream, nb_max, n, Acpy, 0, n, n * n,
-                                                eps, J, top, bottom, completed, batch_count);
+                                                size_lds, stream, nb_max, n, Acpy, 0, n, n * n, eps,
+                                                J, top, bottom, completed, batch_count);
                     }
 
                     // apply rotations calculated by offd_kernel
