@@ -1318,24 +1318,28 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     // ------------
     // allocate Ash
     // ------------
-    auto const len_Ash = (2 * nb_max) * (2 * nb_max);
+    auto const ldAsh = 1 + (2 * nb_max);
+    auto const len_Ash = ldAsh * (2 * nb_max);
     size_t const size_Ash = sizeof(T) * len_Ash;
 
     T* const Ash_ = reinterpret_cast<T*>(pfree);
     pfree += size_Ash;
     total_bytes += size_Ash;
     bool const use_Ash = (total_bytes <= lmem_size);
+    auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
 
     // ------------
     // allocate Jsh
     // ------------
-    auto const len_Jsh = (2 * nb_max) * (2 * nb_max);
+    auto const ldJsh = 1 + (2 * nb_max);
+    auto const len_Jsh = ldJsh * (2 * nb_max);
     size_t const size_Jsh = sizeof(T) * len_Jsh;
     T* const Jsh_ = reinterpret_cast<T*>(pfree);
     pfree += size_Jsh;
     total_bytes += size_Jsh;
 
     bool const use_Jsh = (total_bytes <= lmem_size);
+    auto Jsh = [=](auto i, auto j) -> T& { return (Jsh_[i + j * ldJsh]); };
 
     auto const nbpairs = half_blocks;
 
@@ -1375,12 +1379,10 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
 
             T* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
-            auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldj]); };
+            auto const ldJmat = (use_Jsh) ? ldJsh : ldj;
+            auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldJmat]); };
 
             auto l2g_index = [=](auto i) { return ((i < ni) ? i + offseti : (i - ni) + offsetj); };
-
-            auto const ldAsh = 2 * nb_max;
-            auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
 
             auto const Amat = [=](auto i, auto j) -> T& {
                 if(use_Ash)
@@ -1522,12 +1524,15 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                     }
                     else
                     {
+                        auto const ia = l2g_index(i);
+                        auto const ja = l2g_index(j);
                         for(auto tix = tix_start; tix < nrowsAmat; tix += tix_inc)
                         {
-                            auto const temp1 = Amat(tix, i);
-                            auto const temp2 = Amat(tix, j);
-                            Amat(tix, i) = c * temp1 + s2 * temp2;
-                            Amat(tix, j) = -s1 * temp1 + c * temp2;
+                            auto const gtix = l2g_index(tix);
+                            auto const temp1 = A(gtix, ia);
+                            auto const temp2 = A(gtix, ja);
+                            A(gtix, ia) = c * temp1 + s2 * temp2;
+                            A(gtix, ja) = -s1 * temp1 + c * temp2;
                         }
                     }
                 }
@@ -1561,12 +1566,15 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                     }
                     else
                     {
+                        auto const ia = l2g_index(i);
+                        auto const ja = l2g_index(j);
                         for(auto tix = tix_start; tix < ncolsAmat; tix += tix_inc)
                         {
-                            auto const temp1 = Amat(i, tix);
-                            auto const temp2 = Amat(j, tix);
-                            Amat(i, tix) = c * temp1 + s1 * temp2;
-                            Amat(j, tix) = -s2 * temp1 + c * temp2;
+                            auto const gtix = l2g_index(tix);
+                            auto const temp1 = A(ia, gtix);
+                            auto const temp2 = A(ja, gtix);
+                            A(ia, gtix) = c * temp1 + s1 * temp2;
+                            A(ja, gtix) = -s2 * temp1 + c * temp2;
                         }
                     }
                 } // end for ipair
@@ -1588,8 +1596,10 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                     }
                     else
                     {
-                        Amat(i, j) = 0;
-                        Amat(j, i) = 0;
+                        auto const ia = l2g_index(i);
+                        auto const ja = l2g_index(j);
+                        A(ia, ja) = 0;
+                        A(ja, ia) = 0;
                     }
                 }
                 __syncthreads();
@@ -1616,9 +1626,12 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
             // -----------------------------------
             if(use_J && use_Jsh)
             {
-                for(auto tixy = tixy_start; tixy < len_Jsh; tixy += tixy_inc)
+                for(auto j = tiy_start; j < ncolsJ; j += tiy_inc)
                 {
-                    J_[tixy] = Jsh_[tixy];
+                    for(auto i = tix_start; i < nrowsJ; i += tix_inc)
+                    {
+                        J(i, j) = Jsh(i, j);
+                    }
                 }
 
                 __syncthreads();
