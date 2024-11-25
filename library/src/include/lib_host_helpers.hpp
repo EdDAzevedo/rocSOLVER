@@ -54,12 +54,12 @@ __device__ __host__ inline int64_t
     return j * lda + i * inca;
 }
 
-inline int32_t ceil(const int32_t n, const int32_t nb)
+__device__ __host__ inline int32_t ceil(const int32_t n, const int32_t nb)
 {
     return ((n - 1) / nb) + 1;
 }
 
-inline int64_t ceil(const int64_t n, const int64_t nb)
+__device__ __host__ inline int64_t ceil(const int64_t n, const int64_t nb)
 {
     return ((n - 1) / nb) + 1;
 }
