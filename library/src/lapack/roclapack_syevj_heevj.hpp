@@ -782,15 +782,16 @@ ROCSOLVER_KERNEL void syevj_diag_kernel_org(const rocblas_int n,
 
 template <typename T, typename S, typename U>
 ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
-                                             const rocblas_int nb_max,
-                                             U AA,
-                                             const rocblas_int shiftA,
-                                             const rocblas_int lda,
-                                             const rocblas_stride strideA,
-                                             const S eps,
-                                             T* JA,
-                                             rocblas_int* completed,
-                                             const rocblas_int batch_count)
+                                        const rocblas_int nb_max,
+                                        U AA,
+                                        const rocblas_int shiftA,
+                                        const rocblas_int lda,
+                                        const rocblas_stride strideA,
+                                        const S eps,
+                                        T* JA,
+                                        rocblas_int* completed,
+                                        const rocblas_int batch_count,
+                                        size_t lmem_size = 64 * 1024)
 {
     typedef rocblas_int I;
 
@@ -833,7 +834,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     extern __shared__ double lmem[];
     std::byte* pfree = reinterpret_cast<std::byte*>(&(lmem[0]));
 
-    auto const max_lds = 64 * 1024;
+    auto const max_lds = lmem_size;
     auto const max_npairs = ceil(nb_max, 2);
 
     size_t total_bytes = 0;
@@ -864,12 +865,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             continue;
 
         T* const A_ = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-        auto A = [=](auto ia, auto ja) -> T& {
-            assert((0 <= ia) && (ia < n));
-            assert((0 <= ja) && (ja < n));
-            assert((lda >= n) && (lda >= 1));
-            return (A_[ia + ja * static_cast<int64_t>(lda)]);
-        };
+        auto A = [=](auto ia, auto ja) -> T& { return (A_[ia + ja * static_cast<int64_t>(lda)]); };
 
         for(auto iblock = ibx_start; iblock < blocks; iblock += ibx_inc)
         {
@@ -881,8 +877,8 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
 
             auto const offset = iblock * nb_max;
-            auto const nb = std::min(2 * half_n - offset, nb_max);
-            auto const half_nb = nb / 2;
+            // auto const nb = std::min(2 * half_n - offset, nb_max);
+            auto const half_nb = ceil(bsize(iblock), 2);
             auto const npairs = half_nb;
 
             // ----------------------------------
@@ -899,12 +895,15 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             // ---------------------------
             auto const nrowsJ = bsize(iblock);
             auto const ncolsJ = nrowsJ;
-            for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
+            if(use_J)
             {
-                for(auto tix = tix_start; tix < nrowsJ; tix += tix_inc)
+                for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
                 {
-                    bool const is_diag = (tix == tiy);
-                    J(tix, tiy) = is_diag ? 1 : 0;
+                    for(auto tix = tix_start; tix < nrowsJ; tix += tix_inc)
+                    {
+                        bool const is_diag = (tix == tiy);
+                        J(tix, tiy) = is_diag ? 1 : 0;
+                    }
                 }
             }
 
@@ -922,7 +921,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             }
             __syncthreads();
 
-            auto const num_rounds = (nb - 1);
+            auto const num_rounds = (2 * npairs - 1);
             for(I iround = 0; iround < num_rounds; iround++)
             {
                 // --------------------------------------------------------------
@@ -956,7 +955,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                     bool const is_small = (mag < sqrt_small_num);
                     if(!is_small)
                     {
-                        auto const real_aii = std::real(Amat(i, j));
+                        auto const real_aii = std::real(Amat(i, i));
                         auto const real_ajj = std::real(Amat(j, j));
                         S g = 2 * mag;
                         S f = real_ajj - real_aii;
@@ -1105,15 +1104,15 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
 
 template <typename T, typename S, typename U>
 ROCSOLVER_KERNEL void syevj_diag_kernel_dev(const rocblas_int n,
-                                        const rocblas_int nb_max,
-                                        U AA,
-                                        const rocblas_int shiftA,
-                                        const rocblas_int lda,
-                                        const rocblas_stride strideA,
-                                        const S eps,
-                                        T* JA,
-                                        rocblas_int* completed,
-                                        const rocblas_int batch_count)
+                                            const rocblas_int nb_max,
+                                            U AA,
+                                            const rocblas_int shiftA,
+                                            const rocblas_int lda,
+                                            const rocblas_stride strideA,
+                                            const S eps,
+                                            T* JA,
+                                            rocblas_int* completed,
+                                            const rocblas_int batch_count)
 {
     typedef rocblas_int I;
 
@@ -1181,7 +1180,6 @@ ROCSOLVER_KERNEL void syevj_diag_kernel_dev(const rocblas_int n,
     // allocate arrays for independent pairs
     // -------------------------------------
 
-
     size_t const len_vec = 2 * max_npairs;
     size_t const size_vec = sizeof(I) * len_vec;
     I* vec = reinterpret_cast<I*>(pfree);
@@ -1210,9 +1208,9 @@ ROCSOLVER_KERNEL void syevj_diag_kernel_dev(const rocblas_int n,
     auto const ldj = nb_max;
     auto const len_Jsh = (ldj * nb_max);
     size_t const size_Jsh = sizeof(T) * len_Jsh;
-    T* const Jsh_ =  reinterpret_cast<T*>(pfree) ;
-    pfree +=  size_Jsh ;
-    total_bytes +=  size_Jsh;
+    T* const Jsh_ = reinterpret_cast<T*>(pfree);
+    pfree += size_Jsh;
+    total_bytes += size_Jsh;
     // bool const use_Jsh = (total_bytes <= size_lds);
     bool const use_Jsh = false;
 
@@ -1387,7 +1385,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel_dev(const rocblas_int n,
                 // -----------------------------
 
                 T const one = 1;
-		T const zero = 0;
+                T const zero = 0;
 
                 for(auto j = j_start; j < ncolsJ; j += j_inc)
                 {
@@ -1512,11 +1510,10 @@ ROCSOLVER_KERNEL void syevj_diag_kernel_dev(const rocblas_int n,
                     double const mag = std::abs(aij);
 
                     // bool const is_small = (mag < sqrt_small_num);
-                    bool const is_small = (mag*mag < small_num);
+                    bool const is_small = (mag * mag < small_num);
                     // calculate rotation J
                     if(!is_small)
                     {
-
                         double const real_aii = std::real(Amat(i, i));
                         double const real_ajj = std::real(Amat(j, j));
 
@@ -1611,7 +1608,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel_dev(const rocblas_int n,
                             Amat(tix, i) = c * temp1 + s2 * temp2;
                             Amat(tix, j) = -s1 * temp1 + c * temp2;
                         }
-                    } 
+                    }
                 } // end for ipair
 
                 __syncthreads();
@@ -1647,28 +1644,29 @@ ROCSOLVER_KERNEL void syevj_diag_kernel_dev(const rocblas_int n,
 
                 __syncthreads();
 
-	       bool const round_aij_aji_to_zero = false;
-               if (round_aij_aji_to_zero) {
-                for(auto ipair = ij_start; ipair < npairs; ipair += ij_inc)
+                bool const round_aij_aji_to_zero = false;
+                if(round_aij_aji_to_zero)
                 {
-                    auto const i = tb_pair(0, ipair);
-                    auto const j = tb_pair(1, ipair);
-
+                    for(auto ipair = ij_start; ipair < npairs; ipair += ij_inc)
                     {
-                        auto const ia = i + offset;
-                        auto const ja = j + offset;
-                        bool const is_valid = (ia < n) && (ja < n);
-                        if(!is_valid)
-                            continue;
-                    }
+                        auto const i = tb_pair(0, ipair);
+                        auto const j = tb_pair(1, ipair);
 
-                    // round aij and aji to zero
-                    Amat(i, j) = 0;
-                    Amat(j, i) = 0;
-                } // end for ij
+                        {
+                            auto const ia = i + offset;
+                            auto const ja = j + offset;
+                            bool const is_valid = (ia < n) && (ja < n);
+                            if(!is_valid)
+                                continue;
+                        }
 
-                __syncthreads();
-	       }
+                        // round aij and aji to zero
+                        Amat(i, j) = 0;
+                        Amat(j, i) = 0;
+                    } // end for ij
+
+                    __syncthreads();
+                }
 
                 // ---------------------
                 // rotate cycle pairs
