@@ -1318,7 +1318,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     // ------------
     // allocate Ash
     // ------------
-    auto const ldAsh = 1 + (2 * nb_max);
+    auto const ldAsh = (2 * nb_max);
     auto const len_Ash = ldAsh * (2 * nb_max);
     size_t const size_Ash = sizeof(T) * len_Ash;
 
@@ -1331,7 +1331,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
     // ------------
     // allocate Jsh
     // ------------
-    auto const ldJsh = 1 + (2 * nb_max);
+    auto const ldJsh = (2 * nb_max);
     auto const len_Jsh = ldJsh * (2 * nb_max);
     size_t const size_Jsh = sizeof(T) * len_Jsh;
     T* const Jsh_ = reinterpret_cast<T*>(pfree);
@@ -1485,6 +1485,31 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                 // ----------------------------------
                 // apply rotation J on  block columns
                 // ----------------------------------
+                if(use_J)
+                {
+                    for(auto tix = tix_start; tix < nb_max; tix += tix_inc)
+                    {
+                        auto const i = tix;
+                        auto const j = (tix + k) % nb_max + nb_max;
+                        bool const is_valid = (i < nrowsAmat) && (j < nrowsAmat);
+                        if(!is_valid)
+                            continue;
+
+                        auto const c = sh_cosines[tix];
+                        auto const s1 = sh_sines[tix];
+                        auto const s2 = conj(s1);
+
+                        for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
+                        {
+                            auto const temp1 = Jmat(i, tiy);
+                            auto const temp2 = Jmat(j, tiy);
+
+                            Jmat(i, tiy) = c * temp1 + s2 * temp2;
+                            Jmat(j, tiy) = -s1 * temp1 + c * temp2;
+                        }
+                    }
+                }
+
                 for(auto tiy = tiy_start; tiy < nb_max; tiy += tiy_inc)
                 {
                     auto const i = tiy;
@@ -1496,19 +1521,6 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                     auto const c = sh_cosines[tiy];
                     auto const s1 = sh_sines[tiy];
                     auto const s2 = conj(s1);
-
-                    if(use_J)
-                    {
-                        for(auto tix = tix_start; tix < ncolsJ; tix += tix_inc)
-                        {
-                            auto const temp1 = Jmat(i, tix);
-                            auto const temp2 = Jmat(j, tix);
-
-                            Jmat(i, tix) = c * temp1 + s2 * temp2;
-                            Jmat(j, tix) = -s1 * temp1 + c * temp2;
-                        }
-                    }
-
                     // --------------------------------------------------
                     // apply J from the right on columns A(:,i), A(:,j)
                     // --------------------------------------------------
@@ -1542,7 +1554,7 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
                 // -------------------------------------------
                 // apply J' from the left to rows A(i,:) and A(j,:)
                 // -------------------------------------------
-                for(auto ipair = tiy_start; ipair < nb_max; ipair += tiy_inc)
+                for(auto ipair = tix_start; ipair < nb_max; ipair += tix_inc)
                 {
                     auto const i = ipair;
                     auto const j = (ipair + k) % nb_max + nb_max;
@@ -1556,25 +1568,25 @@ ROCSOLVER_KERNEL void syevj_offd_kernel(const rocblas_int nb_max,
 
                     if(use_Ash)
                     {
-                        for(auto tix = tix_start; tix < ncolsAmat; tix += tix_inc)
+                        for(auto tiy = tiy_start; tiy < ncolsAmat; tiy += tiy_inc)
                         {
-                            auto const temp1 = Ash(i, tix);
-                            auto const temp2 = Ash(j, tix);
-                            Ash(i, tix) = c * temp1 + s1 * temp2;
-                            Ash(j, tix) = -s2 * temp1 + c * temp2;
+                            auto const temp1 = Ash(i, tiy);
+                            auto const temp2 = Ash(j, tiy);
+                            Ash(i, tiy) = c * temp1 + s1 * temp2;
+                            Ash(j, tiy) = -s2 * temp1 + c * temp2;
                         }
                     }
                     else
                     {
                         auto const ia = l2g_index(i);
                         auto const ja = l2g_index(j);
-                        for(auto tix = tix_start; tix < ncolsAmat; tix += tix_inc)
+                        for(auto tiy = tiy_start; tiy < ncolsAmat; tiy += tiy_inc)
                         {
-                            auto const gtix = l2g_index(tix);
-                            auto const temp1 = A(ia, gtix);
-                            auto const temp2 = A(ja, gtix);
-                            A(ia, gtix) = c * temp1 + s1 * temp2;
-                            A(ja, gtix) = -s2 * temp1 + c * temp2;
+                            auto const gtiy = l2g_index(tiy);
+                            auto const temp1 = A(ia, gtiy);
+                            auto const temp2 = A(ja, gtiy);
+                            A(ia, gtiy) = c * temp1 + s1 * temp2;
+                            A(ja, gtiy) = -s2 * temp1 + c * temp2;
                         }
                     }
                 } // end for ipair
@@ -1734,7 +1746,8 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                                         rocblas_int* top,
                                         rocblas_int* bottom,
                                         rocblas_int* completed,
-                                        rocblas_int const batch_count)
+                                        rocblas_int const batch_count,
+                                        size_t const lmem_size = 64 * 1024)
 {
     bool constexpr APPLY_RIGHT = (!APPLY_LEFT);
 
@@ -1774,13 +1787,11 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
     auto const kb_start = jb_start;
     auto const kb_inc = jb_inc;
 
-    auto constexpr max_lds = 64 * 1024;
-    auto constexpr len_shmem = max_lds / sizeof(T);
-
     auto const ldj = 2 * nb_max;
     auto const len_Jsh = ldj * (2 * nb_max);
     auto const len_Ash = (2 * nb_max) * nb_max;
 
+    auto const len_shmem = lmem_size / sizeof(T);
     extern __shared__ double lmem[];
     T* pfree = reinterpret_cast<T*>(&(lmem[0]));
 
@@ -1843,10 +1854,8 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                 // -------------------------
 
                 auto const ij_start = i_start + j_start * nx;
-                auto const ij_inc = nx * ny;
+                auto const ij_inc = i_inc * j_inc;
                 auto const len_Jsh = 4 * nb_max * nb_max;
-
-                __syncthreads();
 
                 for(auto ij = ij_start; ij < len_Jsh; ij += ij_inc)
                 {
@@ -1906,7 +1915,6 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
                     // ------------------------
                     // load A into shared memory
                     // ------------------------
-                    __syncthreads();
 
                     for(auto j = j_start; j < ncols_Ash; j += j_inc)
                     {
