@@ -846,7 +846,7 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     pfree += sizeof(T) * max_npairs;
     total_bytes += sizeof(T) * max_npairs;
 
-    I* const sh_top = reinterpret_cast<rocblas_int*>(pfree);
+    I* const sh_top = reinterpret_cast<I*>(pfree);
     pfree += sizeof(I) * max_npairs;
     total_bytes += sizeof(I) * max_npairs;
 
@@ -855,6 +855,28 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
     total_bytes += sizeof(I) * max_npairs;
 
     assert(total_bytes <= max_lds);
+
+    // ------------
+    // alocate Ash[]
+    // ------------
+    auto const ldAsh = nb_max;
+    size_t const size_Ash = sizeof(T) * ldAsh * nb_max;
+    T* const Ash_ = reinterpret_cast<T*>(pfree);
+    pfree += size_Ash;
+    total_bytes += size_Ash;
+    bool const use_Ash = (total_bytes <= max_lds);
+    auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
+
+    // --------------
+    // allocate Jsh[]
+    // --------------
+    auto const ldJsh = nb_max;
+    size_t const size_Jsh = sizeof(T) * ldJsh * nb_max;
+    T* const Jsh_ = reinterpret_cast<T*>(pfree);
+    pfree += size_Jsh;
+    total_bytes += size_Jsh;
+    bool const use_Jsh = (total_bytes <= max_lds);
+    auto Jsh = [=](auto i, auto j) -> T& { return (Jsh_[i + j * ldJsh]); };
 
     S const small_num = get_safemin<S>() / eps;
     S const sqrt_small_num = std::sqrt(small_num);
@@ -876,6 +898,10 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             auto const ldj = nb_max;
             auto J = [=](auto i, auto j) -> T& { return (J_[i + j * ldj]); };
 
+            T* const Jmat_ = (use_Jsh) ? Jsh_ : J_;
+            auto const ldJmat = (use_Jsh) ? ldJsh : ldj;
+            auto Jmat = [=](auto i, auto j) -> T& { return (Jmat_[i + j * ldJmat]); };
+
             auto const offset = iblock * nb_max;
             // auto const nb = std::min(2 * half_n - offset, nb_max);
             auto const half_nb = ceil(bsize(iblock), 2);
@@ -884,17 +910,18 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
             // ----------------------------------
             // Note: (i,j) are local index values
             // ----------------------------------
-            auto Amat = [=](auto i, auto j) -> T& {
-                auto const ia = i + offset;
-                auto const ja = j + offset;
-                return (A(ia, ja));
-            };
+            auto const Amat_ = (use_Ash) ? Ash_ : A_ + (offset + offset * static_cast<int64_t>(lda));
+            auto const ldAmat = (use_Ash) ? ldAsh : lda;
+            auto Amat = [=](auto i, auto j) -> T& { return (Amat_[i + j * ldAmat]); };
 
             // ---------------------------
             // set J to be identity matrix
             // ---------------------------
             auto const nrowsJ = bsize(iblock);
             auto const ncolsJ = nrowsJ;
+            auto const nrowsAmat = nrowsJ;
+            auto const ncolsAmat = ncolsJ;
+
             if(use_J)
             {
                 for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
@@ -902,9 +929,26 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                     for(auto tix = tix_start; tix < nrowsJ; tix += tix_inc)
                     {
                         bool const is_diag = (tix == tiy);
-                        J(tix, tiy) = is_diag ? 1 : 0;
+                        Jmat(tix, tiy) = is_diag ? 1 : 0;
                     }
                 }
+                __syncthreads();
+            }
+
+            if(use_Ash)
+            {
+                __syncthreads();
+                for(auto tiy = tiy_start; tiy < ncolsAmat; tiy += tiy_inc)
+                {
+                    for(auto tix = tix_start; tix < nrowsAmat; tix += tix_inc)
+                    {
+                        auto const ia = tix + offset;
+                        auto const ja = tiy + offset;
+
+                        Ash(tix, tiy) = A(ia, ja);
+                    }
+                }
+                __syncthreads();
             }
 
             __syncthreads();
@@ -996,10 +1040,10 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
                             // ----------------
                             // store J row-wise
                             // ----------------
-                            auto const temp1 = J(i, tix);
-                            auto const temp2 = J(j, tix);
-                            J(i, tix) = c * temp1 + s2 * temp2;
-                            J(j, tix) = -s1 * temp1 + c * temp2;
+                            auto const temp1 = Jmat(i, tix);
+                            auto const temp2 = Jmat(j, tix);
+                            Jmat(i, tix) = c * temp1 + s2 * temp2;
+                            Jmat(j, tix) = -s1 * temp1 + c * temp2;
                         }
 
                         // --------
@@ -1098,6 +1142,38 @@ ROCSOLVER_KERNEL void syevj_diag_kernel(const rocblas_int n,
 
                 __syncthreads();
             } // end for iround
+
+            __syncthreads();
+            // ----------------------------------------
+            // write out data from LDS to device memory
+            // ----------------------------------------
+
+            if(use_Ash)
+            {
+                for(auto tiy = tiy_start; tiy < ncolsAmat; tiy += tiy_inc)
+                {
+                    for(auto tix = tix_start; tix < nrowsAmat; tix += tix_inc)
+                    {
+                        auto const ia = tix + offset;
+                        auto const ja = tiy + offset;
+                        A(ia, ja) = Ash(tix, tiy);
+                    }
+                }
+                __syncthreads();
+            }
+
+            if(use_J && use_Jsh)
+            {
+                for(auto tiy = tiy_start; tiy < ncolsJ; tiy += tiy_inc)
+                {
+                    for(auto tix = tix_start; tix < nrowsJ; tix += tix_inc)
+                    {
+                        J(tix, tiy) = Jsh(tix, tiy);
+                    }
+                }
+                __syncthreads();
+            }
+
         } // end for iblock
     } // end for bid
 }
@@ -3507,7 +3583,8 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
             else
             {
                 ROCSOLVER_LAUNCH_KERNEL(syevj_diag_kernel<T>, gridDK, threadsDK, lmemsizeDK, stream,
-                                        n, nb_max, Acpy, 0, n, n * n, eps, J, completed, batch_count);
+                                        n, nb_max, Acpy, 0, n, n * n, eps, J, completed,
+                                        batch_count, lmemsizeDK);
             }
 
             // apply rotations calculated by diag_kernel
