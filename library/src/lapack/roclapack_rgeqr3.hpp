@@ -45,7 +45,7 @@
 ROCSOLVER_BEGIN_NAMESPACE
 
 constexpr int idebug = 0;
-constexpr bool use_trmm_outofplace = false;
+constexpr bool use_trmm_outofplace = true;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
@@ -61,6 +61,11 @@ static __device__ __host__ constexpr bool rocblas_is_po2(rocblas_int x)
 // Return previous power of two
 static __device__ __host__ constexpr rocblas_int rocblas_previous_po2(rocblas_int x)
 {
+    if(rocblas_is_po2(x))
+    {
+        return (x);
+    };
+
     return x ? decltype(x){1} << (8 * sizeof(x) - 1 - __builtin_clz(x)) : 0;
 }
 
@@ -2369,7 +2374,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
         // perform recursion
         // -----------------
 
-        I const n_small = 16;
+        I const n_small = 8;
         bool const is_n_small = (n <= n_small);
 
         if(idebug >= 1)
@@ -2377,8 +2382,7 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
             printf("rgeqr3:entry: is_n_small=%d, n=%d, m=%d, batch_count=%d\n", (int)is_n_small,
                    (int)n, (int)m, (int)batch_count);
         }
-        // auto const n1 = rocblas_previous_po2(n - 1);
-        auto const n1 = (is_n_small) ? (n - 1) : (n / 2);
+        auto const n1 = (is_n_small) ? (n - 1) : rocblas_previous_po2(n - 1);
         auto const n2 = n - n1;
 
         assert(n1 >= 1);
