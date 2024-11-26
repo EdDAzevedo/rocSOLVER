@@ -49,7 +49,7 @@ constexpr bool use_trmm_outofplace = true;
 
 #ifndef RGEQR3_BLOCKSIZE
 #define RGEQR3_BLOCKSIZE(T) \
-    ((sizeof(T) == 4) ? 64 : (sizeof(T) == 8) ? 48 : (sizeof(T) == 64) ? 32 : 32)
+    ((sizeof(T) == 4) ? 512 : (sizeof(T) == 8) ? 256 : (sizeof(T) == 16) ? 128 : 64)
 #endif
 
 // Is power of two
@@ -751,7 +751,6 @@ static void copy_diagonal_template(rocblas_handle handle,
                                    I const batch_count)
 {
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-    auto min = [](auto x, auto y) { return ((x <= y) ? x : y); };
 
     auto const max_blocks = 64 * 1000;
     auto const nx = 64;
@@ -995,8 +994,6 @@ static void geadd_template(rocblas_handle handle,
 {
     auto ceil = [](auto m, auto nb) { return ((m - 1) / nb + 1); };
 
-    auto min = [](auto x, auto y) { return ((x < y) ? x : y); };
-
     auto const max_threads = 1024;
     auto const max_blocks = 64 * 1000;
 
@@ -1076,8 +1073,6 @@ static rocblas_status formT3(rocblas_handle handle,
 
     // 1-based Fortran indexing
     auto idx2F = [=](auto i, auto j, auto ld) { return (idx2D((i - 1), (j - 1), ld)); };
-
-    auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
 
     auto swap = [](auto& x, auto& y) {
         auto t = x;
@@ -1596,8 +1591,6 @@ static rocblas_status applyQtC(rocblas_handle handle,
     // 1-based matlab/Fortran indexing
     auto idx2F
         = [](auto i, auto j, auto ld) { return ((i - 1) + (j - 1) * static_cast<int64_t>(ld)); };
-
-    auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
 
     auto swap = [](auto& x, auto& y) {
         auto t = x;
@@ -2199,8 +2192,6 @@ static void rocsolver_applyQtC_getMemorySize(I const m,
         return;
     }
 
-    auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
-
     auto const nb = RGEQR3_BLOCKSIZE(T);
 
     size_t size_trmm_byte = 0;
@@ -2303,10 +2294,6 @@ static rocblas_status rocsolver_rgeqr3_template(rocblas_handle handle,
 
     auto idx2F
         = [=](auto i, auto j, auto ld) { return ((i - 1) + (j - 1) * static_cast<int64_t>(ld)); };
-
-    auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
-    auto min = [](auto x, auto y) { return ((x <= y) ? x : y); };
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
     auto sign = [](auto x) { return ((x > 0) ? 1 : (x < 0) ? -1 : 0); };
 
@@ -2692,12 +2679,6 @@ static rocblas_status rocsolver_rgeqrf_template(rocblas_handle handle,
     // 1-based matlab/Fortran indexing
     auto idx2F
         = [](auto i, auto j, auto ld) { return ((i - 1) + (j - 1) * static_cast<int64_t>(ld)); };
-
-    auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
-
-    auto max = [](auto x, auto y) { return ((x >= y) ? x : y); };
-
-    auto min = [](auto x, auto y) { return ((x <= y) ? x : y); };
 
     auto const nb = RGEQR3_BLOCKSIZE(T);
 

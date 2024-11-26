@@ -136,36 +136,16 @@ static __global__ void scale_beta_kernel(I const m,
     {
         T* const A_ = load_ptr_batch(Amat, bid, shift_Amat, stride_Amat);
 
-        auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+        auto A = [=](auto i, auto j) -> T& { return (A_[i + j * static_cast<int64_t>(ldA)]); };
 
-        auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, ldA)]); };
-
-        if(is_beta_zero)
+        // ----------------
+        // multiply by beta
+        // ----------------
+        for(I j = j_start; j < n; j += j_inc)
         {
-            // -----------
-            // assign zero
-            // -----------
-
-            for(I j = j_start; j < n; j += j_inc)
+            for(I i = i_start; i < m; i += i_inc)
             {
-                for(I i = i_start; i < m; i += i_inc)
-                {
-                    A(i, j) = zero;
-                }
-            }
-        }
-        else
-        {
-            // ----------------
-            // multiply by beta
-            // ----------------
-
-            for(I j = j_start; j < n; j += j_inc)
-            {
-                for(I i = i_start; i < m; i += i_inc)
-                {
-                    A(i, j) *= beta;
-                }
+                A(i, j) = (is_beta_zero) ? zero : beta * A(i, j);
             }
         }
     } // end for bid
@@ -312,8 +292,6 @@ static __global__ void simple_gemm_kernel(
     auto idx2F
         = [](auto i, auto j, auto ld) { return ((i - 1) + (j - 1) * static_cast<int64_t>(ld)); };
 
-    auto merge = [](auto lcond, auto t_value, auto f_value) { return ((lcond) ? t_value : f_value); };
-
     size_t const max_lds = 64 * 1024;
     size_t const lmem_size = max_lds / sizeof(T);
     __shared__ T lmem[lmem_size];
@@ -340,6 +318,7 @@ static __global__ void simple_gemm_kernel(
     {
         // ----------------
         // split nbz blocks
+        // as  ni by nj grid of blocks
         // ----------------
 
         I const nbz_sqrt = std::sqrt(nbz);
@@ -383,9 +362,9 @@ static __global__ void simple_gemm_kernel(
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        T const* const A_ = load_ptr_batch(Amat, bid, shift_Amat, stride_Amat);
-        T const* const B_ = load_ptr_batch(Bmat, bid, shift_Bmat, stride_Bmat);
-        T* const C_ = load_ptr_batch(Cmat, bid, shift_Cmat, stride_Cmat);
+        T const* const __restrict__ A_ = load_ptr_batch(Amat, bid, shift_Amat, stride_Amat);
+        T const* const __restrict__ B_ = load_ptr_batch(Bmat, bid, shift_Bmat, stride_Bmat);
+        T* const __restrict__ C_ = load_ptr_batch(Cmat, bid, shift_Cmat, stride_Cmat);
 
         auto A = [=](auto i, auto j) -> const T& { return (A_[idx2F(i, j, ldA)]); };
         auto B = [=](auto i, auto j) -> const T& { return (B_[idx2F(i, j, ldB)]); };
@@ -410,11 +389,7 @@ static __global__ void simple_gemm_kernel(
                 auto const nrows_C = (ic2 - ic1 + 1);
                 auto const ncols_C = (jc2 - jc1 + 1);
 
-                auto Csh = [=](auto i, auto j) -> T& {
-                    assert((1 <= i) && (i <= nrows_C));
-                    assert((1 <= j) && (j <= ncols_C));
-                    return (Csh_[(i - 1) + (j - 1) * nrows_C]);
-                };
+                auto Csh = [=](auto i, auto j) -> T& { return (Csh_[(i - 1) + (j - 1) * nrows_C]); };
 
                 assert((nrows_C * ncols_C) <= size_Csh);
 
@@ -447,17 +422,17 @@ static __global__ void simple_gemm_kernel(
                     // jb1:jb2))
                     // -----------------------------------------------------------------
 
-                    auto const ia1 = merge(is_no_transpose_A, ic1, ik1);
-                    auto const ia2 = merge(is_no_transpose_A, ic2, ik2);
+                    auto const ia1 = (is_no_transpose_A) ? ic1 : ik1;
+                    auto const ia2 = (is_no_transpose_A) ? ic2 : ik2;
 
-                    auto const ja1 = merge(is_no_transpose_A, ik1, ic1);
-                    auto const ja2 = merge(is_no_transpose_A, ik2, ic2);
+                    auto const ja1 = (is_no_transpose_A) ? ik1 : ic1;
+                    auto const ja2 = (is_no_transpose_A) ? ik2 : ic2;
 
-                    auto const ib1 = merge(is_no_transpose_B, ik1, jc1);
-                    auto const ib2 = merge(is_no_transpose_B, ik2, jc2);
+                    auto const ib1 = (is_no_transpose_B) ? ik1 : jc1;
+                    auto const ib2 = (is_no_transpose_B) ? ik2 : jc2;
 
-                    auto const jb1 = merge(is_no_transpose_B, jc1, ik1);
-                    auto const jb2 = merge(is_no_transpose_B, jc2, ik2);
+                    auto const jb1 = (is_no_transpose_B) ? jc1 : ik1;
+                    auto const jb2 = (is_no_transpose_B) ? jc2 : ik2;
 
                     auto const nrows_A = (ia2 - ia1 + 1);
                     auto const ncols_A = (ja2 - ja1 + 1);
@@ -466,11 +441,8 @@ static __global__ void simple_gemm_kernel(
                     // Ash( 1:nrows_A, 1:ncols_A ) = A( ia1:ia2, ja1:ja2 );
                     // ---------------------------------------------------
 
-                    auto Ash = [=](auto i, auto j) -> T& {
-                        assert((1 <= i) && (i <= nrows_A));
-                        assert((1 <= j) && (j <= ncols_A));
-                        return (Ash_[(i - 1) + (j - 1) * nrows_A]);
-                    };
+                    auto Ash
+                        = [=](auto i, auto j) -> T& { return (Ash_[(i - 1) + (j - 1) * nrows_A]); };
 
                     assert((nrows_A * ncols_A) <= size_Ash);
 
@@ -493,11 +465,8 @@ static __global__ void simple_gemm_kernel(
                     // -----------------------------------------------
                     // Bsh(1:nrows_B, 1:ncols_B) = B(ib1:ib2, jb1:jb2);
                     // -----------------------------------------------
-                    auto Bsh = [=](auto i, auto j) -> T& {
-                        assert((1 <= i) && (i <= nrows_B));
-                        assert((1 <= j) && (j <= ncols_B));
-                        return (Bsh_[(i - 1) + (j - 1) * nrows_B]);
-                    };
+                    auto Bsh
+                        = [=](auto i, auto j) -> T& { return (Bsh_[(i - 1) + (j - 1) * nrows_B]); };
 
                     assert((nrows_B * ncols_B) <= size_Bsh);
 
@@ -519,7 +488,7 @@ static __global__ void simple_gemm_kernel(
                         for(auto i = 1 + i_start; i <= nrows_C; i += i_inc)
                         {
                             T cij = 0;
-                            auto const nk = merge(is_no_transpose_A, ncols_A, nrows_A);
+                            auto const nk = (is_no_transpose_A) ? ncols_A : nrows_A;
 
                             bool constexpr use_pointers = true;
                             if(use_pointers)
