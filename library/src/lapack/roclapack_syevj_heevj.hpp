@@ -3473,23 +3473,18 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
     else
     {
         // use original algorithm for small problems
-        auto const n_threshold = 1024;
+        auto const n_threshold = 256;
 
-#if(0)
         bool const use_offd_kernel_org = (n <= n_threshold);
         bool const use_diag_rotate_org = (n <= n_threshold);
         bool const use_offd_rotate_org = (n <= n_threshold);
-#else
-        bool const use_offd_kernel_org = false;
-        bool const use_diag_rotate_org = false;
-        bool const use_offd_rotate_org = false;
-        bool const use_diag_kernel_org = false;
-#endif
+        bool const use_diag_kernel_org = (n <= n_threshold);
+
         bool const use_any_org = use_offd_kernel_org || use_diag_rotate_org || use_offd_rotate_org
             || use_diag_kernel_org;
         // *** USE BLOCKED KERNELS ***
         rocblas_int const nb_max_org = BS2;
-        rocblas_int const nb_max_new = (sizeof(T) == 16) ? 24 : 32;
+        rocblas_int const nb_max_new = (sizeof(T) == 16) ? 22 : 32;
         rocblas_int const nb_max = (use_any_org) ? nb_max_org : nb_max_new;
 
         // kernel dimensions
