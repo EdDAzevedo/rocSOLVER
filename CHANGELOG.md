@@ -18,6 +18,10 @@ Full documentation for rocSOLVER is available at the [rocSOLVER documentation](h
 * Improved the performance of SYEVJ
 * Improved the performance of GEQRF
 
+### Resolved issues
+### Known issues
+### Upcoming changes
+
 
 ## rocSOLVER 3.27.0 for ROCm 6.3.0
 
