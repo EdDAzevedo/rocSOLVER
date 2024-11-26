@@ -2867,17 +2867,29 @@ ROCSOLVER_KERNEL void syevj_offd_rotate(const bool skip_block,
     auto const len_shmem = lmem_size / sizeof(T);
     extern __shared__ double lmem[];
     T* pfree = reinterpret_cast<T*>(&(lmem[0]));
+    size_t total_len = 0;
 
-    T* const Ash_ = pfree;
+    T* const __restrict__ Ash_ = pfree;
     pfree += len_Ash;
-    T* const Jsh_ = pfree;
+    total_len += len_Ash;
+
+    // ----------------------------
+    // in-place update requires storing
+    // a copy of submatrix (2*nb_max) by nb_max
+    // in LDS shared memory for correctness
+    // ----------------------------
+    assert(total_len <= len_shmem);
+
+    T* const __restrict__ Jsh_ = pfree;
     pfree += len_Jsh;
+    total_len += len_Jsh;
 
     // ---------------------------------
     // store J into shared memory only if
-    // there is sufficient space
+    // there is sufficient space in LDS
+    // shared memory
     // ---------------------------------
-    bool const use_Jsh = ((len_Jsh + len_Ash) <= len_shmem);
+    bool const use_Jsh = (total_len <= len_shmem);
 
     for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
@@ -3463,13 +3475,22 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         // use original algorithm for small problems
         auto const n_threshold = 1024;
 
+#if(0)
         bool const use_offd_kernel_org = (n <= n_threshold);
         bool const use_diag_rotate_org = (n <= n_threshold);
         bool const use_offd_rotate_org = (n <= n_threshold);
+#else
+        bool const use_offd_kernel_org = false;
+        bool const use_diag_rotate_org = false;
+        bool const use_offd_rotate_org = false;
         bool const use_diag_kernel_org = false;
-
+#endif
+        bool const use_any_org = use_offd_kernel_org || use_diag_rotate_org || use_offd_rotate_org
+            || use_diag_kernel_org;
         // *** USE BLOCKED KERNELS ***
-        rocblas_int const nb_max = BS2;
+        rocblas_int const nb_max_org = BS2;
+        rocblas_int const nb_max_new = (sizeof(T) == 16) ? 24 : 32;
+        rocblas_int const nb_max = (use_any_org) ? nb_max_org : nb_max_new;
 
         // kernel dimensions
         rocblas_int const blocksReset = batch_count / BS1 + 1;
@@ -3486,12 +3507,12 @@ rocblas_status rocsolver_syevj_heevj_template(rocblas_handle handle,
         dim3 gridPairs(1, 1, 1);
         dim3 threadsReset(BS1, 1, 1);
         dim3 threads(BS1, 1, 1);
-        dim3 threadsDK(BS2 / 2, BS2 / 2, 1);
-        dim3 threadsDR(BS2, BS2, 1);
-        dim3 threadsOK(BS2, BS2, 1);
+        dim3 threadsDK(nb_max / 2, nb_max / 2, 1);
+        dim3 threadsDR(nb_max, nb_max, 1);
+        dim3 threadsOK(nb_max, nb_max, 1);
 
         dim3 gridOR_org(half_blocks, 2 * blocks, batch_count);
-        dim3 threadsOR_org(2 * BS2, BS2 / 2, 1);
+        dim3 threadsOR_org(2 * nb_max, nb_max / 2, 1);
 
         // ---------------------------------------------------------------
         // number of thread blocks related to number of compute units (CU)
