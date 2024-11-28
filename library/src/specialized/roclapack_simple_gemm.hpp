@@ -33,64 +33,6 @@ __host__ __device__ static void get_gemm_nb(char const transA,
     *p_nb_m = nb;
     *p_nb_n = nb;
     *p_nb_k = nb;
-
-    bool const use_default_nb = true;
-    if(use_default_nb)
-    {
-        return;
-    }
-
-    I nb_m = std::min(m, nb);
-    I nb_n = std::min(n, nb);
-    I nb_k = std::min(k, nb);
-
-    // need to fit
-    // nb_m * nb_n + nb_m * nb_k + nb_k * nb_n <= max_lds
-    // nb_k * (nb_m + nb_n) <= (max_lds - nb_m * nb_n)
-    // nb_k = (max_lds - nb_m * nb_n)/(nb_m + nb_n);
-
-    auto const max_mnk = std::max(m, std::max(n, k));
-
-    // ------------------------------
-    // try to increase the block size
-    // ------------------------------
-    if(m == max_mnk)
-    {
-        nb_m = (max_lds - nb_k * nb_n) / (nb_n + nb_k);
-    }
-    else if(n == max_mnk)
-    {
-        nb_n = (max_lds - nb_m * nb_k) / (nb_m + nb_k);
-    }
-    else if(k == max_mnk)
-    {
-        nb_k = (max_lds - nb_m * nb_n) / (nb_m + nb_n);
-    }
-
-    if(idebug >= 1)
-    {
-        printf("get_gemm_nb:m=%d,n=%d,k=%d,  nb_m=%d,nb_n=%d,nb_k=%d \n", m, n, k, nb_m, nb_n, nb_k);
-    }
-
-    nb_m = std::max(nb_m, 1);
-    nb_n = std::max(nb_n, 1);
-    nb_k = std::max(nb_k, 1);
-
-#ifdef NDEBUG
-#else
-
-    {
-        auto const size_A = nb_m * nb_k;
-        auto const size_B = nb_k * nb_n;
-        auto const size_C = nb_m * nb_n;
-
-        assert((size_A + size_B + size_C) <= max_lds);
-    }
-#endif
-
-    *p_nb_m = nb_m;
-    *p_nb_n = nb_n;
-    *p_nb_k = nb_k;
 }
 
 // ------------------------------------------
@@ -138,14 +80,27 @@ static __global__ void scale_beta_kernel(I const m,
 
         auto A = [=](auto i, auto j) -> T& { return (A_[i + j * static_cast<int64_t>(ldA)]); };
 
-        // ----------------
-        // multiply by beta
-        // ----------------
-        for(I j = j_start; j < n; j += j_inc)
+        if(is_beta_zero)
         {
-            for(I i = i_start; i < m; i += i_inc)
+            for(auto j = j_start; j < n; j += j_inc)
             {
-                A(i, j) = (is_beta_zero) ? zero : beta * A(i, j);
+                for(auto i = i_start; i < m; i += i_inc)
+                {
+                    A(i, j) = zero;
+                }
+            }
+        }
+        else
+        {
+            // ----------------
+            // multiply by beta
+            // ----------------
+            for(auto j = j_start; j < n; j += j_inc)
+            {
+                for(auto i = i_start; i < m; i += i_inc)
+                {
+                    A(i, j) *= beta;
+                }
             }
         }
     } // end for bid
@@ -253,25 +208,6 @@ static __global__ void simple_gemm_kernel(
     bool const is_conj_transpose_B = (transB == 'C') || (transB == 'c');
     bool const is_no_transpose_B = (!is_transpose_B) && (!is_conj_transpose_B);
 
-    I const nbx = hipGridDim_x;
-    I const nby = hipGridDim_y;
-    I const nbz = hipGridDim_z;
-
-    I const ib_inc = nbx;
-    I const ib_start = hipBlockIdx_x;
-
-    I const jb_inc = nby;
-    I const jb_start = hipBlockIdx_y;
-
-    // ---------------------------------------------
-    // use only 1 thread block in k-dimension
-    // for simplicity
-    // ---------------------------------------------
-    I bid_inc = nbz;
-    I bid_start = hipBlockIdx_z;
-    I kb_start = 0;
-    I kb_inc = 1;
-
     I const nx = hipBlockDim_x;
     I const ny = hipBlockDim_y;
 
@@ -295,70 +231,86 @@ static __global__ void simple_gemm_kernel(
     size_t const max_lds = 64 * 1024;
     size_t const lmem_size = max_lds / sizeof(T);
     __shared__ T lmem[lmem_size];
+    size_t total_len = 0;
 
     I const mblocks = ceil(m, nb_m);
     I const nblocks = ceil(n, nb_n);
     I const kblocks = ceil(k, nb_k);
 
-    if(batch_count == 1)
+    I const nbx = hipGridDim_x;
+    I const nby = hipGridDim_y;
+    I const nbz = hipGridDim_z;
+
+    I const ibx = hipBlockIdx_x;
+    I const iby = hipBlockIdx_y;
+    I const ibz = hipBlockIdx_z;
+    // ---------------------------
+    // default values without batch
+    // ---------------------------
+    I bid_start = 0;
+    I bid_inc = 1;
+
+    // ----------------------------------
+    // use z-dimension for k-dimension without batch
+    // ----------------------------------
+
+    I ib_start = ibx;
+    I ib_inc = nbx;
+
+    I jb_start = iby;
+    I jb_inc = nby;
+
+    I kb_start = ibz;
+    I kb_inc = nbz;
+
+    if(batch_count > 1)
     {
-        kb_start = hipBlockIdx_z;
-        kb_inc = nbz;
-        bid_start = 0;
-        bid_inc = 1;
-    }
-    else if(kblocks == 1)
-    {
-        kb_start = 0;
-        kb_inc = 1;
-        bid_start = hipBlockIdx_z;
+        bid_start = ibz;
         bid_inc = nbz;
-    }
-    else
-    {
-        // ----------------
-        // split nbz blocks
-        // as  ni by nj grid of blocks
-        // ----------------
 
-        I const nbz_sqrt = std::sqrt(nbz);
-        I ni = std::min(nbz_sqrt, std::min(kblocks, batch_count));
-        while((nbz % ni) != 0)
-        {
-            ni--;
-        }
-        auto const nj = nbz / ni;
-        assert(ni >= 1);
-        assert(nj >= 1);
-        assert((ni * nj) == nbz);
+        // ----------------------------------
+        // y-dimension blocks for k-dimension with batch
+        // ----------------------------------
+        kb_start = iby;
+        kb_inc = nby;
 
-        auto const min_ni_nj = std::min(ni, nj);
-        auto const max_ni_nj = std::max(ni, nj);
+        // --------------------------------------
+        // split x-dimension blocks as
+        // ib_inc by jb_inc grid of thread blocks
+        //
+        // want ibx == ib_start + jb_start * ib_inc
+        // --------------------------------------
+        ib_inc = std::min(nbx, mblocks);
+        jb_inc = std::max(1, nbx / ib_inc);
 
-        kb_inc = (kblocks < batch_count) ? min_ni_nj : max_ni_nj;
-        bid_inc = (kblocks < batch_count) ? max_ni_nj : min_ni_nj;
-
-        // ---------------------------------------------
-        // partition nbz blocks as  kb_inc by bid_inc
-        // hipBlockIdx_z = kb_start + bid_start * kb_inc
-        // ---------------------------------------------
-        kb_start = (hipBlockIdx_z % kb_inc);
-        bid_start = (hipBlockIdx_z - kb_start) / kb_inc;
+        ib_start = ibx % ib_inc;
+        jb_start = std::max(0, (ibx - ib_start) / ib_inc);
     }
 
     T* pfree = (T*)&(lmem[0]);
 
-    auto const size_Csh = nb_m * nb_n;
-    T* const Csh_ = pfree;
-    pfree += size_Csh;
-
+    auto const ldAsh = nb_m;
     auto const size_Ash = nb_m * nb_k;
     T* const Ash_ = pfree;
     pfree += size_Ash;
+    total_len += size_Ash;
+    auto Ash = [=](auto i, auto j) -> T& { return (Ash_[(i - 1) + (j - 1) * ldAsh]); };
 
+    auto const ldBsh = nb_k;
     auto const size_Bsh = nb_k * nb_n;
     T* const Bsh_ = pfree;
     pfree += size_Bsh;
+    total_len += size_Bsh;
+    auto Bsh = [=](auto i, auto j) -> T& { return (Bsh_[(i - 1) + (j - 1) * ldBsh]); };
+
+    auto const ldCsh = nb_m;
+    auto const size_Csh = nb_m * nb_n;
+    T* const Csh_ = pfree;
+    pfree += size_Csh;
+    total_len += size_Csh;
+    auto Csh = [=](auto i, auto j) -> T& { return (Csh_[(i - 1) + (j - 1) * ldCsh]); };
+
+    assert(total_len <= lmem_size);
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
@@ -388,10 +340,6 @@ static __global__ void simple_gemm_kernel(
 
                 auto const nrows_C = (ic2 - ic1 + 1);
                 auto const ncols_C = (jc2 - jc1 + 1);
-
-                auto Csh = [=](auto i, auto j) -> T& { return (Csh_[(i - 1) + (j - 1) * nrows_C]); };
-
-                assert((nrows_C * ncols_C) <= size_Csh);
 
                 // --------------------------------
                 // Csh( 1:nrows_C, 1:ncols_C ) = 0;
@@ -441,11 +389,6 @@ static __global__ void simple_gemm_kernel(
                     // Ash( 1:nrows_A, 1:ncols_A ) = A( ia1:ia2, ja1:ja2 );
                     // ---------------------------------------------------
 
-                    auto Ash
-                        = [=](auto i, auto j) -> T& { return (Ash_[(i - 1) + (j - 1) * nrows_A]); };
-
-                    assert((nrows_A * ncols_A) <= size_Ash);
-
                     __syncthreads();
 
                     for(auto j = 1 + j_start; j <= ncols_A; j += j_inc)
@@ -457,7 +400,6 @@ static __global__ void simple_gemm_kernel(
                             Ash(i, j) = A(ia, ja);
                         }
                     }
-                    __syncthreads();
 
                     auto const nrows_B = (ib2 - ib1 + 1);
                     auto const ncols_B = (jb2 - jb1 + 1);
@@ -465,12 +407,6 @@ static __global__ void simple_gemm_kernel(
                     // -----------------------------------------------
                     // Bsh(1:nrows_B, 1:ncols_B) = B(ib1:ib2, jb1:jb2);
                     // -----------------------------------------------
-                    auto Bsh
-                        = [=](auto i, auto j) -> T& { return (Bsh_[(i - 1) + (j - 1) * nrows_B]); };
-
-                    assert((nrows_B * ncols_B) <= size_Bsh);
-
-                    __syncthreads();
 
                     for(auto j = 1 + j_start; j <= ncols_B; j += j_inc)
                     {
@@ -496,15 +432,17 @@ static __global__ void simple_gemm_kernel(
                                 I const kk = 1;
                                 T const* __restrict__ ap
                                     = (is_no_transpose_A) ? &(Ash(i, kk)) : &(Ash(kk, i));
-                                I ap_inc = (is_no_transpose_A) ? nrows_A : 1;
+                                I ap_inc = (is_no_transpose_A) ? ldAsh : 1;
 
                                 T const* __restrict__ bp
                                     = (is_no_transpose_B) ? &(Bsh(kk, j)) : &(Bsh(j, kk));
-                                I const bp_inc = (is_no_transpose_B) ? 1 : nrows_B;
+                                I const bp_inc = (is_no_transpose_B) ? 1 : ldBsh;
                                 for(I kk = 1; kk <= nk; kk++)
                                 {
-                                    T const aik = (is_conj_transpose_A) ? conj(*ap) : *ap;
-                                    T const bkj = (is_conj_transpose_B) ? conj(*bp) : *bp;
+                                    T const aval = *ap;
+                                    T const bval = *bp;
+                                    T const aik = (is_conj_transpose_A) ? conj(aval) : aval;
+                                    T const bkj = (is_conj_transpose_B) ? conj(bval) : bval;
 
                                     cij += aik * bkj;
 
@@ -560,13 +498,14 @@ static __global__ void simple_gemm_kernel(
                         auto const ic = (ic1 - 1) + i;
                         auto const jc = (jc1 - 1) + j;
 
-                        if(kb_inc == 1)
+                        bool const need_atomic_update = (kb_inc > 1);
+                        if(need_atomic_update)
                         {
-                            C(ic, jc) += alpha * Csh(i, j);
+                            gatomicAdd(&(C(ic, jc)), (alpha * Csh(i, j)));
                         }
                         else
                         {
-                            gatomicAdd(&(C(ic, jc)), (alpha * Csh(i, j)));
+                            C(ic, jc) += alpha * Csh(i, j);
                         }
                     }
                 }
@@ -642,8 +581,6 @@ static rocblas_status roclapack_simple_gemm_template(rocblas_handle handle,
 
     auto ceil = [](auto n, auto nb) { return (1 + ((n - 1) / nb)); };
 
-    // scale_beta_template<T,I,Istride, UC>(handle, m, n, beta, Cmat, shift_Cmat,
-    // ldC, stride_Cmat, batch_count);
     scale_beta_template<T, I, Istride, UC>(handle, m, n, beta, Cmat, shift_Cmat, ldC, stride_Cmat,
                                            batch_count);
 
@@ -655,22 +592,40 @@ static rocblas_status roclapack_simple_gemm_template(rocblas_handle handle,
     get_gemm_nb<T>(c_transA, c_transB, m, n, k, &nb_m, &nb_n, &nb_k);
 
     auto const kblocks = ceil(k, nb_k);
+    auto const mblocks = ceil(m, nb_m);
+    auto const nblocks = ceil(n, nb_n);
 
     I const max_blocks = 64 * 1000;
     I const max_threads = 1024;
 
-    I const nx = std::max(1, std::min(max_threads, nb_m));
-    I const ny = std::max(1, max_threads / nx);
+    I const nx = 32;
+    I const ny = 32;
 
     auto const num_cu = get_num_cu();
 
-    I const nbx = std::min(max_blocks, ceil(m, nx));
-    I const nby = std::min(max_blocks, ceil(n, ny));
-    I const nbz = std::min(max_blocks, std::min(num_cu, kblocks) * batch_count);
+    // --------------------------------------
+    // if no batch (or equivalently batch_count == 1),
+    // then use z-dimension as "k" dimension
+    // --------------------------------------
+    I const nbx_nobatch = std::min(max_blocks, mblocks);
+    I const nby_nobatch = std::min(max_blocks, nblocks);
+    I const nbz_nobatch
+        = std::max(1, std::min(max_blocks, std::min(kblocks, num_cu / (mblocks * nblocks))));
+
+    I const nbx_batch = std::max(1, mblocks * nblocks);
+    I const nby_batch = std::max(
+        1, std::min(max_blocks, std::min(kblocks, num_cu / (mblocks * nblocks * batch_count))));
+    I const nbz_batch = std::max(1, std::min(max_blocks, batch_count));
+
+    bool const has_batch = (batch_count > 1);
+    I const nbx = (has_batch) ? nbx_batch : nbx_nobatch;
+    I const nby = (has_batch) ? nby_batch : nby_nobatch;
+    I const nbz = (has_batch) ? nbz_batch : nbz_nobatch;
 
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
+    size_t const lmem_size = 64 * 1024;
     ROCSOLVER_LAUNCH_KERNEL((simple_gemm_kernel<T, I, Istride, UA, UB, UC>), dim3(nbx, nby, nbz),
                             dim3(nx, ny, 1), 0, stream,
 
