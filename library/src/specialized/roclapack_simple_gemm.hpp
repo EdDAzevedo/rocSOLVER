@@ -136,13 +136,13 @@ static void scale_beta_template(rocblas_handle handle,
 
     auto ceil = [](auto n, auto nb) { return ((n - 1) / nb + 1); };
 
-    auto const nx = 32;
-    auto const ny = 32;
+    I const nx = 32;
+    I const ny = 32;
 
-    auto const max_blocks = 64 * 1000;
-    auto const nbx = std::min(max_blocks, ceil(m, nx));
-    auto const nby = std::min(max_blocks, ceil(n, ny));
-    auto const nbz = std::min(max_blocks, batch_count);
+    I const max_blocks = 64 * 1000;
+    I const nbx = std::min(max_blocks, ceil(m, nx));
+    I const nby = std::min(max_blocks, ceil(n, ny));
+    I const nbz = std::min(max_blocks, batch_count);
 
     ROCSOLVER_LAUNCH_KERNEL((scale_beta_kernel<T, I, Istride, UC>), dim3(nbx, nby, nbz),
                             dim3(nx, ny, 1), 0, stream,
@@ -281,10 +281,10 @@ static __global__ void simple_gemm_kernel(
         // want ibx == ib_start + jb_start * ib_inc
         // --------------------------------------
         ib_inc = std::min(nbx, mblocks);
-        jb_inc = std::max(1, nbx / ib_inc);
+        jb_inc = std::max(I(1), nbx / ib_inc);
 
         ib_start = ibx % ib_inc;
-        jb_start = std::max(0, (ibx - ib_start) / ib_inc);
+        jb_start = std::max(I(0), (ibx - ib_start) / ib_inc);
     }
 
     T* pfree = reinterpret_cast<T*>(&(lmem[0]));
@@ -601,12 +601,12 @@ static rocblas_status roclapack_simple_gemm_template(rocblas_handle handle,
     I const nbx_nobatch = std::min(max_blocks, mblocks);
     I const nby_nobatch = std::min(max_blocks, nblocks);
     I const nbz_nobatch
-        = std::max(1, std::min(max_blocks, std::min(kblocks, num_cu / (mblocks * nblocks))));
+        = std::max(I(1), std::min(max_blocks, std::min(kblocks, num_cu / (mblocks * nblocks))));
 
-    I const nbx_batch = std::max(1, mblocks * nblocks);
+    I const nbx_batch = std::max(I(1), mblocks * nblocks);
     I const nby_batch = std::max(
-        1, std::min(max_blocks, std::min(kblocks, num_cu / (mblocks * nblocks * batch_count))));
-    I const nbz_batch = std::max(1, std::min(max_blocks, batch_count));
+        I(1), std::min(max_blocks, std::min(kblocks, num_cu / (mblocks * nblocks * batch_count))));
+    I const nbz_batch = std::max(I(1), std::min(max_blocks, batch_count));
 
     bool const has_batch = (batch_count > 1);
     I const nbx = (has_batch) ? nbx_batch : nbx_nobatch;

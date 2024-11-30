@@ -253,7 +253,7 @@ static void rocblasCall_trmm_mem(rocblas_side const side,
                                  I const batch_count,
                                  size_t* size_trmm_byte)
 {
-    *size_trmm_byte = 2 * sizeof(T*) * std::max(1, batch_count);
+    *size_trmm_byte = 2 * sizeof(T*) * std::max(I(1), batch_count);
 }
 
 // -----------------------------------------------

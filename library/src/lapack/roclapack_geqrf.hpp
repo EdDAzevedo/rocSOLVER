@@ -149,7 +149,7 @@ rocblas_status rocsolver_geqrf_template(rocblas_handle handle,
         T* tau = static_cast<T*>(ipiv);
         rocblas_stride const stride_tau = static_cast<rocblas_stride>(strideP);
 
-        rocblas_int lwork_bytes = size_rgeqrf;
+        I lwork_bytes = size_rgeqrf;
         rocblas_stride const lshiftA = shiftA;
 
         void* const work = static_cast<void*>(work_workArr);
