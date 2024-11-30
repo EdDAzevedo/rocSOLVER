@@ -41,6 +41,7 @@
 #include "common/auxiliary/testing_larfb.hpp"
 #include "common/auxiliary/testing_larfg.hpp"
 #include "common/auxiliary/testing_larft.hpp"
+#include "common/auxiliary/testing_lasr.hpp"
 #include "common/auxiliary/testing_laswp.hpp"
 #include "common/auxiliary/testing_lasyf.hpp"
 #include "common/auxiliary/testing_latrd.hpp"
@@ -131,11 +132,15 @@ class rocsolver_dispatcher
     {
         // Map for functions that support all precisions
         static const func_map map = {
+            // auxiliaries
             {"laswp", testing_laswp<T>},
-            {"larfg", testing_larfg<T>},
-            {"larf", testing_larf<T>},
+            {"larfg", testing_larfg<T, rocblas_int>},
+            {"larfg_64", testing_larfg<T, int64_t>},
+            {"larf", testing_larf<T, rocblas_int>},
+            {"larf_64", testing_larf<T, int64_t>},
             {"larft", testing_larft<T>},
             {"larfb", testing_larfb<T>},
+            {"lasr", testing_lasr<T>},
             {"latrd", testing_latrd<T>},
             {"labrd", testing_labrd<T>},
             {"bdsqr", testing_bdsqr<T>},
@@ -147,16 +152,25 @@ class rocsolver_dispatcher
             {"lasyf", testing_lasyf<T>},
             {"lauum", testing_lauum<T>},
             // potrf
-            {"potf2", testing_potf2_potrf<false, false, 0, T>},
-            {"potf2_batched", testing_potf2_potrf<true, true, 0, T>},
-            {"potf2_strided_batched", testing_potf2_potrf<false, true, 0, T>},
-            {"potrf", testing_potf2_potrf<false, false, 1, T>},
-            {"potrf_batched", testing_potf2_potrf<true, true, 1, T>},
-            {"potrf_strided_batched", testing_potf2_potrf<false, true, 1, T>},
+            {"potf2", testing_potf2_potrf<false, false, 0, T, rocblas_int>},
+            {"potf2_batched", testing_potf2_potrf<true, true, 0, T, rocblas_int>},
+            {"potf2_strided_batched", testing_potf2_potrf<false, true, 0, T, rocblas_int>},
+            {"potf2_64", testing_potf2_potrf<false, false, 0, T, int64_t>},
+            {"potf2_batched_64", testing_potf2_potrf<true, true, 0, T, int64_t>},
+            {"potf2_strided_batched_64", testing_potf2_potrf<false, true, 0, T, int64_t>},
+            {"potrf", testing_potf2_potrf<false, false, 1, T, rocblas_int>},
+            {"potrf_batched", testing_potf2_potrf<true, true, 1, T, rocblas_int>},
+            {"potrf_strided_batched", testing_potf2_potrf<false, true, 1, T, rocblas_int>},
+            {"potrf_64", testing_potf2_potrf<false, false, 1, T, int64_t>},
+            {"potrf_batched_64", testing_potf2_potrf<true, true, 1, T, int64_t>},
+            {"potrf_strided_batched_64", testing_potf2_potrf<false, true, 1, T, int64_t>},
             // potrs
-            {"potrs", testing_potrs<false, false, T>},
-            {"potrs_batched", testing_potrs<true, true, T>},
-            {"potrs_strided_batched", testing_potrs<false, true, T>},
+            {"potrs", testing_potrs<false, false, T, rocblas_int>},
+            {"potrs_batched", testing_potrs<true, true, T, rocblas_int>},
+            {"potrs_strided_batched", testing_potrs<false, true, T, rocblas_int>},
+            {"potrs_64", testing_potrs<false, false, T, int64_t>},
+            {"potrs_batched_64", testing_potrs<true, true, T, int64_t>},
+            {"potrs_strided_batched_64", testing_potrs<false, true, T, int64_t>},
             // posv
             {"posv", testing_posv<false, false, T>},
             {"posv_batched", testing_posv<true, true, T>},
@@ -186,13 +200,20 @@ class rocsolver_dispatcher
             {"getf2_batched_64", testing_getf2_getrf<true, true, 0, T, int64_t>},
             {"getf2_strided_batched_64", testing_getf2_getrf<false, true, 0, T, int64_t>},
             // geqrf
-            {"geqr2", testing_geqr2_geqrf<false, false, 0, T>},
-            {"geqr2_batched", testing_geqr2_geqrf<true, true, 0, T>},
-            {"geqr2_strided_batched", testing_geqr2_geqrf<false, true, 0, T>},
-            {"geqrf", testing_geqr2_geqrf<false, false, 1, T>},
-            {"geqrf_batched", testing_geqr2_geqrf<true, true, 1, T>},
-            {"geqrf_strided_batched", testing_geqr2_geqrf<false, true, 1, T>},
-            {"geqrf_ptr_batched", testing_geqr2_geqrf<true, false, 1, T>},
+            {"geqr2", testing_geqr2_geqrf<false, false, 0, T, rocblas_int>},
+            {"geqr2_batched", testing_geqr2_geqrf<true, true, 0, T, rocblas_int>},
+            {"geqr2_strided_batched", testing_geqr2_geqrf<false, true, 0, T, rocblas_int>},
+            {"geqr2_64", testing_geqr2_geqrf<false, false, 0, T, int64_t>},
+            {"geqr2_batched_64", testing_geqr2_geqrf<true, true, 0, T, int64_t>},
+            {"geqr2_strided_batched_64", testing_geqr2_geqrf<false, true, 0, T, int64_t>},
+            {"geqrf", testing_geqr2_geqrf<false, false, 1, T, rocblas_int>},
+            {"geqrf_batched", testing_geqr2_geqrf<true, true, 1, T, rocblas_int>},
+            {"geqrf_strided_batched", testing_geqr2_geqrf<false, true, 1, T, rocblas_int>},
+            {"geqrf_ptr_batched", testing_geqr2_geqrf<true, false, 1, T, rocblas_int>},
+            {"geqrf_64", testing_geqr2_geqrf<false, false, 1, T, int64_t>},
+            {"geqrf_batched_64", testing_geqr2_geqrf<true, true, 1, T, int64_t>},
+            {"geqrf_strided_batched_64", testing_geqr2_geqrf<false, true, 1, T, int64_t>},
+            {"geqrf_ptr_batched_64", testing_geqr2_geqrf<true, false, 1, T, int64_t>},
             // gerqf
             {"gerq2", testing_gerq2_gerqf<false, false, 0, T>},
             {"gerq2_batched", testing_gerq2_gerqf<true, true, 0, T>},
@@ -301,6 +322,7 @@ class rocsolver_dispatcher
     {
         // Map for functions that support only single and double precisions
         static const func_map map_real = {
+            // auxiliaries
             {"sterf", testing_sterf<T>},
             {"stebz", testing_stebz<T>},
             {"bdsvdx", testing_bdsvdx<T>},
@@ -409,7 +431,9 @@ class rocsolver_dispatcher
     {
         // Map for functions that support only single-complex and double-complex precisions
         static const func_map map_complex = {
-            {"lacgv", testing_lacgv<T>},
+            // auxiliaries
+            {"lacgv", testing_lacgv<T, rocblas_int>},
+            {"lacgv_64", testing_lacgv<T, int64_t>},
             // ungxx
             {"ung2r", testing_orgxr_ungxr<T, 0>},
             {"ungqr", testing_orgxr_ungxr<T, 1>},

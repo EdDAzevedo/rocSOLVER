@@ -82,6 +82,8 @@ set(rocauxiliary_test_source
   auxiliary/larfg_gtest.cpp
   auxiliary/larft_gtest.cpp
   auxiliary/larfb_gtest.cpp
+  # plane rotations
+  auxiliary/lasr_gtest.cpp
   # orthonormal/unitary matrices
   auxiliary/orgxr_ungxr_gtest.cpp
   auxiliary/orglx_unglx_gtest.cpp
@@ -186,8 +188,6 @@ target_link_libraries(rocsolver-test PRIVATE
   roc::rocblas
 )
 
-# Turn on f16c intrinsics
-target_compile_options(rocsolver-test PRIVATE -mf16c)
 target_compile_definitions(rocsolver-test PRIVATE
   ROCM_USE_FLOAT16
   ROCSOLVER_CLIENTS_TEST

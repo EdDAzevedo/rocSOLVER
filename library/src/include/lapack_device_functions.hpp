@@ -617,8 +617,81 @@ __device__ void lasrt_increasing(const rocblas_int n, T* D, rocblas_int* stack)
     }
 }
 
+/** IAMAX finds the maximum element of a given vector.
+    MAX_THDS should be 128, 256, 512, or 1024, and sval should
+    be a shared array of size MAX_THDS. **/
+template <int MAX_THDS, typename T, typename I, typename S>
+__device__ void iamax(const I tid, const I n, T* A, const I incA, S* sval)
+{
+    // local memory setup
+    S val1, val2;
+
+    // read into shared memory while doing initial step
+    // (each thread reduce as many elements as needed to cover the original array)
+    val1 = 0;
+    for(I i = tid; i < n; i += MAX_THDS)
+    {
+        val2 = aabs<S>(A[i * incA]);
+        if(val1 < val2)
+            val1 = val2;
+    }
+    sval[tid] = val1;
+    __syncthreads();
+
+    if(n <= 1)
+        return;
+
+        /** <========= Next do the reduction on the shared memory array =========>
+        (We halve the number of active threads at each step
+        reducing two elements in the shared array. **/
+
+#pragma unroll
+    for(I i = MAX_THDS / 2; i > warpSize; i /= 2)
+    {
+        if(tid < i)
+        {
+            val2 = sval[tid + i];
+            if(val1 < val2)
+                sval[tid] = val1 = val2;
+        }
+        __syncthreads();
+    }
+
+    // from this point, as all the active threads will form a single wavefront
+    // and work in lock-step, there is no need for synchronizations and barriers
+    if(tid < warpSize)
+    {
+        if(warpSize >= 64)
+        {
+            val2 = sval[tid + 64];
+            if(val1 < val2)
+                sval[tid] = val1 = val2;
+        }
+        val2 = sval[tid + 32];
+        if(val1 < val2)
+            sval[tid] = val1 = val2;
+        val2 = sval[tid + 16];
+        if(val1 < val2)
+            sval[tid] = val1 = val2;
+        val2 = sval[tid + 8];
+        if(val1 < val2)
+            sval[tid] = val1 = val2;
+        val2 = sval[tid + 4];
+        if(val1 < val2)
+            sval[tid] = val1 = val2;
+        val2 = sval[tid + 2];
+        if(val1 < val2)
+            sval[tid] = val1 = val2;
+        val2 = sval[tid + 1];
+        if(val1 < val2)
+            sval[tid] = val1 = val2;
+    }
+
+    // after the reduction, the maximum of the elements is in sval[0]
+}
+
 /** IAMAX finds the maximum element of a given vector and its index.
-    MAX_THDS should be 128, 256, 512, or 1024, and sval and sidx should
+    MAX_THDS should be 64, 128, 256, 512, or 1024, and sval and sidx should
     be shared arrays of size MAX_THDS. **/
 template <int MAX_THDS, typename T, typename I, typename S>
 __device__ void iamax(const I tid, const I n, T* A, const I incA, S* sval, I* sidx)
@@ -672,7 +745,7 @@ __device__ void iamax(const I tid, const I n, T* A, const I incA, S* sval, I* si
     // and work in lock-step, there is no need for synchronizations and barriers
     if(tid < warpSize)
     {
-        if(warpSize >= 64)
+        if(warpSize >= 64 && MAX_THDS >= 128)
         {
             val2 = sval[tid + 64];
             idx2 = sidx[tid + 64];
@@ -730,7 +803,7 @@ __device__ void iamax(const I tid, const I n, T* A, const I incA, S* sval, I* si
 }
 
 /** NRM2 finds the euclidean norm of a given vector.
-    MAX_THDS should be 128, 256, 512, or 1024, and sval should
+    MAX_THDS should be 64, 128, 256, 512, or 1024, and sval should
     be a shared array of size MAX_THDS. **/
 template <int MAX_THDS, typename T>
 __device__ void nrm2(const rocblas_int tid, const rocblas_int n, T* A, const rocblas_int incA, T* sval)
@@ -771,7 +844,7 @@ __device__ void nrm2(const rocblas_int tid, const rocblas_int n, T* A, const roc
     // and work in lock-step, there is no need for synchronizations and barriers
     if(tid < warpSize)
     {
-        if(warpSize >= 64)
+        if(warpSize >= 64 && MAX_THDS >= 128)
         {
             sval[tid] = sval[tid] + sval[tid + 64];
             __threadfence();
@@ -795,6 +868,72 @@ __device__ void nrm2(const rocblas_int tid, const rocblas_int n, T* A, const roc
         sval[0] = sqrt(sval[0]);
 }
 
+/** DOT finds the dot product of vectors x and y (or conj(y)).
+    MAX_THDS should be 64, 128, 256, 512, or 1024, and sval should
+    be a shared array of size MAX_THDS. **/
+template <int MAX_THDS, bool CONJY, typename T>
+__device__ void dot(const rocblas_int tid,
+                    const rocblas_int n,
+                    T* x,
+                    const rocblas_int incX,
+                    T* y,
+                    const rocblas_int incY,
+                    T* sval)
+{
+    // local memory setup
+    T val = 0;
+
+    // read into shared memory while doing initial step
+    // (each thread reduce as many elements as needed to cover the original array)
+    for(int i = tid; i < n; i += MAX_THDS)
+        val = val + x[i * incX] * (CONJY ? conj(y[i * incY]) : y[i * incY]);
+    sval[tid] = val;
+    __syncthreads();
+
+    if(n <= 1)
+        return;
+
+        /** <========= Next do the reduction on the shared memory array =========>
+        (We halve the number of active threads at each step
+        reducing two elements in the shared array. **/
+
+#pragma unroll
+    for(int i = MAX_THDS / 2; i > warpSize; i /= 2)
+    {
+        if(tid < i)
+            val = val + sval[tid + i];
+        __syncthreads();
+        if(tid < i)
+            sval[tid] = val;
+        __syncthreads();
+    }
+
+    // from this point, as all the active threads will form a single wavefront
+    // and work in lock-step, there is no need for synchronizations and barriers
+    if(tid < warpSize)
+    {
+        if(warpSize >= 64 && MAX_THDS >= 128)
+        {
+            sval[tid] = sval[tid] + sval[tid + 64];
+            __threadfence();
+        }
+        sval[tid] = sval[tid] + sval[tid + 32];
+        __threadfence();
+        sval[tid] = sval[tid] + sval[tid + 16];
+        __threadfence();
+        sval[tid] = sval[tid] + sval[tid + 8];
+        __threadfence();
+        sval[tid] = sval[tid] + sval[tid + 4];
+        __threadfence();
+        sval[tid] = sval[tid] + sval[tid + 2];
+        __threadfence();
+        sval[tid] = sval[tid] + sval[tid + 1];
+        __threadfence();
+    }
+
+    // after the reduction, the dot product is in sval[0]
+}
+
 /** LAGTF computes an LU factorization of a matrix T - lambda*I, where T
     is a tridiagonal matrix and lambda is a scalar. **/
 template <typename T>
@@ -811,7 +950,7 @@ __device__ void lagtf(rocblas_int n, T* a, T lambda, T* b, T* c, T tol, T* d, ro
         return;
     }
 
-    tol = max(tol, eps);
+    tol = std::fmax(tol, eps);
     scale1 = abs(a[0]) + abs(b[0]);
     for(rocblas_int k = 0; k < n - 1; k++)
     {
@@ -859,7 +998,7 @@ __device__ void lagtf(rocblas_int n, T* a, T lambda, T* b, T* c, T tol, T* d, ro
             }
         }
 
-        if(max(piv1, piv2) <= tol && in[n - 1] == 0)
+        if(std::fmax(piv1, piv2) <= tol && in[n - 1] == 0)
             in[n - 1] = k + 1;
     }
 
@@ -882,9 +1021,9 @@ __device__ void
     {
         tol = abs(a[0]);
         if(n > 1)
-            tol = max(tol, max(abs(a[1]), abs(b[0])));
+            tol = std::fmax(tol, std::fmax(abs(a[1]), abs(b[0])));
         for(k = 2; k < n; k++)
-            tol = max(max(tol, abs(a[k])), max(abs(b[k - 1]), abs(d[k - 2])));
+            tol = std::fmax(std::fmax(tol, abs(a[k])), std::fmax(abs(b[k - 1]), abs(d[k - 2])));
         tol = tol * eps;
         if(tol == 0)
             tol = eps;
@@ -969,6 +1108,83 @@ ROCSOLVER_KERNEL void axpy_kernel(const rocblas_int n,
 
         // axpy
         y[i * incy] = a[0] * x[i * incx] + y[i * incy];
+    }
+}
+
+/** ROT applies a Givens rotation between to vector x y of dimension n.
+    Launch this kernel with a desired number of threads organized in
+    NG groups in the x direction with NT threads in the x direction. **/
+template <typename S, typename T, typename I>
+ROCSOLVER_KERNEL void
+    rot_kernel(I const n, T* const x, I const incx, T* const y, I const incy, S const c, S const s)
+{
+    if(n <= 0)
+        return;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+
+    if((incx == 1) && (incy == 1))
+    {
+        // ------------
+        // special case
+        // ------------
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            auto const temp = c * x[i] + s * y[i];
+            y[i] = c * y[i] - s * x[i];
+            x[i] = temp;
+        }
+    }
+    else
+    {
+        // ---------------------------
+        // code for unequal increments
+        // ---------------------------
+
+        for(auto i = i_start; i < n; i += i_inc)
+        {
+            auto const ix = i * static_cast<int64_t>(incx);
+            auto const iy = i * static_cast<int64_t>(incy);
+            auto const temp = c * x[ix] + s * y[iy];
+            y[iy] = c * y[iy] - s * x[ix];
+            x[ix] = temp;
+        }
+    }
+}
+
+/** SCAL scales a vector x of dimension n by a factor da.
+    Launch this kernel with a desired number of threads organized in
+    NG groups in the x direction with NT threads in the x direction. **/
+template <typename S, typename T, typename I>
+ROCSOLVER_KERNEL void scal_kernel(I const n, S const da, T* const x, I const incx)
+{
+    if(n <= 0)
+        return;
+
+    I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
+    I const i_inc = hipBlockDim_x * hipGridDim_x;
+
+    S const zero = 0;
+    bool const is_da_zero = (da == zero);
+    if(incx == 1)
+    {
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            x[i] = da * x[i];
+        }
+    }
+    else
+    {
+        // ---------------------------
+        // code for non-unit increments
+        // ---------------------------
+
+        for(I i = i_start; i < n; i += i_inc)
+        {
+            auto const ix = i * static_cast<int64_t>(incx);
+            x[ix] = da * x[ix];
+        }
     }
 }
 

@@ -43,14 +43,25 @@ ROCSOLVER_BEGIN_NAMESPACE
  * ===========================================================================
  */
 
-inline int64_t idx2D(const int64_t i, const int64_t j, const int64_t lda)
+__device__ __host__ inline int64_t idx2D(const int64_t i, const int64_t j, const int64_t lda)
 {
     return j * lda + i;
 }
 
-inline int64_t idx2D(const int64_t i, const int64_t j, const int64_t inca, const int64_t lda)
+__device__ __host__ inline int64_t
+    idx2D(const int64_t i, const int64_t j, const int64_t inca, const int64_t lda)
 {
     return j * lda + i * inca;
+}
+
+__device__ __host__ inline int32_t ceil(const int32_t n, const int32_t nb)
+{
+    return ((n - 1) / nb) + 1;
+}
+
+__device__ __host__ inline int64_t ceil(const int64_t n, const int64_t nb)
+{
+    return ((n - 1) / nb) + 1;
 }
 
 template <typename T>
@@ -89,6 +100,74 @@ I get_index(I* intervals, I max, I dim)
     }
 
     return i;
+}
+
+template <typename T, typename I>
+static void call_swap(I& n, T& x_in, I& incx, T& y_in, I& incy)
+{
+    T* const x = &(x_in);
+    T* const y = &(y_in);
+    for(I i = 0; i < n; i++)
+    {
+        auto const ix = i * static_cast<int64_t>(incx);
+        auto const iy = i * static_cast<int64_t>(incy);
+
+        T const temp = x[ix];
+        x[ix] = y[iy];
+        y[iy] = temp;
+    }
+}
+
+static float real_part(float z)
+{
+    return (z);
+}
+static float real_part(std::complex<float> z)
+{
+    return (z.real());
+}
+static float real_part(rocblas_complex_num<float> z)
+{
+    return (z.real());
+}
+
+static double real_part(double z)
+{
+    return (z);
+}
+static double real_part(std::complex<double> z)
+{
+    return (z.real());
+}
+static double real_part(rocblas_complex_num<double> z)
+{
+    return (z.real());
+}
+
+static float imag_part(float z)
+{
+    return (0);
+}
+static float imag_part(std::complex<float> z)
+{
+    return (z.imag());
+}
+static float imag_part(rocblas_complex_num<float> z)
+{
+    return (z.imag());
+}
+
+static double imag_part(double z)
+{
+    return (0);
+}
+static double imag_part(std::complex<double> z)
+{
+    return (z.imag());
+}
+static double imag_part(rocblas_complex_num<double> z)
+{
+    return (z.imag());
 }
 
 #ifdef ROCSOLVER_VERIFY_ASSUMPTIONS
@@ -150,6 +229,14 @@ extern "C" [[noreturn]] void __assert_fail(const char* assertion,
     } while(0)
 #else
 #define ROCSOLVER_ASSUME_X(invariant, msg) __builtin_assume(invariant)
+#endif
+
+#ifndef CHECK_HIP
+#define CHECK_HIP(fcn)                  \
+    {                                   \
+        hipError_t const istat = (fcn); \
+        assert(istat == hipSuccess);    \
+    }
 #endif
 
 ROCSOLVER_END_NAMESPACE

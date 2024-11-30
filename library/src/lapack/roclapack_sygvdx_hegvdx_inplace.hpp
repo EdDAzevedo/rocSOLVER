@@ -147,25 +147,25 @@ void rocsolver_sygvdx_hegvdx_inplace_getMemorySize(const rocblas_eform itype,
     rocsolver_potrf_getMemorySize<BATCHED, STRIDED, T>(n, uplo, batch_count, size_scalars,
                                                        size_work1, size_work2, size_work3, size_work4,
                                                        size_work7_workArr, size_iinfo, &opt1);
-    *size_iinfo = max(*size_iinfo, sizeof(rocblas_int) * batch_count);
+    *size_iinfo = std::max(*size_iinfo, sizeof(rocblas_int) * batch_count);
 
     // requirements for calling SYGST/HEGST
     rocsolver_sygst_hegst_getMemorySize<BATCHED, STRIDED, T>(uplo, itype, n, batch_count, &unused,
                                                              &temp1, &temp2, &temp3, &temp4, &opt2);
-    *size_work1 = max(*size_work1, temp1);
-    *size_work2 = max(*size_work2, temp2);
-    *size_work3 = max(*size_work3, temp3);
-    *size_work4 = max(*size_work4, temp4);
+    *size_work1 = std::max(*size_work1, temp1);
+    *size_work2 = std::max(*size_work2, temp2);
+    *size_work3 = std::max(*size_work3, temp3);
+    *size_work4 = std::max(*size_work4, temp4);
 
     // requirements for calling SYEVDX/HEEVDX
     rocsolver_syevdx_heevdx_inplace_getMemorySize<BATCHED, T, S>(
         evect, uplo, n, batch_count, &unused, &temp1, &temp2, &temp3, &temp4, size_work5,
         size_work6_ifail, size_D, size_E, size_iblock, size_isplit, size_tau, size_nev, &temp5);
-    *size_work1 = max(*size_work1, temp1);
-    *size_work2 = max(*size_work2, temp2);
-    *size_work3 = max(*size_work3, temp3);
-    *size_work4 = max(*size_work4, temp4);
-    *size_work7_workArr = max(*size_work7_workArr, temp5);
+    *size_work1 = std::max(*size_work1, temp1);
+    *size_work2 = std::max(*size_work2, temp2);
+    *size_work3 = std::max(*size_work3, temp3);
+    *size_work4 = std::max(*size_work4, temp4);
+    *size_work7_workArr = std::max(*size_work7_workArr, temp5);
 
     if(evect == rocblas_evect_original)
     {
@@ -177,10 +177,10 @@ void rocsolver_sygvdx_hegvdx_inplace_getMemorySize(const rocblas_eform itype,
             // requirements for calling TRSM
             rocsolver_trsm_mem<BATCHED, STRIDED, T>(rocblas_side_left, trans, n, n, batch_count,
                                                     &temp1, &temp2, &temp3, &temp4, &opt3);
-            *size_work1 = max(*size_work1, temp1);
-            *size_work2 = max(*size_work2, temp2);
-            *size_work3 = max(*size_work3, temp3);
-            *size_work4 = max(*size_work4, temp4);
+            *size_work1 = std::max(*size_work1, temp1);
+            *size_work2 = std::max(*size_work2, temp2);
+            *size_work3 = std::max(*size_work3, temp3);
+            *size_work4 = std::max(*size_work4, temp4);
         }
     }
 
@@ -195,11 +195,11 @@ rocblas_status rocsolver_sygvdx_hegvdx_inplace_template(rocblas_handle handle,
                                                         const rocblas_fill uplo,
                                                         const rocblas_int n,
                                                         U A,
-                                                        const rocblas_int shiftA,
+                                                        const rocblas_stride shiftA,
                                                         const rocblas_int lda,
                                                         const rocblas_stride strideA,
                                                         U B,
-                                                        const rocblas_int shiftB,
+                                                        const rocblas_stride shiftB,
                                                         const rocblas_int ldb,
                                                         const rocblas_stride strideB,
                                                         const S vl,
@@ -264,9 +264,9 @@ rocblas_status rocsolver_sygvdx_hegvdx_inplace_template(rocblas_handle handle,
     T one = 1;
 
     // perform Cholesky factorization of B
-    rocsolver_potrf_template<BATCHED, STRIDED, T, S>(handle, uplo, n, B, shiftB, ldb, strideB, info,
-                                                     batch_count, scalars, work1, work2, work3,
-                                                     work4, (T*)work7_workArr, iinfo, optim_mem);
+    rocsolver_potrf_template<BATCHED, STRIDED, T, rocblas_int, rocblas_int, S>(
+        handle, uplo, n, B, shiftB, ldb, strideB, info, batch_count, scalars, work1, work2, work3,
+        work4, (T*)work7_workArr, iinfo, optim_mem);
 
     /** (TODO: Strictly speaking, computations should stop here if B is not positive definite.
         A should not be modified in this case as no eigenvalues or eigenvectors can be computed.
