@@ -287,7 +287,7 @@ static __global__ void simple_gemm_kernel(
         jb_start = std::max(0, (ibx - ib_start) / ib_inc);
     }
 
-    T* pfree = (T*)&(lmem[0]);
+    T* pfree = reinterpret_cast<T*>(&(lmem[0]));
 
     auto const ldAsh = nb_m;
     auto const size_Ash = nb_m * nb_k;
