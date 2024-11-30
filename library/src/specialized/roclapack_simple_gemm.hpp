@@ -558,15 +558,6 @@ static rocblas_status roclapack_simple_gemm_template(rocblas_handle handle,
     char const c_transA = op2char(transA);
     char const c_transB = op2char(transB);
 
-#ifdef NDEBUG
-#else
-    if(idebug >= 1)
-    {
-        printf("roclapack_simple_gemm:transA=%c,transB=%c,m=%d,n=%d,k=%d \n", c_transA, c_transB, m,
-               n, k);
-    }
-#endif
-
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
     if(!has_work)
     {
