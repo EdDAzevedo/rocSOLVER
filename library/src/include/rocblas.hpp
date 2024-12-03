@@ -2257,6 +2257,17 @@ rocblas_status rocblasCall_trsm_mem(rocblas_side side,
                                     size_t* invA,
                                     size_t* invA_arr)
 {
+    *x_temp = 0;
+    *x_temp_arr = 0;
+    *invA = 0;
+    *invA_arr = 0;
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return (rocblas_status_success);
+    };
+
+    bool const use_workspace_max_size = true;
     size_t no_opt_size = 0;
     /** TODO: For now, we always request the size for optimal performance.
         no_opt_size could be used in the future if we generalize the use of
@@ -2266,23 +2277,44 @@ rocblas_status rocblasCall_trsm_mem(rocblas_side side,
     if constexpr(std::is_same<I, int64_t>::value)
     {
         if constexpr(BATCHED)
-            return rocblas_internal_trsm_batched_workspace_size_64<T>(
-                side, transA, m, n, lda, ldb, batch_count, 0, x_temp, x_temp_arr, invA, invA_arr,
-                &no_opt_size);
+            return (use_workspace_max_size) ? rocblas_internal_trsm_batched_workspace_max_size_64<T>(
+                       side, m, n, batch_count, x_temp, x_temp_arr, invA, invA_arr, &no_opt_size)
+
+                                            : rocblas_internal_trsm_batched_workspace_size_64<T>(
+                                                side, transA, m, n, lda, ldb, batch_count, 0,
+                                                x_temp, x_temp_arr, invA, invA_arr, &no_opt_size);
         else
-            return rocblas_internal_trsm_workspace_size_64<T>(side, transA, m, n, lda, ldb,
-                                                              batch_count, 0, x_temp, x_temp_arr,
-                                                              invA, invA_arr, &no_opt_size);
+            return (use_workspace_max_size)
+                ? rocblas_internal_trsm_batched_workspace_max_size_64<T>(
+                    side, m, n, batch_count, x_temp, x_temp_arr, invA, invA_arr, &no_opt_size)
+                : rocblas_internal_trsm_workspace_size_64<T>(side, transA, m, n, lda, ldb,
+                                                             batch_count, 0, x_temp, x_temp_arr,
+                                                             invA, invA_arr, &no_opt_size);
     }
     else
     {
+        int64_t mm = m;
+        int64_t nn = n;
+        int64_t bb = batch_count;
+
         if constexpr(BATCHED)
-            return rocblas_internal_trsm_batched_workspace_size<T>(side, transA, m, n, batch_count,
-                                                                   0, x_temp, x_temp_arr, invA,
-                                                                   invA_arr, &no_opt_size);
+        {
+            return (use_workspace_max_size)
+                ? rocblas_internal_trsm_batched_workspace_max_size_64<T>(
+                    side, mm, nn, bb, x_temp, x_temp_arr, invA, invA_arr, &no_opt_size)
+
+                : rocblas_internal_trsm_batched_workspace_size<T>(side, transA, m, n, batch_count,
+                                                                  0, x_temp, x_temp_arr, invA,
+                                                                  invA_arr, &no_opt_size);
+        }
         else
-            return rocblas_internal_trsm_workspace_size<T>(side, transA, m, n, batch_count, 0, x_temp,
-                                                           x_temp_arr, invA, invA_arr, &no_opt_size);
+        {
+            return (use_workspace_max_size)
+                ? rocblas_internal_trsm_batched_workspace_max_size_64<T>(
+                    side, mm, nn, bb, x_temp, x_temp_arr, invA, invA_arr, &no_opt_size)
+                : rocblas_internal_trsm_workspace_size<T>(side, transA, m, n, batch_count, 0, x_temp,
+                                                          x_temp_arr, invA, invA_arr, &no_opt_size);
+        }
     }
 }
 
