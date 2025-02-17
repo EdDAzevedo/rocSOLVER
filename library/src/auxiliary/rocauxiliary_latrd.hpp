@@ -4,7 +4,7 @@
  *     Univ. of Tennessee, Univ. of California Berkeley,
  *     Univ. of Colorado Denver and NAG Ltd..
  *     June 2017
- * Copyright (C) 2019-2024 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Advanced Micro Devices, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -85,6 +85,18 @@ void rocsolver_latrd_getMemorySize(const rocblas_int n,
 
     *size_norms = std::max(n1, n2);
     *size_work = std::max({w1, w2, w3});
+
+    {
+        // -------------------------------------------------------
+        // scratch space to store the strictly upper triangular or
+        // strictly lower triangular part
+        // -------------------------------------------------------
+        auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
+        size_t const len_triangle_matrix = is_even(n) ? static_cast<int64_t>(n / 2) * (n + 1)
+                                                      : static_cast<int64_t>(n) * ((n + 1) / 2);
+
+        *size_work += sizeof(T) * len_triangle_matrix * batch_count;
+    }
 }
 
 template <typename T, typename S, typename U>
@@ -119,6 +131,159 @@ rocblas_status rocsolver_latrd_argCheck(rocblas_handle handle,
         return rocblas_status_invalid_pointer;
 
     return rocblas_status_continue;
+}
+
+// ------------------------------------------------------------
+// copy the strictly upper or strictly lower triangular matrix
+// of n by n matrix
+//
+// A is symmetric full matrix
+// C is compact triangular matrix
+//
+// C <- A   if is_update_C is true
+// A <- C   if is_update_C is false
+// ------------------------------------------------------------
+template <typename T, typename I>
+static __device__ void copy_triang_body(bool const is_update_lower,
+                                        bool const is_update_C,
+                                        I const n,
+                                        T const A_,
+                                        I const lda,
+                                        T const C_)
+{
+    auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
+
+    auto idx_lower = [=](auto i, auto j, auto n) {
+        assert((0 <= i) && (i < n));
+        assert((0 <= j) && (j < n));
+        assert((i >= j));
+
+        auto const tmp = is_even(j) ? static_cast<int64_t>(j / 2) * (2 * n + 1 - j)
+                                    : static_cast<int64_t>(j) * ((2 * n + 1 - j) / 2);
+
+        return (((i - j) + tmp));
+    };
+
+    auto idx_upper = [=](auto i, auto j, auto n) {
+        assert((0 <= i) && (i < n));
+        assert((0 <= j) && (j < n));
+        assert((i <= j));
+
+        auto const tmp = is_even(j) ? static_cast<int64_t>(j / 2) * (j + 1)
+                                    : static_cast<int64_t>(j) * ((j + 1) / 2);
+
+        return ((i + tmp));
+    };
+
+    auto idx_compact = (is_update_lower) ? idx_lower : idx_upper;
+    auto C = [=](auto i, auto j) -> T& { return (C_[idx_compact(i, j, n)]); };
+
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+    auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+
+    I const tix = hipThreadIdx_x;
+    I const tiy = hipThreadIdx_y;
+
+    I const ibx = hipBlockIdx_x;
+    I const iby = hipBlockIdx_y;
+
+    I const nx = hipBlockDim_x;
+    I const ny = hipBlockDim_y;
+    {
+        assert(hipBlockDim_z == 1);
+    }
+
+    I const nbx = hipGridDim_x;
+    I const nby = hipGridDim_y;
+
+    I const i_start = tix + ibx * nx;
+    I const j_start = tiy + iby * ny;
+
+    I const i_inc = nx * nbx;
+    I const j_inc = ny * nby;
+
+    for(I j = (0 + j_start); j < n; j += j_inc)
+    {
+        I const i_start = (is_update_lower) ? (j + 1) : 0;
+
+        I const i_end = (is_update_lower) ? n : j;
+
+        if(is_update_C)
+        {
+            for(I i = (0 + i_start); i < i_end; i += i_inc)
+            {
+                C(i, j) = A(i, j);
+            }
+        }
+        else
+        {
+            for(I i = (0 + i_start); i < i_end; i += i_inc)
+            {
+                A(i, j) = C(i, j);
+            }
+        }
+    } // end for j
+}
+
+template <typename T, typename I, typename Istride, typename UA, typename UC>
+static __global__ void copy_triang_kernel(bool const is_update_lower,
+                                          bool const is_update_C,
+                                          I const n,
+                                          UA A_,
+                                          Istride const shiftA,
+                                          I const lda,
+                                          Istride const strideA,
+                                          UC C_,
+                                          Istride const shiftC,
+                                          Istride const strideC,
+                                          I const batch_count)
+{
+    I const bid_start = hipBlockIdx_z;
+    I const bid_inc = hipGridDim_z;
+
+    for(I bid = (0 + bid_start); bid < batch_count; bid += bid_inc)
+    {
+        auto const Ap = load_ptr_batch(A_, bid, shiftA, strideA);
+        auto const Cp = load_ptr_batch(C_, bid, shiftC, strideC);
+
+        copy_triang_body(is_update_lower, is_update_C, n, Ap, lda, Cp);
+    }
+}
+
+template <typename T, typename I, typename Istride, typename UA, typename UC>
+static void copy_triang(rocblas_handle handle,
+                        bool const is_update_lower,
+                        bool const is_update_C,
+                        I const n,
+                        UA A_,
+                        Istride const shiftA,
+                        I const lda,
+                        Istride const strideA,
+                        UC C_,
+                        Istride const shiftC,
+                        Istride const strideC,
+                        I const batch_count)
+{
+    auto const nx = 32;
+    auto const ny = 32;
+
+    auto ceil = [](auto m, auto n) { return (1 + (m - 1) / n); };
+
+    auto const nbx = ceil(n, nx);
+    auto const nby = ceil(n, ny);
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    copy_triang_kernel<T, I, Istride, UA, UC>
+        <<<dim3(nbx, nby, 1), dim3(nx, ny, 1), 0, stream>>>(is_update_lower, is_update_C, n,
+
+                                                            A_, shiftA, lda, strideA,
+
+                                                            C_, shiftC, strideC,
+
+                                                            batch_count);
 }
 
 template <typename T, typename S, typename U, bool COMPLEX = rocblas_is_complex<T>>
