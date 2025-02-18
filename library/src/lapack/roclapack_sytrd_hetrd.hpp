@@ -4,7 +4,7 @@
  *     Univ. of Tennessee, Univ. of California Berkeley,
  *     Univ. of Colorado Denver and NAG Ltd..
  *     December 2016
- * Copyright (C) 2020-2024 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Advanced Micro Devices, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -73,6 +73,22 @@ void rocsolver_sytrd_hetrd_getMemorySize(const rocblas_int n,
                                                     size_norms, &s2, size_workArr);
 
     *size_tmptau_W = std::max(s1, s2);
+
+    // extra memory for latrd
+    {
+        auto const k = xxTRD_BLOCKSIZE;
+        size_t lsize_scalars = 0;
+        size_t lsize_work = 0;
+        size_t lsize_norms = 0;
+        size_t lsize_workArr = 0;
+        rocsolver_latrd_getMemorySize<BATCHED, T>(n, k, batch_count, &lsize_scalars, &lsize_work,
+                                                  &lsize_norms, &lsize_workArr);
+
+        *size_norms = std::max(*size_norms, lsize_norms);
+        *size_work = std::max(*size_work, lsize_work);
+        *size_norms = std::max(*size_norms, lsize_norms);
+        *size_workArr = std::max(*size_workArr, lsize_workArr);
+    }
 }
 
 template <typename T, typename S, typename U>
@@ -152,6 +168,34 @@ rocblas_status rocsolver_sytrd_hetrd_template(rocblas_handle handle,
     rocblas_get_pointer_mode(handle, &old_mode);
     rocblas_set_pointer_mode(handle, rocblas_pointer_mode_host);
 
+    auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
+
+    if(latrd_use_gemv)
+    {
+        // ------------------------------------
+        // save the strictly upper triangular or
+        // strictly lower triangular part
+        // ------------------------------------
+        T* const C = work;
+
+        // size_t const len_triang =  is_even(n) ? size_t(n/2) * (n+1) : size_t(n) * ( (n+1)/2 );
+        size_t const len_triang_matrix = size_t(n) * n;
+
+        work += len_triang_matrix * std::max(rocblas_int(1), batch_count);
+
+        rocblas_stride const lshiftA = shiftA;
+        bool const is_update_lower = (uplo == rocblas_fill_upper);
+        bool const is_update_C = true;
+        rocblas_stride const shiftC = 0;
+        rocblas_stride const strideC = len_triang_matrix;
+        copy_triang<T>(handle, is_update_lower, is_update_C, n,
+
+                       A, lshiftA, lda, strideA,
+
+                       C, shiftC, strideC,
+
+                       batch_count);
+    }
     // scalars for rocblas calls
     T minonej = -1; //complex -1
     S one = 1; //real 1
@@ -224,6 +268,31 @@ rocblas_status rocsolver_sytrd_hetrd_template(rocblas_handle handle,
     rocblas_int blocks = (n - 1) / BS1 + 1;
     ROCSOLVER_LAUNCH_KERNEL(set_tridiag<T>, dim3(blocks, batch_count), dim3(BS1), 0, stream, uplo,
                             n, A, shiftA, lda, strideA, D, strideD, E, strideE);
+
+    if(latrd_use_gemv)
+    {
+        // ------------------------------------
+        // restore the strictly upper triangular or
+        // strictly lower triangular part
+        // ------------------------------------
+        // size_t const len_triang =  is_even(n) ? size_t(n/2) * (n+1) : size_t(n) * ( (n+1)/2 );
+        size_t const len_triang_matrix = size_t(n) * n;
+        work = work - len_triang_matrix * std::max(rocblas_int(1), batch_count);
+        T* const C = work;
+
+        rocblas_stride const lshiftA = shiftA;
+        bool const is_update_lower = (uplo == rocblas_fill_upper);
+        bool const is_update_C = false;
+        rocblas_stride const shiftC = 0;
+        rocblas_stride const strideC = len_triang_matrix;
+        copy_triang<T>(handle, is_update_lower, is_update_C, n,
+
+                       A, lshiftA, lda, strideA,
+
+                       C, shiftC, strideC,
+
+                       batch_count);
+    }
 
     rocblas_set_pointer_mode(handle, old_mode);
     return rocblas_status_success;
