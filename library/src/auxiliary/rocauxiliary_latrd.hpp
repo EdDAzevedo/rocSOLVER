@@ -322,6 +322,165 @@ static __device__ void
 {
     bool constexpr is_complex = rocblas_is_complex<T>;
 
+    auto ceil = [](auto m, auto n) { return (1 + (m - 1) / n); };
+
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+    auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
+
+    // --------------------------------------
+    // setup LDS shared memory to hold a tile
+    // --------------------------------------
+    extern __shared__ double lmem[];
+
+    I constexpr NB = 64;
+    size_t const lds_size = 64 * 1024;
+
+    bool const can_fit = (sizeof(T) * (NB + 1) * NB <= lds_size);
+    I const ldAsh = (can_fit) ? (NB + 1) : NB;
+
+    {
+        assert((sizeof(T) * ldAsh * NB) <= lds_size);
+    }
+
+    T* const Ash_ = (T*)&(lmem[0]);
+    auto Ash = [=](auto i, auto j) -> T& { return (Ash_[i + j * ldAsh]); };
+
+    I const tix = hipThreadIdx_x;
+    I const tiy = hipThreadIdx_y;
+
+    I const nx = hipBlockDim_x;
+    I const ny = hipBlockDim_y;
+    {
+        assert(hipBlockDim_z == 1);
+    }
+
+    I const ibx = hipBlockIdx_x;
+    I const iby = hipBlockIdx_y;
+
+    I const nbx = hipGridDim_x;
+    I const nby = hipGridDim_y;
+
+    auto const ntiles = ceil(n, NB);
+
+    bool const is_update_upper = (!is_update_lower);
+
+    for(I jtile = (0 + iby); jtile < ntiles; jtile += nby)
+    {
+        for(I itile = (0 + ibx); itile < ntiles; itile += nbx)
+        {
+            bool const is_diagonal_tile = (itile == jtile);
+            bool const is_strictly_lower_tile = (itile > jtile);
+            bool const is_strictly_upper_tile = (itile < jtile);
+            bool const is_lower_tile = (is_strictly_lower_tile || is_diagonal_tile);
+            bool const is_upper_tile = (is_strictly_upper_tile || is_diagonal_tile);
+
+            bool const do_load_into_lds
+                = (is_update_lower && is_upper_tile) || (is_update_upper && is_lower_tile);
+
+            if(!do_load_into_lds)
+            {
+                continue;
+            };
+
+            // --------------------------------
+            // load tile (itile,jtile) into LDS
+            // --------------------------------
+
+            I const ia_start = itile * NB;
+            I const ia_end = std::min(n, itile * NB + NB);
+            I const ja_start = jtile * NB;
+            I const ja_end = std::min(n, jtile * NB + NB);
+
+            __syncthreads();
+
+            for(I ja = (ja_start + tiy); ja < ja_end; ja += ny)
+            {
+                for(I ia = (ia_start + tix); ia < ia_end; ia += nx)
+                {
+                    I const ioff = (ia - ia_start);
+                    I const joff = (ja - ja_start);
+
+                    Ash(ioff, joff) = A(ia, ja);
+                }
+            }
+
+            __syncthreads();
+
+            // --------------------------------------------
+            // write into other transpose triangular  part
+            // --------------------------------------------
+
+            if(is_diagonal_tile)
+            {
+                for(I ia = (ia_start + tiy); ia < ia_end; ia += ny)
+                {
+                    for(I ja = (ja_start + tix); ja < ja_end; ja += nx)
+                    {
+                        auto const irow = ja;
+                        auto const jcol = ia;
+
+                        bool const is_strictly_lower = (irow > jcol);
+                        bool const is_strictly_upper = (irow < jcol);
+
+                        bool const do_work = (is_update_lower && is_strictly_lower)
+                            || (is_update_upper && is_strictly_upper);
+
+                        if(!do_work)
+                        {
+                            continue;
+                        }
+
+                        I const ioff = (ia - ia_start);
+                        I const joff = (ja - ja_start);
+                        T const aij = Ash(ioff, joff);
+
+                        if constexpr(is_complex)
+                        {
+                            A(irow, jcol) = conj(aij);
+                        }
+                        else
+                        {
+                            A(irow, jcol) = aij;
+                        }
+                    } // end for ja
+                } // end for ia
+            }
+            else
+            {
+                // -----------------
+                // off-diagonal tile
+                // -----------------
+                for(I ia = (ia_start + tiy); ia < ia_end; ia += ny)
+                {
+                    for(I ja = (ja_start + tix); ja < ja_end; ja += nx)
+                    {
+                        I const ioff = (ia - ia_start);
+                        I const joff = (ja - ja_start);
+                        T const aij = Ash(ioff, joff);
+
+                        if constexpr(is_complex)
+                        {
+                            A(ja, ia) = conj(aij);
+                        }
+                        else
+                        {
+                            A(ja, ia) = aij;
+                        }
+                    }
+                }
+            }
+
+        } // end for itile
+    } // end for jtile
+}
+
+template <typename T, typename I>
+static __device__ void
+    symmetrize_matrix_body_v2(bool const is_update_lower, I const n, T* const A_, I const lda)
+{
+    bool constexpr is_complex = rocblas_is_complex<T>;
+
     auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
     auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
@@ -477,13 +636,15 @@ static void symmetrize_matrix(rocblas_handle handle,
     I const nby = std::max(I(1), std::min(nb_max, ceil(n, ny)));
     I const nbz = std::max(I(1), std::min(batch_count, nb_max));
 
-    symmetrize_matrix_kernel<T, I, Istride, UA><<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(
+    size_t const lds_size = 64 * 1024;
+    symmetrize_matrix_kernel<T, I, Istride, UA>
+        <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), lds_size, stream>>>(
 
-        is_update_lower, n,
+            is_update_lower, n,
 
-        A_, shiftA, lda, strideA,
+            A_, shiftA, lda, strideA,
 
-        batch_count);
+            batch_count);
 }
 
 template <typename T, typename S, typename U, bool COMPLEX = rocblas_is_complex<T>>
