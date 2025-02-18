@@ -285,7 +285,7 @@ static void copy_triang(rocblas_handle handle,
 {
     auto ceil = [](auto m, auto n) { return (1 + (m - 1) / n); };
 
-    I const nb_max = 1024;
+    I const nb_max = 64 * 1000;
     I const nx = 32;
     I const ny = 32;
 
@@ -371,6 +371,7 @@ static __device__ void
             {
                 A(i, j) = A(j, i);
             }
+
         } // end for i
     } // end for j
 }
@@ -470,7 +471,7 @@ static void symmetrize_matrix(rocblas_handle handle,
     I const nx = 32;
     I const ny = 32;
 
-    I const nb_max = 1024;
+    I const nb_max = 64 * 1000;
 
     I const nbx = std::max(I(1), std::min(nb_max, ceil(n, nx)));
     I const nby = std::max(I(1), std::min(nb_max, ceil(n, ny)));
