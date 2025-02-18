@@ -170,6 +170,7 @@ rocblas_status rocsolver_sytrd_hetrd_template(rocblas_handle handle,
 
     auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
 
+    bool const latrd_use_gemv = get_latrd_use_gemv<T>(n);
     if(latrd_use_gemv)
     {
         // ------------------------------------
@@ -178,9 +179,7 @@ rocblas_status rocsolver_sytrd_hetrd_template(rocblas_handle handle,
         // ------------------------------------
         T* const C = work;
 
-        // size_t const len_triang =  is_even(n) ? size_t(n/2) * (n+1) : size_t(n) * ( (n+1)/2 );
-        size_t const len_triang_matrix = size_t(n) * n;
-
+        size_t const len_triang_matrix = get_len_triang_matrix(n);
         work += len_triang_matrix * std::max(rocblas_int(1), batch_count);
 
         rocblas_stride const lshiftA = shiftA;
@@ -275,8 +274,8 @@ rocblas_status rocsolver_sytrd_hetrd_template(rocblas_handle handle,
         // restore the strictly upper triangular or
         // strictly lower triangular part
         // ------------------------------------
-        // size_t const len_triang =  is_even(n) ? size_t(n/2) * (n+1) : size_t(n) * ( (n+1)/2 );
-        size_t const len_triang_matrix = size_t(n) * n;
+
+        size_t const len_triang_matrix = get_len_triang_matrix(n);
         work = work - len_triang_matrix * std::max(rocblas_int(1), batch_count);
         T* const C = work;
 

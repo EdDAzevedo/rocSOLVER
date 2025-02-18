@@ -39,7 +39,29 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
-static bool constexpr latrd_use_gemv = true;
+static bool constexpr use_compact_storage = true;
+
+template <typename T, typename I>
+static bool get_latrd_use_gemv(I const n)
+{
+    // -------------------------------------------------
+    // may need tuning for problem size and architecture
+    // -------------------------------------------------
+    return (true);
+}
+
+template <typename I>
+static size_t get_len_triang_matrix(I const n)
+{
+    auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
+
+    size_t const len_triang_matrix_compact = is_even(n) ? static_cast<size_t>(n / 2) * (n + 1)
+                                                        : static_cast<size_t>(n) * ((n + 1) / 2);
+
+    size_t const len_triang_matrix_full = size_t(n) * n;
+
+    return ((use_compact_storage) ? len_triang_matrix_compact : len_triang_matrix_full);
+}
 
 template <bool BATCHED, typename T>
 void rocsolver_latrd_getMemorySize(const rocblas_int n,
@@ -88,19 +110,16 @@ void rocsolver_latrd_getMemorySize(const rocblas_int n,
     *size_norms = std::max(n1, n2);
     *size_work = std::max({w1, w2, w3});
 
+    bool const latrd_use_gemv = get_latrd_use_gemv<T>(n);
     if(latrd_use_gemv)
     {
         // -------------------------------------------------------
         // scratch space to store the strictly upper triangular or
         // strictly lower triangular part
         // -------------------------------------------------------
-        //       auto is_even = [](auto n) -> bool { return ((n % 2) == 0); };
-        //        size_t const len_triangle_matrix = is_even(n) ? static_cast<int64_t>(n / 2) * (n + 1)
-        //                                                      : static_cast<int64_t>(n) * ((n + 1) / 2);
-
-        auto const len_triangle_matrix = n * n;
+        auto const len_triang_matrix = get_len_triang_matrix(n);
         *size_work
-            += sizeof(T) * len_triangle_matrix * std::max(static_cast<rocblas_int>(1), batch_count);
+            += sizeof(T) * len_triang_matrix * std::max(static_cast<rocblas_int>(1), batch_count);
     }
 }
 
@@ -167,8 +186,7 @@ static __device__ void copy_triang_body(bool const is_update_lower,
         assert((0 <= j) && (j < n));
         assert((i >= j));
 
-        auto const tmp = is_even(j) ? static_cast<int64_t>(j / 2) * (2 * n + 1 - j)
-                                    : static_cast<int64_t>(j) * ((2 * n + 1 - j) / 2);
+        auto const tmp = (static_cast<int64_t>(j) * (2 * n + 1 - j)) / 2;
 
         return (((i - j) + tmp));
     };
@@ -178,21 +196,29 @@ static __device__ void copy_triang_body(bool const is_update_lower,
         assert((0 <= j) && (j < n));
         assert((i <= j));
 
-        auto const tmp = is_even(j) ? static_cast<int64_t>(j / 2) * (j + 1)
-                                    : static_cast<int64_t>(j) * ((j + 1) / 2);
-
+        auto const tmp = (static_cast<int64_t>(j) * (j + 1)) / 2;
         return ((i + tmp));
-    };
-
-    auto idx_compact = [=](auto i, auto j, auto n) {
-        return ((is_update_lower) ? idx_lower(i, j, n) : idx_upper(i, j, n));
     };
 
     auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
 
-    // auto C = [=](auto i, auto j) -> T& { return (C_[idx_compact(i, j, n)]); };
-    I const ldc = n;
-    auto C = [=](auto i, auto j) -> T& { return (C_[idx2D(i, j, ldc)]); };
+    auto C = [=](auto i, auto j) -> T& {
+        if(use_compact_storage)
+        {
+            if(is_update_lower)
+            {
+                return (C_[idx_lower(i, j, n)]);
+            }
+            else
+            {
+                return (C_[idx_upper(i, j, n)]);
+            }
+        }
+        else
+        {
+            return (C_[idx2D(i, j, n)]);
+        }
+    };
 
     auto A = [=](auto i, auto j) -> T& { return (A_[idx2D(i, j, lda)]); };
 
@@ -691,6 +717,7 @@ rocblas_status rocsolver_latrd_template(rocblas_handle handle,
     blocks = (n - 1) / BS1 + 1;
     dim3 grid_n(blocks, batch_count);
 
+    bool const latrd_use_gemv = get_latrd_use_gemv<T>(n);
     if(latrd_use_gemv)
     {
         // --------------------------------------------
