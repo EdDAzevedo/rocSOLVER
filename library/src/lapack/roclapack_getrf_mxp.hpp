@@ -260,9 +260,24 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
 }
 
 #ifndef CHECK_MEM
-#define CHECK_MEM(pfree)                      \
-    {                                         \
-        assert(pfree <= (pwork + size_work)); \
+#define CHECK_MEM(pfree)                                          \
+    {                                                             \
+        bool const is_memory_ok = (pfree <= (pwork + size_work)); \
+        if(!is_memory_ok)                                         \
+        {                                                         \
+            return (rocblas_status_internal_error);               \
+        }                                                         \
+    }
+#endif
+
+#ifndef ROCBLAS_CHECK
+#define ROCBLAS_CHECK(fcn)                  \
+    {                                       \
+        auto const istat = (fcn);           \
+        if(istat != rocblas_status_success) \
+        {                                   \
+            return (istat);                 \
+        }                                   \
     }
 #endif
 
@@ -865,19 +880,19 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                 HIP_CHECK( hipMemsetAsync( (void *) amax_U12, 0, size_amax_U12, stream );
 			        HIP_CHECK( hipMemsetAsync( (void *) amax_L21, 0, size_amax_L21, stream );
 
+                         amax_matrix( handle, nrows_L21, ncols_L21,
 
-			amax_matrix( handle, nrows_L21, ncols_L21,
+				 L21, shift_L21, ldL21, stride_L21,
+
+				 batch_count, amax_L21, nullptr );
 
 
-					L21, shift_L21, ldL21, stride_L21,
-
-				        batch_count, amax_L21  );
 
 			amax_matrix( handle, nrows_U12, ncols_U12,
 
 					U12, shift_U12, ldU12, stride_U12,
 
-					batch_count,  amax_U12 );
+					batch_count,  amax_U12, nullptr );
 
 
 
@@ -890,27 +905,24 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 			// ------------------------------------------------
 
 
+
 			scale_and_convert( handle,
 					nrows_L21, ncols_L21,
-					amax_L21, stride_amax_L21,
-					fp16_max_m1,
 
 					L21, shift_L21, ldL21, stride_L21,
 
 					L21_chop, shift_L21_chop, ldL21_chop, stride_L21_chop,
 
-					batch_count );
+					batch_count,   scaling_L21 );
 
 			scale_and_convert( handle,
 					nrows_U12, ncols_U12,
-					amax_U12, stride_amax_U12,
-					fp16_max_m1,
 
 					U12, shift_U12, ldU12, stride_U12,
 
 					U12_chop, shift_U12_chop, ldU12_chop, stride_U12_chop,
 
-					batch_count );
+					batch_count,  scaling_U12 );
                     }
                     else
                     {
@@ -953,7 +965,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         I const lnn = ncols_A22;
                         I const lkk = ncols_L21_chop;
 
-                        auto const istat = rocblasCall_gemm_ex(
+                        ROCBLAS_CHECK(rocblasCall_gemm_ex(
                             handle, trans_a, trans_b,
 
                             lmm, lnn, lkk,
@@ -968,12 +980,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                             A22, shift_A22, ldA22, stride_A22,
 
-                            batch_count, (void*)pfree);
-
-                        if(istat != rocblas_status_success)
-                        {
-                            return (istat);
-                        }
+                            batch_count, (void*)pfree));
                     }
 
                     // --------------------------------------
@@ -1323,12 +1330,12 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         rocblas_operation const trans_b = rocblas_operation_none;
 
                         {
-                            I const mm = nrows_A22_re;
-                            I const nn = ncols_A22_re;
-                            I const kk = ncols_L21_re;
+                            I const lmm = nrows_A22_re;
+                            I const lnn = ncols_A22_re;
+                            I const lkk = ncols_L21_re;
 
-                            auto const istat = rocblasCall_gemm_ex(
-                                handle, trans_a, trans_b, mm, nn, kk,
+                            ROCBLAS_CHECK(rocblasCall_gemm_ex(
+                                handle, trans_a, trans_b, lmm, lnn, lkk,
 
                                 &(h_alpha[0]), stride_alpha,
 
@@ -1338,31 +1345,26 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                                 &one, stride_beta,
 
-                                A22_re, shift_A22_re, ldA22_re, stride_A22_re, batch_count, pfree);
-
-                            if(istat != rocblas_status_success)
-                            {
-                                return (istat);
-                            }
+                                A22_re, shift_A22_re, ldA22_re, stride_A22_re, batch_count, pfree));
                         }
 
-                        /*
-	   alpha = single( (amax_L21_im/dlimit_sq) * amax_U12_im);
-	   A22_re( i3:m, j3:n) = A22_re( i3:m, j3:n) + ...
-		alpha * single(L21_im_chop) * single(U12_im_chop);
-*/
+                        // -------------------------------------------------------
+                        // alpha = single( (amax_L21_im/dlimit_sq) * amax_U12_im);
+                        // A22_re( i3:m, j3:n) = A22_re( i3:m, j3:n) + ...
+                        //      alpha * single(L21_im_chop) * single(U12_im_chop);
+                        // -------------------------------------------------------
                         for(I bid = 0; bid < batch_count; bid++)
                         {
                             h_alpha[bid] = ((h_amax_L21_im[bid] / dlimit_sq) * h_amax_U12_im[bid]);
                         }
 
                         {
-                            I const mm = nrows_A22_re;
-                            I const nn = ncols_A22_re;
-                            I const kk = ncols_L21_im;
+                            I const lmm = nrows_A22_re;
+                            I const lnn = ncols_A22_re;
+                            I const lkk = ncols_L21_im;
 
-                            auto const istat = rocblasCall_gemm_ex(
-                                handle, trans_a, trans_b, mm, nn, kk,
+                            ROCBLAS_CHECK(rocblasCall_gemm_ex(
+                                handle, trans_a, trans_b, lmm, lnn, lkk,
 
                                 &(h_alpha[0]), stride_alpha,
 
@@ -1374,12 +1376,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                                 A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
-                                batch_count, pfree);
-
-                            if(istat != rocblas_status_success)
-                            {
-                                return (istat);
-                            }
+                                batch_count, pfree));
                         }
                     }
                     else
@@ -1392,14 +1389,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                             auto const trans_a = rocblas_operation_none;
                             auto const trans_b = rocblas_operation_none;
 
-                            auto const mm = nrows_A22_re;
-                            auto const nn = ncols_A22_re;
-                            auto const kk = nrows_U12_re;
+                            auto const lmm = nrows_A22_re;
+                            auto const lnn = ncols_A22_re;
+                            auto const lkk = nrows_U12_re;
 
                             Istride const stride_alpha = 0;
                             Istride const stride_beta = 0;
-                            auto const istat = rocblasCall_gemm_ex(
-                                handle, trans_a, trans_b, mm, nn, kk, &minone, stride_alpha,
+                            ROCBLAS_CHECK(rocblasCall_gemm_ex(
+                                handle, trans_a, trans_b, lmm, lnn, lkk,
+
+                                &minone, stride_alpha,
 
                                 L21_re_chop, shift_L21_re_chop, ldL21_re_chop, stride_L21_re_chop,
 
@@ -1409,12 +1408,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                                 A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
-                                batch_count, (void*)pfree);
-
-                            if(istat != rocblas_status_success)
-                            {
-                                return (istat);
-                            }
+                                batch_count, (void*)pfree));
                         }
                         //  -----------------------------
                         //  A_re = A_re + L21_im * U12_im
@@ -1424,14 +1418,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                             auto const trans_a = rocblas_operation_none;
                             auto const trans_b = rocblas_operation_none;
 
-                            auto const mm = nrows_A22_re;
-                            auto const nn = ncols_A22_re;
-                            auto const kk = nrows_U12_im;
+                            auto const lmm = nrows_A22_re;
+                            auto const lnn = ncols_A22_re;
+                            auto const lkk = nrows_U12_im;
 
                             Istride const stride_alpha = 0;
                             Istride const stride_beta = 0;
-                            auto const istat = rocblasCall_gemm_ex(
-                                handle, trans_a, trans_b, mm, nn, kk, &one, stride_alpha,
+                            ROCBLAS_CHECK(rocblasCall_gemm_ex(
+                                handle, trans_a, trans_b, lmm, lnn, lkk,
+
+                                &one, stride_alpha,
 
                                 L21_im_chop, shift_L21_im_chop, ldL21_im_chop, stride_L21_im_chop,
 
@@ -1441,12 +1437,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                                 A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
-                                batch_count, (void*)pfree);
-
-                            if(istat != rocblas_status_success)
-                            {
-                                return (istat);
-                            }
+                                batch_count, (void*)pfree));
                         }
                     }
 
@@ -1459,18 +1450,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         Istride const stride_alpha = 1;
                         Istride const stride_beta = 0;
 
-                        /*
-        % -----------------------------
-	% A22_im = A22_im - L21_re * U12_im
-	% A22_im = A22_im - L21_im * U12_re
-        % -----------------------------
-*/
+                        //  -----------------------------
+                        // % A22_im = A22_im - L21_re * U12_im
+                        // % A22_im = A22_im - L21_im * U12_re
+                        // % -----------------------------
 
-                        /*
-		alpha = single( (amax_L21_re/dlimit_sq ) * amax_U12_im );
-		A22_im( i3:m, j3:n) = A22_im( i3:m, j3:n) - ...
-			alpha * single(L21_re_chop) * single(U12_im_chop);
-*/
+                        // --------------------------------------------------------
+                        // alpha = single( (amax_L21_re/dlimit_sq ) * amax_U12_im );
+                        // A22_im( i3:m, j3:n) = A22_im( i3:m, j3:n) - ...
+                        //      alpha * single(L21_re_chop) * single(U12_im_chop);
+                        // --------------------------------------------------------
                         {
                             for(I bid = 0; bid < batch_count; bid++)
                             {
@@ -1478,12 +1467,12 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                     = -((h_amax_L21_re[bid] / dlimit_sq) * h_amax_U12_im[bid]);
                             }
 
-                            I const mm = nrows_A22_im;
-                            I const nn = ncols_A22_im;
-                            I const kk = ncols_L21_re;
+                            I const lmm = nrows_A22_im;
+                            I const lnn = ncols_A22_im;
+                            I const lkk = ncols_L21_re;
 
-                            auto istat = rocblasCall_gemm_ex(
-                                handle, trans_a, trans_b, mm, nn, kk,
+                            ROCBLAS_CHECK(rocblasCall_gemm_ex(
+                                handle, trans_a, trans_b, lmm, lnn, lkk,
 
                                 &(h_alpha[0]), stride_alpha,
 
@@ -1495,12 +1484,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                                 A22_im, shift_A22_im, ldA22_im, stride_A22_im,
 
-                                batch_count, (void*)pfree);
-
-                            if(istat != rocblas_status_success)
-                            {
-                                return (istat);
-                            }
+                                batch_count, (void*)pfree));
                         }
 
                         /*
@@ -1516,12 +1500,12 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                     = -((h_amax_L21_im[bid] / dlimit_sq) * h_amax_U12_re[bid]);
                             }
 
-                            I const mm = nrows_A22_im;
-                            I const nn = ncols_A22_im;
-                            I const kk = ncols_L21_im;
+                            I const lmm = nrows_A22_im;
+                            I const lnn = ncols_A22_im;
+                            I const lkk = ncols_L21_im;
 
-                            auto const istat = rocblasCall_gemm(
-                                handle, trans_a, trans_b, mm, nn, kk,
+                            ROCBLAS_CHECK(rocblasCall_gemm(
+                                handle, trans_a, trans_b, lmm, lnn, lkk,
 
                                 &(h_alpha[0]), stride_alpha,
 
@@ -1531,12 +1515,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                                 &one, stride_beta,
 
-                                batch_count, (void*)pfree);
-
-                            if(istat != rocblas_status_success)
-                            {
-                                return (istat);
-                            }
+                                batch_count, (void*)pfree));
                         }
                     }
                     else
@@ -1545,9 +1524,9 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         //  A22_im = A22_im - L21_re * U12_im
                         //  -----------------------------
 
-                        I const mm = nrows_A22_im;
-                        I const nn = ncols_A22_im;
-                        I const kk = ncols_L21_re;
+                        I const lmm = nrows_A22_im;
+                        I const lnn = ncols_A22_im;
+                        I const lkk = ncols_L21_re;
 
                         rocblas_operation const trans_a = rocblas_operation_none;
                         rocblas_operation const trans_b = rocblas_operation_none;
@@ -1555,8 +1534,8 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         Istride const stride_alpha = 0;
                         Istride const stride_beta = 0;
 
-                        auto const istat = rocblasCall_gemm_ex(
-                            handle, trans_a, trans_b, mm, nn, kk,
+                        ROCBLAS_CHECK(rocblasCall_gemm_ex(
+                            handle, trans_a, trans_b, lmm, lnn, lkk,
 
                             &minone, stride_alpha,
 
@@ -1568,18 +1547,13 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                             A22_im, shift_A22_im, ldA22_im, stride_A22_im,
 
-                            batch_count, (void*)pfree);
-
-                        if(istat != rocblas_status_success)
-                        {
-                            return (istat);
-                        }
+                            batch_count, (void*)pfree));
 
                         // -------------------------------
                         //  A22_im = A22_im - L21_im * U12_re
                         // -------------------------------
 
-                        auto const istat = rocblasCall_gemm_ex(
+                        ROCBLAS_CHECK(rocblasCall_gemm_ex(
                             handle, trans_a, trans_b, mm, nn, kk, &minone, stride_alpha,
 
                             L21_im_chop, shift_L21_im_chop, ldL21_im_chop, stride_L21_im_chop,
@@ -1590,12 +1564,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                             A22_im, shift_A22_im, ldA22_im, stride_A22_im,
 
-                            batch_count, (void*)pfree);
-
-                        if(istat != rocblas_status_success)
-                        {
-                            return (istat);
-                        }
+                            batch_count, (void*)pfree));
                     }
 
                     // -------------------------------
