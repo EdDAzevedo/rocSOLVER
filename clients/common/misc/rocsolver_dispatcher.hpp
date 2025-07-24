@@ -75,6 +75,7 @@
 #include "common/lapack/testing_gerq2_gerqf.hpp"
 #include "common/lapack/testing_gesdd.hpp"
 #include "common/lapack/testing_gesv.hpp"
+#include "common/lapack/testing_gesv_ex.hpp"
 #include "common/lapack/testing_gesvd.hpp"
 #include "common/lapack/testing_gesvdj.hpp"
 #include "common/lapack/testing_gesvdx.hpp"
@@ -433,6 +434,22 @@ class rocsolver_dispatcher
         // Grab function from the map and execute
         auto match = map_real.find(name);
         if(match != map_real.end())
+        {
+            match->second(argus);
+            return rocblas_status_success;
+        }
+        else
+            return rocblas_status_invalid_value;
+    }
+
+    static rocblas_status run_function_mixed_precision(const char* name, Arguments& argus)
+    {
+        // Map for functions that support mixed precisions
+        static const func_map map_mixed = {{"gesv_ex", testing_gesv_ex<>}};
+
+        // Grab function from the map and execute
+        auto match = map_mixed.find(name);
+        if(match != map_mixed.end())
         {
             match->second(argus);
             return rocblas_status_success;
