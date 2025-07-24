@@ -44,14 +44,14 @@ ROCSOLVER_BEGIN_NAMESPACE
 static const unsigned int AMAX_THREADS = 64;
 
 template <typename Telem, typename I, typename Tresult>
-typename std::enable_if<std::is_floating_point_v<Telem>, void>::type __device__ __host__
+typename std::enable_if<!rocblas_is_complex<Telem>, void>::type __device__ __host__
     set_max_magnitude(Telem e, const I tid, Tresult* lds_re, Tresult* lds_im)
 {
     lds_re[tid] = std::max<Tresult>(lds_re[tid], std::abs(e));
 }
 
 template <typename Telem, typename I, typename Tresult>
-typename std::enable_if<std::is_class_v<Telem>, void>::type __device__ __host__
+typename std::enable_if<rocblas_is_complex<Telem>, void>::type __device__ __host__
     set_max_magnitude(Telem e, const I tid, Tresult* lds_re, Tresult* lds_im)
 {
     lds_re[tid] = std::max<Tresult>(lds_re[tid], std::abs(e.real()));
@@ -91,7 +91,7 @@ void __global__ __launch_bounds__(AMAX_THREADS) amax_matrix_kernel(const I m,
     Tresult* lds_im = lds + AMAX_THREADS;
 
     lds_re[tid] = static_cast<Tresult>(0.0);
-    if constexpr(!std::is_floating_point_v<Telem>)
+    if constexpr(rocblas_is_complex<Telem>)
     {
         lds_im[tid] = static_cast<Tresult>(0.0);
     }
@@ -126,7 +126,7 @@ void __global__ __launch_bounds__(AMAX_THREADS) amax_matrix_kernel(const I m,
         if(tid < stride && tid + stride < m / 2)
         {
             lds_re[tid] = std::max(lds_re[tid], lds_re[tid + stride]);
-            if constexpr(!std::is_floating_point_v<Telem>)
+            if constexpr(rocblas_is_complex<Telem>)
             {
                 lds_im[tid] = std::max(lds_im[tid], lds_im[tid + stride]);
             }
@@ -138,12 +138,8 @@ void __global__ __launch_bounds__(AMAX_THREADS) amax_matrix_kernel(const I m,
     if(tid == 0)
     {
         atomicMax(result_re + batch_id, lds_re[0]);
-        if constexpr(!std::is_floating_point_v<Telem>)
+        if constexpr(rocblas_is_complex<Telem>)
         {
-            printf("%d,%d,%d %d,%d,%d final im=%f\n", static_cast<int>(blockIdx.x),
-                   static_cast<int>(blockIdx.y), static_cast<int>(blockIdx.z),
-                   static_cast<int>(threadIdx.x), static_cast<int>(threadIdx.y),
-                   static_cast<int>(threadIdx.z), static_cast<double>(lds_im[0]));
             atomicMax(result_im + batch_id, lds_im[0]);
         }
     }
@@ -184,7 +180,7 @@ void amax_matrix(rocblas_handle handle,
     const dim3 gridDim{static_cast<unsigned int>(n), 1, static_cast<unsigned int>(batch_count)};
 
     const unsigned int lds_bytes_real = AMAX_THREADS * sizeof(Tresult);
-    const unsigned int reals_per_elem = std::is_floating_point_v<Telem> ? 1 : 2;
+    const unsigned int reals_per_elem = rocblas_is_complex<Telem> ? 1 : 2;
 
     amax_matrix_kernel<<<gridDim, blockDim, lds_bytes_real * reals_per_elem, stream>>>(
         m, A, shiftA, lda, strideA, result_re, result_im);
