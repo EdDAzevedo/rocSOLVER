@@ -43,21 +43,6 @@ ROCSOLVER_BEGIN_NAMESPACE
 
 static const unsigned int AMAX_THREADS = 64;
 
-template <typename Telem, typename I, typename Tresult>
-typename std::enable_if<!rocblas_is_complex<Telem>, void>::type __device__ __host__
-    set_max_magnitude(Telem e, const I tid, Tresult* lds_re, Tresult* lds_im)
-{
-    lds_re[tid] = std::max<Tresult>(lds_re[tid], std::abs(e));
-}
-
-template <typename Telem, typename I, typename Tresult>
-typename std::enable_if<rocblas_is_complex<Telem>, void>::type __device__ __host__
-    set_max_magnitude(Telem e, const I tid, Tresult* lds_re, Tresult* lds_im)
-{
-    lds_re[tid] = std::max<Tresult>(lds_re[tid], std::abs(e.real()));
-    lds_im[tid] = std::max<Tresult>(lds_im[tid], std::abs(e.imag()));
-}
-
 // Return maximum magnitude of any element in an N by M matrix.
 // Length M goes into gridDim.x, and batch size goes into gridDim.z
 // at launch time.
@@ -100,21 +85,20 @@ void __global__ __launch_bounds__(AMAX_THREADS) amax_matrix_kernel(const I m,
     // to its location in LDS
     for(unsigned int iter = 0; iter < ceil(m / 2, AMAX_THREADS); ++iter)
     {
-        auto m_idx = idx2D(tid, iter, AMAX_THREADS);
-        if(m_idx < m)
+        const auto indexes = {idx2D(tid, iter, AMAX_THREADS), idx2D(tid + m / 2, iter, AMAX_THREADS)};
+#pragma unroll
+        for(auto m_idx : indexes)
         {
-            const auto read_idx = idx2D(m_idx, n_idx, lda);
-            auto elem = in[read_idx];
-            set_max_magnitude(elem, tid, lds_re, lds_im);
-        }
-
-        // second half of read
-        auto m_idx2 = m_idx + m / 2;
-        if(m_idx2 < m)
-        {
-            const auto read_idx = idx2D(m_idx2, n_idx, lda);
-            auto elem = in[read_idx];
-            set_max_magnitude(elem, tid, lds_re, lds_im);
+            if(m_idx < m)
+            {
+                const auto read_idx = idx2D(m_idx, n_idx, lda);
+                auto elem = in[read_idx];
+                lds_re[tid] = std::max(std::abs(std::real(elem)), lds_re[tid]);
+                if constexpr(rocblas_is_complex<Telem>)
+                {
+                    lds_im[tid] = std::max(std::abs(std::imag(elem)), lds_im[tid]);
+                }
+            }
         }
     }
 
@@ -145,10 +129,10 @@ void __global__ __launch_bounds__(AMAX_THREADS) amax_matrix_kernel(const I m,
     }
 }
 
-// Return maximum magnitude of any element (or real component) in an
-// m by n matrix.  Multiple matrices can be batched together, and the
-// resulting real/imaginary maximum of each matrix is written to an
-// arrays of length batch_count on the device.
+// Return maximum magnitude of any element (or real component)
+// in an m by n matrix.  Multiple matrices can be batched together,
+// and the resulting maximum of each matrix is written to an array of
+// length batch_count on the device.
 //
 // Telem is the type of an element in the matrix - either a real or
 // complex.
@@ -160,7 +144,7 @@ void __global__ __launch_bounds__(AMAX_THREADS) amax_matrix_kernel(const I m,
 // maximum of the real values, and result_im holds the maximum
 // imaginary value.  result_im is ignored if Telem is not complex.
 //
-// Result arrays are expected to be initialized to zero
+// Result arrays are expected to be initialized to zero.
 template <typename Telem, typename I, typename Istride, typename Tresult>
 void amax_matrix(rocblas_handle handle,
                  const I m,
@@ -180,7 +164,7 @@ void amax_matrix(rocblas_handle handle,
     const dim3 gridDim{static_cast<unsigned int>(n), 1, static_cast<unsigned int>(batch_count)};
 
     const unsigned int lds_bytes_real = AMAX_THREADS * sizeof(Tresult);
-    const unsigned int reals_per_elem = rocblas_is_complex<Telem> ? 1 : 2;
+    const unsigned int reals_per_elem = rocblas_is_complex<Telem> ? 2 : 1;
 
     amax_matrix_kernel<<<gridDim, blockDim, lds_bytes_real * reals_per_elem, stream>>>(
         m, A, shiftA, lda, strideA, result_re, result_im);
