@@ -32,347 +32,256 @@
  * *************************************************************************/
 #pragma once
 
-#include "rocauxiliary_utility.hpp"
+#include "rocblas.hpp"
+#include "rocsolver/rocsolver.h"
 
 #include "hip/hip_runtime.h"
 #include "hip/hip_runtime_api.h"
-#include <cmath>
-#include <complex>
+
+#include "lib_host_helpers.hpp"
 
 ROCSOLVER_BEGIN_NAMESPACE
-#ifndef HIP_CHECK
-#define HIP_CHECK(fcn)               \
-    {                                \
-        auto const istat = (fcn);    \
-        assert(istat == hipSuccess); \
-    }
-#endif
 
-// ----------------------------------------------------------------------------
-// kernel to split a complex matrix into the real part matrix and imaginary part matrix
-// need some scratch space work   of size   nrows * nb,
-// where nb is number of blocks in y-dimension
-// if LDS is used, then work space is not required
+static const unsigned int PLANAR_THREADS = 64;
+
+// Convert complex interleaved matrix into complex planar, with
+// separate buffers for each of the real and imaginary planes.
 //
+// Tcomplex is the input matrix type.  Treal is the output type of
+// both the real and imaginary planes.
 //
-// NOTE: assume one thread block handle full column
-// ----------------------------------------------------------------------------
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
-static __global__ complex2reim_inplace_kernel(
-
-    I const nrows,
-    I const ncols,
-
-    UA A_,
-    Istride const shift_A,
-    I const ldA,
-    Istride const stride_A,
-
-    UA_re A_re_,
-    Istride const shift_A_re,
-    I const ldA_re,
-    Istride const stride_A_re,
-
-    UA_im A_im_,
-    Istride const shift_A_im,
-    I const ldA_im,
-    Istride const stride_A_im,
-
-    I const batch_count,
-
-    T* const work,
-    I const lds_size)
+// I, Istride are integer types for indexing.
+//
+// Tscale is the type used for scaling the values during conversion.
+// dlimit is a single value, while amax_re and amax_im are arrays in
+// device memory of length batch_count.  Real and imaginary values
+// are scaled during conversion as:
+//
+//   elem_out = dlimit / amax[batch_id] * elem_in
+//
+// This arithmetic is performed in the precision of Tscale.  Scaling
+// is only performed for real or imaginary values if the
+// corresponding amax array is non-null.
+template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
+void __global__ __launch_bounds__(PLANAR_THREADS)
+    complex2reim_outofplace_kernel(const I m,
+                                   const Tcomplex* A,
+                                   const Istride shiftA,
+                                   const I lda,
+                                   const Istride strideA,
+                                   Treal* A_re,
+                                   const Istride shiftA_re,
+                                   const I ld_re,
+                                   const Istride strideA_re,
+                                   Treal* A_im,
+                                   const Istride shiftA_im,
+                                   const I ld_im,
+                                   const Istride strideA_im,
+                                   const Tscale dlimit,
+                                   const Tscale* amax_re,
+                                   const Tscale* amax_im)
 {
-    assert(rocblas_is_complex<T>);
-    using S = decltype(std::real(T{}));
+    auto n_idx = blockIdx.x;
+    auto batch_id = blockIdx.z;
 
-    bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
-    if(!has_work)
+    const auto in = load_ptr_batch(A, batch_id, shiftA, strideA);
+    auto out_re = load_ptr_batch(A_re, batch_id, shiftA_re, strideA_re);
+    auto out_im = load_ptr_batch(A_im, batch_id, shiftA_im, strideA_im);
+
+    for(unsigned int iter = 0; iter < ceil(m, PLANAR_THREADS); ++iter)
     {
-        return;
-    }
-
-    extern __shared__ double ldsmem[];
-
-    bool const fit_in_lds = ((sizeof(T) * n) <= lds_size);
-
-    I const bid_start = blockIdx.z;
-    I const bid_inc = gridDim.z;
-
-    I const j_start = blockIdx.y;
-    I const j_inc = gridDim.y;
-
-    I const i_start = threadIdx.x;
-    I const i_inc = blockDim.x;
-
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + (j * static_cast<int64_t>(ld))); };
-
-    for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
-    {
-        auto const A_p = load_ptr_batch(A_, bid, shift_A, stride_A);
-        auto const A_re_p = load_ptr_batch(A_re_, bid, shift_A_re, stride_A_re);
-        auto const A_im_p = load_ptr_batch(A_im_, bid, shift_A_im, stride_A_im);
-
-        T* const p_work = (T*)work;
-        T* const p_ldsmem = (T*)&(lds[0]);
-
-        T* const Aj_ = (fit_in_lds) ? p_ldsmem : p_work + j_start * nrows;
-
-        auto Aj = [=](auto i) -> T& { return (Aj_[i]); };
-
-        auto A = [=](auto i, auto j) -> T& { return (A_p[idx2D(i, j, ldA)]); };
-
-        for(auto j = j_start; j < ncols; j += j_inc)
+        auto m_idx = idx2D(threadIdx.x, iter, PLANAR_THREADS);
+        if(m_idx < m)
         {
-            // ------------------------------------------
-            // read entire column into scratch array Aj(:)
-            // ------------------------------------------
-            for(auto i = i_start; i < nrows; i += i_inc)
-            {
-                Aj(i) = A(i, j);
-            }
-            __syncthreads();
+            const auto read_idx = idx2D(m_idx, n_idx, lda);
 
-            // ---------------------------------------------------
-            // split and store Aj(:) into real part and imaginary part
-            // note: it will still work if A_re(:,:) and A_im(:,:)
-            // over-writes original A(:,:)
-            // ---------------------------------------------------
-            for(auto i = i_start; i < nrows; i += i_inc)
-            {
-                auto const aij = Aj(i);
+            const auto write_re_idx = idx2D(m_idx, n_idx, ld_re);
+            const auto write_im_idx = idx2D(m_idx, n_idx, ld_im);
+            auto elem = in[read_idx];
 
-                A_re_p[idx2D(i, j, ldA_re)] = aij.real();
-                A_im_p[idx2D(i, j, ldA_im)] = aij.imag();
-            }
-            __syncthreads();
+            if(amax_re)
+                out_re[write_re_idx] = static_cast<Tscale>(elem.x) * dlimit / amax_re[batch_id];
+            else
+                out_re[write_re_idx] = elem.x;
 
-        } // end for j
-
-    } // end for bid
+            if(amax_im)
+                out_im[write_im_idx] = static_cast<Tscale>(elem.y) * dlimit / amax_im[batch_id];
+            else
+                out_im[write_im_idx] = elem.y;
+        }
+    }
 }
 
-// ----------------------------------------------------------------------------
-// kernel to split a complex matrix into the real part matrix and imaginary part matrix
+// Convert complex interleaved matrix into complex planar, with
+// separate buffers for each of the real and imaginary planes.
 //
-// NOTE: assume no overlap in A, A_re, A_im
-// ----------------------------------------------------------------------------
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
-static __global__ complex2reim_outofplace_kernel(
-
-    I const nrows,
-    I const ncols,
-
-    UA A_,
-    Istride const shift_A,
-    I const ldA,
-    Istride const stride_A,
-
-    UA_re A_re_,
-    Istride const shift_A_re,
-    I const ldA_re,
-    Istride const stride_A_re,
-
-    UA_im A_im_,
-    Istride const shift_A_im,
-    I const ldA_im,
-    Istride const stride_A_im,
-
-    I const batch_count
-
-)
+// Tcomplex is the input matrix type.  Treal is the output type of
+// both the real and imaginary planes.
+//
+// I, Istride are integer types for indexing.
+//
+// Tscale is the type used for scaling the values during conversion.
+// dlimit is a single value, while amax_re and amax_im are optional
+// arrays in device memory of length batch_count.  Real and imaginary
+// values are scaled during conversion as:
+//
+//   elem_out = dlimit / amax[batch_id] * elem_in
+//
+// This arithmetic is performed in the precision of Tscale.  Scaling
+// is only performed for real or imaginary values if the
+// corresponding amax array is non-null.
+template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
+void complex2reim_outofplace(rocblas_handle handle,
+                             const I m,
+                             const I n,
+                             const Tcomplex* A,
+                             const Istride shiftA,
+                             const I lda,
+                             const Istride strideA,
+                             Treal* A_re,
+                             const Istride shiftA_re,
+                             const I ld_re,
+                             const Istride strideA_re,
+                             Treal* A_im,
+                             const Istride shiftA_im,
+                             const I ld_im,
+                             const Istride strideA_im,
+                             const I batch_count,
+                             const Tscale dlimit,
+                             const Tscale* amax_re,
+                             const Tscale* amax_im)
 {
-    assert(rocblas_is_complex<T>);
-    using S = decltype(std::real(T{}));
+    hipStream_t stream = nullptr;
+    rocblas_get_stream(handle, &stream);
 
-    bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
-    if(!has_work)
+    dim3 blockDim{PLANAR_THREADS, 1, 1};
+    dim3 gridDim{static_cast<unsigned int>(n), 1, static_cast<unsigned int>(batch_count)};
+
+    complex2reim_outofplace_kernel<<<gridDim, blockDim, 0, stream>>>(
+        m, A, shiftA, lda, strideA, A_re, shiftA_re, ld_re, strideA_re, A_im, shiftA_im, ld_im,
+        strideA_im, dlimit, amax_re, amax_im);
+}
+
+// Convert complex planar matrix (real/imaginary in separate buffers
+// for each plane) into complex interleaved.
+//
+// Treal is the input type of both the real and imaginary planes.
+// Tcomplex is the output matrix type.
+//
+// I, Istride are integer types for indexing.
+//
+// Tscale is the type used for scaling the values during conversion.
+// dlimit is a single value, while amax_re and amax_im are arrays in
+// device memory of length batch_count.  Real and imaginary values
+// are scaled during conversion as:
+//
+//   elem_out = dlimit / amax[batch_id] * elem_in
+//
+// This arithmetic is performed in the precision of Tscale.  Scaling
+// is only performed for real or imaginary values if the
+// corresponding amax array is non-null.
+template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
+void __global__ __launch_bounds__(PLANAR_THREADS)
+    reim2complex_outofplace_kernel(const I m,
+                                   const Treal* A_re,
+                                   const Istride shiftA_re,
+                                   const I ld_re,
+                                   const Istride strideA_re,
+                                   const Treal* A_im,
+                                   const Istride shiftA_im,
+                                   const I ld_im,
+                                   const Istride strideA_im,
+                                   Tcomplex* A,
+                                   const Istride shiftA,
+                                   const I lda,
+                                   const Istride strideA,
+                                   const Tscale dlimit,
+                                   const Tscale* amax_re,
+                                   const Tscale* amax_im)
+{
+    auto n_idx = blockIdx.x;
+    auto batch_id = blockIdx.z;
+
+    const auto in_re = load_ptr_batch(A_re, batch_id, shiftA_re, strideA_re);
+    const auto in_im = load_ptr_batch(A_im, batch_id, shiftA_im, strideA_im);
+    auto out = load_ptr_batch(A, batch_id, shiftA, strideA);
+
+    for(unsigned int iter = 0; iter < ceil(m, PLANAR_THREADS); ++iter)
     {
-        return;
-    }
-
-    I const bid_start = blockIdx.z;
-    I const bid_inc = gridDim.z;
-
-    I const i_inc = blockDim.x * gridDim.x;
-    I const j_inc = blockDim.y * gridDim.y;
-
-    I const i_start = threadIdx.x + blockIdx.x * blockDim.x;
-    I const j_start = threadIdx.y + blockIdx.y * blockDim.y;
-
-    auto idx2D = [](auto i, auto j, auto ld) { return (i + (j * static_cast<int64_t>(ld))); };
-
-    for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
-    {
-        auto const A_p = load_ptr_batch(A_, bid, shift_A, stride_A);
-        auto const A_re_p = load_ptr_batch(A_re_, bid, shift_A_re, stride_A_re);
-        auto const A_im_p = load_ptr_batch(A_im_, bid, shift_A_im, stride_A_im);
-
-        for(auto j = j_start; j < ncols; j += j_inc)
+        auto m_idx = idx2D(threadIdx.x, iter, PLANAR_THREADS);
+        if(m_idx < m)
         {
-            for(auto i = i_start; i < nrows; i += i_inc)
-            {
-                auto const aij = A_p[idx2D(i, j, ldA)];
+            const auto write_idx = idx2D(m_idx, n_idx, lda);
 
-                A_re_p[idx2D(i, j, ldA_re)] = aij.real();
-                A_im_p[idx2D(i, j, ldA_im)] = aij.imag();
-            }
+            const auto read_re_idx = idx2D(m_idx, n_idx, ld_re);
+            const auto read_im_idx = idx2D(m_idx, n_idx, ld_im);
+            auto elem_re = in_re[read_re_idx];
+            auto elem_im = in_im[read_im_idx];
 
-        } // end for j
+            Tcomplex elem_out;
+            if(amax_re)
+                elem_out.x = static_cast<Tscale>(elem_re) * dlimit / amax_re[batch_id];
+            else
+                elem_out.x = elem_re;
 
-    } // end for bid
-}
+            if(amax_im)
+                elem_out.y = static_cast<Tscale>(elem_im) * dlimit / amax_im[batch_id];
+            else
+                elem_out.y = elem_im;
 
-// -------------------------------------------------------
-// function to split a nrows by ncols complex matrix into
-// the real matrix part and imaginary matrix part
-// note: it is possible to over-write original matrix
-// as (2 * nrows) by ncols  real matrix
-// [ A_re ]
-// [ A_im ]
-// -------------------------------------------------------
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
-static void complex2reim_inplace(hipStream_t stream,
-                                 I const nrows,
-                                 I const ncols,
-
-                                 UA A_,
-                                 Istride const shift_A,
-                                 I const ldA,
-                                 Istride const stride_A,
-
-                                 UA_re A_re_,
-                                 Istride const shift_A_re,
-                                 I const ldA_re,
-                                 Istride const stride_A_re,
-
-                                 UA_im A_im_,
-                                 Istride const shift_A_im,
-                                 I const ldA_im,
-                                 Istride const stride_A_im,
-
-                                 I const batch_count,
-                                 T* const work,
-                                 size_t const lwork_in_bytes)
-{
-    bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
-    if(!has_work)
-    {
-        return;
+            out[write_idx] = elem_out;
+        }
     }
-
-    I const lds_size = get_lds_size();
-
-    I const num_cu = get_num_cu();
-    I const max_blocks = num_cu;
-    I const num_cols = lwork_in_bytes / (sizeof(T) * nrows);
-
-    bool const fit_in_lds = ((sizeof(T) * nrows) <= lds_size);
-    // -------------------------------------------------------
-    // if we can use lds and not touch work space
-    // we can launch more thread blocks for higher concurrency
-    // -------------------------------------------------------
-    I const nby = (fit_in_lds) ? std::min(max_blocks, ncols)
-                               : std::max(I{1}, std::min(num_cu, std::min(num_cols, ncols)));
-
-    I const nbz = (fit_in_lds) ? std::min(max_blocks, batch_count) : 1;
-
-    I const nbx = 1;
-
-    // ------------------------------------------
-    // assume one thread block handle full column
-    // ------------------------------------------
-    I const num_threads = get_max_threads();
-    I const nx = std::min(num_threads, nrows);
-
-    complex2reim_inplace_kernel<T, I, Istride, UA, UA_re, UA_im>
-        <<<dim3(nbx, nby, nbz), dim3(nx, 1, 1), lds_size, stream>>>(
-
-            nrows, ncols,
-
-            A_, shift_A, ldA, stride_A,
-
-            A_re_, shift_A_re, ldA_re, stride_A_re,
-
-            A_im_, shift_A_im, ldA_im, stride_A_im,
-
-            batch_count, work, lds_size);
 }
 
-// -------------------------------------------------------
-// function to split a nrows by ncols complex matrix into
-// the real matrix part and imaginary matrix part
+// Convert complex planar matrix (real/imaginary in separate buffers
+// for each plane) into complex interleaved.
 //
-// Note: assume no overlap in A, A_re, A_im
-// -------------------------------------------------------
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
-static void complex2reim_outofplace(hipStream_t stream,
-                                    I const nrows,
-                                    I const ncols,
-
-                                    UA A_,
-                                    Istride const shift_A,
-                                    I const ldA,
-                                    Istride const stride_A,
-
-                                    UA_re A_re_,
-                                    Istride const shift_A_re,
-                                    I const ldA_re,
-                                    Istride const stride_A_re,
-
-                                    UA_im A_im_,
-                                    Istride const shift_A_im,
-                                    I const ldA_im,
-                                    Istride const stride_A_im,
-
-                                    I const batch_count)
+// Treal is the input type of both the real and imaginary planes.
+// Tcomplex is the output matrix type.
+//
+// I, Istride are integer types for indexing.
+//
+// Tscale is the type used for scaling the values during conversion.
+// dlimit is a single value, while amax_re and amax_im are arrays in
+// device memory of length batch_count.  Real and imaginary values
+// are scaled during conversion as:
+//
+//   elem_out = dlimit / amax[batch_id] * elem_in
+//
+// This arithmetic is performed in the precision of Tscale.  Scaling
+// is only performed for real or imaginary values if the
+// corresponding amax array is non-null.
+template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
+void reim2complex_outofplace(rocblas_handle handle,
+                             const I m,
+                             const I n,
+                             const Treal* A_re,
+                             const Istride shiftA_re,
+                             const I ld_re,
+                             const Istride strideA_re,
+                             const Treal* A_im,
+                             const Istride shiftA_im,
+                             const I ld_im,
+                             const Istride strideA_im,
+                             Tcomplex* A,
+                             const Istride shiftA,
+                             const I lda,
+                             const Istride strideA,
+                             const I batch_count,
+                             const Tscale dlimit,
+                             const Tscale* amax_re,
+                             const Tscale* amax_im)
 {
-    bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
-    if(!has_work)
-    {
-        return;
-    }
+    hipStream_t stream = nullptr;
+    rocblas_get_stream(handle, &stream);
 
-    I const num_cu = get_num_cu();
-    I const max_blocks = num_cu;
+    dim3 blockDim{PLANAR_THREADS, 1, 1};
+    dim3 gridDim{static_cast<unsigned int>(n), 1, static_cast<unsigned int>(batch_count)};
 
-    auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
-
-    I const nx = 32;
-    I const ny = 32;
-    I const nbx = std::min(max_blocks, ceil(nrows, nx));
-    I const nby = std::min(max_blocks, ceil(ncols, ny));
-    I const nbz = std::min(max_blocks, batch_count);
-
-    complex2reim_outofplace_kernel<T, I, Istride, UA, UA_re, UA_im>
-        <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(
-
-            nrows, ncols,
-
-            A_, shift_A, ldA, stride_A,
-
-            A_re_, shift_A_re, ldA_re, stride_A_re,
-
-            A_im_, shift_A_im, ldA_im, stride_A_im,
-
-            batch_count);
+    reim2complex_outofplace_kernel<<<gridDim, blockDim, 0, stream>>>(
+        m, A_re, shiftA_re, ld_re, strideA_re, A_im, shiftA_im, ld_im, strideA_im, A, shiftA, lda,
+        strideA, dlimit, amax_re, amax_im);
 }
 
-// -------------------------------------------
-// Estimate the amount of scratch space needed
-// -------------------------------------------
-template <typename T, typename I>
-static void complex2reim_inplace_getMemorySize(I const nrows,
-                                               I const ncols,
-
-                                               I const batch_count,
-                                               size_t* p_lwork_in_bytes)
-{
-    auto const num_cu = get_num_cu();
-    size_t const lwork_in_bytes = sizeof(T) * nrows * num_cu;
-
-    auto const lds_size = get_lds_size();
-    bool const fit_in_lds = ((sizeof(T) * nrows) <= lds_size);
-    *p_lwork_in_bytes = (fit_in_lds) ? 0 : lwork_in_bytes;
-}
 ROCSOLVER_END_NAMESPACE
