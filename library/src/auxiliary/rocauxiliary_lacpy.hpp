@@ -55,6 +55,10 @@ ROCSOLVER_BEGIN_NAMESPACE
 //
 // launch as
 // dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// where
+// nbx = min( max_blocks, ceil( m, nx ))
+// nby = min( max_blocks, ceil( n, ny ))
+// nbz = min( max_blocks, batch_count)
 // ---------------------------------
 
 template <typename I, typename Istride, typename AA, typename CC>
@@ -94,8 +98,8 @@ __global__ static void lacpy_kernel(char const uplo,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        auto __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        auto __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
+        auto __restrict__ const Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        auto __restrict__ const Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
         if(use_all)
         {
@@ -105,35 +109,22 @@ __global__ static void lacpy_kernel(char const uplo,
                 {
                     auto const ij_c = idx2D(i, j, ldc);
                     auto const ij_a = idx2D(i, j, lda);
-
                     Cp[ij_c] = Ap[ij_a];
                 }
             }
         }
-        else if(use_upper)
+        else
         {
             for(I j = j_start; j < n; j += j_inc)
             {
-                auto const mm = std::min(m, j + 1);
-                for(I i = i_start; i < mm; i += i_inc)
+                for(I i = i_start; i < m; i += i_inc)
                 {
-                    auto const ij_c = idx2D(i, j, ldc);
-                    auto const ij_a = idx2D(i, j, lda);
+                    bool const do_assign = (use_upper && (i <= j)) || (use_lower && (i >= j));
 
-                    Cp[ij_c] = Ap[ij_a];
-                }
-            }
-        }
-        else if(use_lower)
-        {
-            for(auto j = j_start; j < n; j += j_inc)
-            {
-                for(auto i = j + i_start; i < m; i += i_inc)
-                {
+                    if(do_assign)
                     {
                         auto const ij_c = idx2D(i, j, ldc);
                         auto const ij_a = idx2D(i, j, lda);
-
                         Cp[ij_c] = Ap[ij_a];
                     }
                 }
@@ -143,18 +134,21 @@ __global__ static void lacpy_kernel(char const uplo,
 }
 
 template <typename I, typename Istride, typename AA, typename CC>
-static void lacpy(hipStream_t stream,
+static void lacpy(rocblas_handle handle,
                   char const uplo,
                   I const m,
                   I const n,
+
                   AA A,
                   Istride const shiftA,
                   I const lda,
                   Istride strideA,
+
                   CC C,
                   Istride const shiftC,
                   I const ldc,
                   Istride strideC,
+
                   I const batch_count)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
@@ -162,6 +156,9 @@ static void lacpy(hipStream_t stream,
     {
         return;
     }
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
 
     auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
 
