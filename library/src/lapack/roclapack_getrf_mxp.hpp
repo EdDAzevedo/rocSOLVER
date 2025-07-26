@@ -44,13 +44,11 @@
 
 #include "rocsolver_getrf.hpp"
 
-#if(0)
 #include "auxiliary/rocauxiliary_amax_matrix.hpp"
 #include "auxiliary/rocauxiliary_complex2reim.hpp"
 #include "auxiliary/rocauxiliary_lacpy.hpp"
 #include "auxiliary/rocauxiliary_reim2complex.hpp"
 #include "auxiliary/rocauxiliary_scale_and_convert.hpp"
-#endif
 
 ROCSOLVER_BEGIN_NAMESPACE
 
@@ -131,6 +129,7 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
 
     bool constexpr is_complex = rocblas_is_complex<T>;
     bool constexpr is_batched = (BATCHED || STRIDED);
+    using S = std::conditional<is_complex, decltype(std::real(T{})), T>::type;
 
     if(is_batched)
     {
@@ -174,25 +173,18 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
     // --------------------------------
     // space for panels in FP16 or BF16
     // --------------------------------
+    size_t size_L21_re_chop = (sizeof(Treduced) * m * blk) * batch_count;
+    size_t size_U12_re_chop = (sizeof(Treduced) * blk * n) * batch_count;
+    size_work += size_L21_re_chop;
+    size_Work += size_U12_re_chop;
 
     if(is_complex)
     {
-        size_t size_L21_re_chop = (sizeof(Treduced) * m * blk) * batch_count;
-        size_t size_L21_im_chop = (is_complex) ? size_L21_re_chop : 0;
+        size_t size_L21_im_chop = size_L21_re_chop;
+        size_t size_U12_im_chop = size_U12_im_chop;
 
-        size_t size_U12_re_chop = (sizeof(Treduced) * blk * n) * batch_count;
-        size_t size_U12_re_chop = (is_complex) ? size_U12_re_chop : 0;
-
-        size_work += size_L21_re_chop + size_L21_im_chop;
-        size_work += size_U12_re_chop + size_U12_im_chop;
-    }
-    else
-    {
-        size_t size_L21_chop = (sizeof(Treduced) * m * blk) * batch_count;
-        size_t size_U12_chop = (sizeof(Treduced) * blk * n) * batch_count;
-
-        size_work += size_L21_chop;
-        size_work += size_U12_chop;
+        size_work += size_L21_im_chop;
+        size_work += size_U12_im_chop;
     }
 
     if(is_fp16)
@@ -202,28 +194,32 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
         // limited dynamic range of FP16
         // -----------------------------------------
 
-        size_amax_L21_re = sizeof(Smax) * batch_count;
-        size_amax_L21_im = sizeof(Smax) * batch_count;
-        size_amax_U12_re = sizeof(Smax) * batch_count;
-        size_amax_U12_im = sizeof(Smax) * batch_count;
+        size_t size_amax_L21_re = sizeof(Smax) * batch_count;
+        size_t size_amax_U12_re = sizeof(Smax) * batch_count;
 
-        size_scaling_L21_re = sizeof(Smax) * batch_count;
-        size_scaling_L21_im = sizeof(Smax) * batch_count;
-        size_scaling_U12_re = sizeof(Smax) * batch_count;
-        size_scaling_U12_im = sizeof(Smax) * batch_count;
+        size_t size_scaling_L21_re = sizeof(Smax) * batch_count;
+        size_t size_scaling_U12_re = sizeof(Smax) * batch_count;
 
-        size_work += size_amax_L21_re + size_amax_L21_im + size_amax_U12_re + size_amax_U12_im;
+        size_work += size_amax_L21_re;
+        size_work += size_amax_U12_re;
 
-        size_work
-            += size_scaling_L21_re + size_scaling_L21_im + size_scaling_U12_re + size_scaling_U12_im;
-    }
+        size_work += size_scaling_L21_re;
+        size_work += size_scaling_U12_re;
 
-    if(!use_out_of_place)
-    {
-        // -------------------------------
-        // TODO: fill in amount of scratch space needed for
-        // in-place conversion
-        // -------------------------------
+        if(is_complex)
+        {
+            size_t size_amax_L21_im = sizeof(Smax) * batch_count;
+            size_t size_amax_U12_im = sizeof(Smax) * batch_count;
+
+            size_t size_scaling_L21_im = sizeof(Smax) * batch_count;
+            size_t size_scaling_U12_im = sizeof(Smax) * batch_count;
+
+            size_work += size_amax_L21_im;
+            size_work += size_amax_U12_im;
+
+            size_work += size_scaling_L21_im;
+            size_work += size_scaling_U12_im;
+        }
     }
 
     if(is_complex)
@@ -233,27 +229,22 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
         // ---------------------------------------
         if(use_out_of_palce)
         {
-            size_t const size_A22_re = (sizeof(T) * m * n) * batch_count;
+            size_t const size_A22_re = (sizeof(S) * m * n) * batch_count;
             size_t const size_A22_im = size_A22_re;
 
             size_work += size_A22_re;
             size_work += size_A22_im;
         }
-    }
+        else
+        {
+            // -------------------------------
+            // TODO: fill in amount of scratch space needed for
+            // in-place conversion
+            // -------------------------------
 
-    if(is_complex && is_fp16)
-    {
-        // ------------------------------------------
-        // storage for L21_re, L21_im, U12_re, U12_im
-        // ------------------------------------------
-        size_t const size_L21_re = sizeof(T) * m * blk * batch_count;
-        size_t const size_L21_im = (is_complex) ? size_L21_re : 0;
-
-        size_t const size_U12_re = sizeof(T) * blk * n * batch_count;
-        size_t const size_U12_im = (is_complex) ? size_U12_re : 0;
-
-        size_work += size_L21_re + size_L21_im;
-        size_work += size_U12_re + size_U12_im;
+            size_complex2reim_inplace = (sizeof(T) * m * blk) * batch_count;
+            size_work += size_complex2reim_inplace;
+        }
     }
 
     *p_size_work = size_work;
@@ -263,11 +254,12 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
 #define CHECK_MEM(pfree)                                          \
     {                                                             \
         bool const is_memory_ok = (pfree <= (pwork + size_work)); \
-        if(!is_memory_ok)                                         \
-        {                                                         \
-            return (rocblas_status_internal_error);               \
-        }                                                         \
-    }
+        assert(is_memory_ok);
+if(!is_memory_ok)
+{
+    return (rocblas_status_internal_error);
+}
+}
 #endif
 
 #ifndef ROCBLAS_CHECK
@@ -365,25 +357,20 @@ static rocblas_status void rocblasCall_gemm_ex(
             auto const d_type = c_type;
             auto const ld_d = ld_c;
 
-            auto const istat
-                = rocblas_gemm_ex(handle, trans_a, trans_b, m, n, k, alpha + bid * stride_alpha,
+            ROCBLAS_CHECK(rocblas_gemm_ex(handle, trans_a, trans_b, m, n, k,
+                                          alpha + bid * stride_alpha,
 
-                                  Ap, a_type, ld_a,
+                                          Ap, a_type, ld_a,
 
-                                  Bp, b_type, ld_b,
+                                          Bp, b_type, ld_b,
 
-                                  beta + bid * stride_beta,
+                                          beta + bid * stride_beta,
 
-                                  Cp, c_type, ld_c,
+                                          Cp, c_type, ld_c,
 
-                                  Dp, d_type, ld_d,
+                                          Dp, d_type, ld_d,
 
-                                  compute_type, algo, solution_index, flags);
-
-            if(istat != rocblas_status_success)
-            {
-                return (istat);
-            }
+                                          compute_type, algo, solution_index, flags));
 
         } // end for bid
     }
@@ -400,25 +387,20 @@ static rocblas_status void rocblasCall_gemm_ex(
         auto const ld_c = ld_d;
         auto const stride_d = stride_c;
 
-        auto const istat = rocblas_gemm_strided_batched_ex(handle, trans_a, trans_b, m, n, k, alpha,
+        ROCBLAS_CHECK(rocblas_gemm_strided_batched_ex(handle, trans_a, trans_b, m, n, k, alpha,
 
-                                                           A, a_type, ld_a, stride_a,
+                                                      A, a_type, ld_a, stride_a,
 
-                                                           B, b_type, ld_b, stride_b,
+                                                      B, b_type, ld_b, stride_b,
 
-                                                           beta,
+                                                      beta,
 
-                                                           C, c_type, ld_c, stride_c,
+                                                      C, c_type, ld_c, stride_c,
 
-                                                           D, d_type, ld_d, stride_d,
+                                                      D, d_type, ld_d, stride_d,
 
-                                                           batch_count, compute_type, algo,
-                                                           solution_index, flags);
-
-        if(istat != rocblas_status_success)
-        {
-            return (istat);
-        }
+                                                      batch_count, compute_type, algo,
+                                                      solution_index, flags));
     }
 
     return (rocblas_status_success);
@@ -447,8 +429,8 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
     bool constexpr is_complex = rocblas_is_complex<T>;
 
-    using Smax = decltype(double{1.0});
     using S = std::conditional< is_complex, decltype(std::real(T{}), T >::type;
+    using Smax = S;
 
     I const ldA = lda;
     I const fp16_max = 65504; // max valid representable value in FP16
@@ -472,7 +454,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
-    static constexpr bool ISBATCHED = BATCHED || STRIDED;
+    static constexpr bool ISBATCHED = (BATCHED || STRIDED);
     I dim = std::min(m, n);
     I blocks = 0, blocksy = 0;
 
@@ -576,93 +558,64 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     // -----------
 
     Smax *amax_L21_re = nullptr;
-    Smax *amax_L21_im = nullptr;
-
     Smax *amax_U12_re = nullptr;
+
+    Smax *amax_L21_im = nullptr;
     Smax *amax_U12_im = nullptr;
 
     Istride const stride_amax_L21_re = 1;
-    Istride const stride_amax_L21_im = 1;
-
     Istride const stride_amax_U12_re = 1;
+
+    Istride const stride_amax_L21_im = 1;
     Istride const stride_amax_U12_im = 1;
 
     size_t const size_amax_L21_re = (is_fp16) ? sizeof(Smax) * stride_amax_L21_re * batch_count : 0;
-    size_t const size_amax_L21_im = (is_fp16) ? sizeof(Smax) * stride_amax_L21_im * batch_count : 0;
+    size_t const size_amax_U12_re = (is_fp16) ? sizeof(Smax) * stride_amax_U12_re * batch_count : 0;
 
-    size_t const size_amax_U12_re = sizeof(Smax) * stride_amax_U12_re * batch_count;
-    size_t const size_amax_U12_im = sizeof(Smax) * stride_amax_U12_im * batch_count;
+    size_t const size_amax_L21_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_amax_L21_im * batch_count : 0;
+    size_t const size_amax_U12_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_amax_U12_im * batch_count : 0;
+
+    size_t const size_amax_L21 = size_amax_L21_re;
+    size_t const size_amax_U12 = size_amax_U12_re;
 
     // --------------
     // scaling arrays
     // --------------
 
     Smax *scaling_L21_re = nullptr;
-    Smax *scaling_L21_im = nullptr;
-
     Smax *scaling_U12_re = nullptr;
+
+    Smax *scaling_L21_im = nullptr;
     Smax *scaling_U12_im = nullptr;
 
     Istride const stride_scaling_L21_re = 1;
-    Istride const stride_scaling_L21_im = 1;
-
     Istride const stride_scaling_U12_re = 1;
+
+    Istride const stride_scaling_L21_im = 1;
     Istride const stride_scaling_U12_im = 1;
 
     size_t const size_scaling_L21_re = (is_fp16) ? sizeof(Smax) * stride_scaling_L21_re * batch_count : 0;
-    size_t const size_scaling_L21_im = (is_fp16) ? sizeof(Smax) * stride_scaling_L21_im * batch_count : 0;
+    size_t const size_scaling_U12_re = (is_fp16) ? sizeof(Smax) * stride_scaling_U12_re * batch_count : 0;
 
-    size_t const size_scaling_U12_re = sizeof(Smax) * stride_scaling_U12_re * batch_count;
-    size_t const size_scaling_U12_im = sizeof(Smax) * stride_scaling_U12_im * batch_count;
-
-
-    // ----------
-    // amax array
-    // ----------
-
-    Smax *amax_L21 = nullptr;
-    Smax *amax_U12 = nullptr;
-
-    Istride const stride_amax_L21 = 1;
-    Istride const stride_amax_U12 = 1;
-
-    size_t const size_amax_L21 = sizeof(Smax) * stride_amax_L21 * batch_count;
-    size_t const size_amax_U12 = sizeof(Smax) * stride_amax_U12 * batch_count;
+    size_t const size_scaling_L21_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_scaling_L21_im * batch_count : 0;
+    size_t const size_scaling_U12_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_scaling_U12_im * batch_count : 0;
 
 
-
-    // ----------
-    // scaling array
-    // ----------
-
-    Smax *scaling_L21 = nullptr;
-    Smax *scaling_U12 = nullptr;
-
-    Istride const stride_scaling_L21 = 1;
-    Istride const stride_scaling_U12 = 1;
-
-    size_t const size_scaling_L21 = sizeof(Smax) * stride_scaling_L21 * batch_count;
-    size_t const size_scaling_U12 = sizeof(Smax) * stride_scaling_U12 * batch_count;
 
 
     std::vector<Smax> h_amax_L21_re(batch_count);
-    std::vector<Smax> h_amax_L21_im(batch_count);
-
     std::vector<Smax> h_amax_U12_re(batch_count);
-    std::vector<Smax> h_amax_U12_im(batch_count);
 
-    std::vector<Smax> h_amax_L21(batch_count);
-    std::vector<Smax> h_amax_U12(batch_count);
+    std::vector<Smax> h_amax_L21_im(batch_count);
+    std::vector<Smax> h_amax_U12_im(batch_count);
 
 
     std::vector<Smax> h_scaling_L21_re(batch_count);
-    std::vector<Smax> h_scaling_L21_im(batch_count);
-
     std::vector<Smax> h_scaling_U12_re(batch_count);
+
+    std::vector<Smax> h_scaling_L21_im(batch_count);
     std::vector<Smax> h_scaling_U12_im(batch_count);
 
-    std::vector<Smax> h_scaling_L21(batch_count);
-    std::vector<Smax> h_scaling_U12(batch_count);
 
 
 
@@ -745,7 +698,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 // A, shiftA + idx2D(nextpiv, j, inca, lda), inca, lda, strideA,
                 I const nrows_L21 = mm;
                 I const ncols_L21 = jb;
-                auto L21 = A;
+                auto const L21 = A;
                 auto const shift_L21 = shiftA + idx2D(nextpiv, j, inca, lda);
                 auto const ldL21 = lda;
                 auto const stride_L21 = strideA;
@@ -753,7 +706,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 // A, shiftA + idx2D(j, nextpiv, inca, lda), inca, lda, strideA,
                 I const nrows_U12 = jb;
                 I const ncols_U12 = nn;
-                auto U12 = A;
+                auto const U12 = A;
                 auto const shift_U12 = shiftA + idx2D(j, nextpiv, inca, lda);
                 auto const ldU12 = lda;
                 auto const stride_U12 = strideA;
@@ -772,11 +725,10 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 Istride const stride_L21_chop = ldL21_chop * ncols_L21_chop;
                 size_t const size_L21_chop = (sizeof(Treduced) * strideL_L21_chop) * batch_count;
 
-                size_t const size_L21_re_chop = size_L21_chop;
-                size_t const size_L21_im_chop = size_L21_chop;
-
                 I const nrows_L21_re = nrows_L21;
                 I const ncols_L21_re = ncols_L21;
+                size_t const size_L21_re_chop = size_L21_chop;
+                size_t const size_L21_im_chop = size_L21_chop;
 
                 I const ldL21_re = nrows_L21_re;
                 I const ldL21_im = nrows_L21_im;
@@ -850,26 +802,26 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     Treduced* const U12_chop = (Treduced*)pfree;
                     pfree += size_U12_chop;
 
+                    Smax* amax_L21 = nullptr;
+                    Smax* amax_U12 = nullptr;
+
+                    if(is_fp16)
+                    {
+                        amax_U12 = (Smax*)pfree;
+                        pfree += size_amax_U12;
+
+                        amax_L21 = (Smax*)pfree;
+                        pfree += size_amax_L21;
+                    }
+
+                    CHECK_MEM(pfree);
+
                     if(is_fp16)
                     {
                         // ---------------------------------------
                         // need to scale and convert L21 and U12
                         // to fit in limited dynamic range of FP16
                         // ---------------------------------------
-
-                        Smax* const amax_U12 = (Smax*)pfree;
-                        pfree += size_amax_U12;
-
-                        Smax* const amax_L21 = (Smax*)pfree;
-                        pfree += size_amax_L21;
-
-                        Smax* const scaling_L21 = (Smax*)pfree;
-                        pfree += size_scaling_L21;
-
-                        Smax* const scaling_U12 = (Smax*)pfree;
-                        pfree += size_scaling_U12;
-
-                        CHECK_MEM(pfree);
 
                         // --------------------------------------
                         // set amax_U12, amax_L21 to zero
@@ -896,8 +848,6 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
 
 
-			gen_scaling( batch_count, dlimit, amax_L21, scaling_L21 );
-			gen_scaling( batch_count, dlimit, amax_U12, scaling_U12 );
 
 			// ------------------------------------------------
 			// scale and convert to fit in limited dynamic range
@@ -913,7 +863,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
 					L21_chop, shift_L21_chop, ldL21_chop, stride_L21_chop,
 
-					batch_count,   scaling_L21 );
+					batch_count,   dlimit, amax_L21 );
 
 			scale_and_convert( handle,
 					nrows_U12, ncols_U12,
@@ -922,7 +872,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
 					U12_chop, shift_U12_chop, ldU12_chop, stride_U12_chop,
 
-					batch_count,  scaling_U12 );
+					batch_count,  dlimit, amax_U12 );
                     }
                     else
                     {
@@ -931,39 +881,93 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         // to fit in limited dynamic range
                         // ------------------------------------
 
-                        char const uplo = 'A';
-                        lacpy(handle, uplo, nrows_L21, ncols_L21,
+                        Smax const dlimit_bf16 = 1;
 
-                              L21, shift_L21, ldL21, shift_L21,
+                        Smax* const amax_L21_null = nullptr;
+                        Smat* const amax_U12_null = nullptr;
 
-                              L21_chop, shift_L21_chop, ldL21_chop, shift_L21_chop,
+                        scale_and_convert(handle, nrows_L21, ncols_L21,
 
-                              batch_count);
+                                          L21, shift_L21, ldL21, stride_L21,
 
-                        lacpy(handle, uplo, nrows_U12, ncols_U12,
+                                          L21_chop, shift_L21_chop, ldL21_chop, stride_L21_chop,
 
-                              U12, shift_U12, ldU12, shift_U12,
+                                          batch_count, dlimit, amax_L21_null);
 
-                              U12_chop, shift_U12_chop, ldU12_chop, shift_U12_chop,
+                        scale_and_convert(handle, nrows_U12, ncols_U12,
 
-                              batch_count);
+                                          U12, shift_U12, ldU12, stride_U12,
+
+                                          U12_chop, shift_U12_chop, ldU12_chop, stride_U12_chop,
+
+                                          batch_count, dlimit, amax_U12_null);
                     }
 
-                    // ----------------------
-                    // perform GEMM operation
-                    // A22 <- A22 - L21_chop * U12_chop
-                    // ----------------------
+                    rocblas_operation const trans_a = rocblas_operation_none;
+                    rocblas_operation const trans_b = rocblas_operation_none;
 
+                    I const lmm = nrows_A22;
+                    I const lnn = ncols_A22;
+                    I const lkk = ncols_L21_chop;
+
+                    if(is_fp16)
                     {
-                        rocblas_operation const trans_a = rocblas_operation_none;
-                        rocblas_operation const trans_b = rocblas_operation_none;
+                        // ----------------------
+                        // perform GEMM operation
+                        // A22 <- A22 - { (amax_L21/dlimit) * (amax_U12/dlimit) } *
+                        //              { (dlimit/amax_L21) * L21_chop } *
+                        //              { (dlimit/amax_U12) * U12_chop }
+                        // ----------------------
 
-                        Istride const stride_alpha = 0;
+                        Istride const stride_alpha = 1;
                         Istride const stride_beta = 0;
 
-                        I const lmm = nrows_A22;
-                        I const lnn = ncols_A22;
-                        I const lkk = ncols_L21_chop;
+                        size_t const size_alpha = sizeof(S) * batch_count;
+
+                        std::vector<Smax> h_amax_L21(batch_count);
+                        std::vector<Smax> h_amax_U12(batch_count);
+                        std::vector<S> h_alpha(batch_count);
+
+                        HIP_CHECK(hipMemcpyAsync(&(h_amax_L21[0]), amax_L21, size_amax_L21,
+                                                 hipMemcpyDeviceToHost, stream));
+
+                        HIP_CHECK(hipMemcpyAsync(&(h_amax_U12[0]), amax_U12, size_amax_U12,
+                                                 hipMemcpyDeviceToHost, stream));
+
+                        HIP_CHECK(hipStreamSynchronize(stream));
+
+                        for(I bid = 0; bid < batch_count; bid++)
+                        {
+                            h_alpha[bid] = (h_amax_L21[bid] / dlimit) * (h_amax_U12[bid] / dlimit);
+                        }
+
+                        ROCBLAS_CHECK(rocblasCall_gemm_ex(
+                            handle, trans_a, trans_b,
+
+                            lmm, lnn, lkk,
+
+                            &(h_alpha[0]), stride_alpha,
+
+                            L21_chop, shift_L21_chop, ldL21_chop, stride_L21_chop,
+
+                            U12_chop, shift_U12_chop, ldU12_chop, stride_U12_chop,
+
+                            &one, stride_beta,
+
+                            A22, shift_A22, ldA22, stride_A22,
+
+                            batch_count, (void*)pfree));
+                    }
+                    else
+                    {
+                        // ---------------------------------
+                        // perform GEMM operation
+                        // Bfloat16, so no need for rescaling
+                        //
+                        // A22 <- A22 - L21_chop * U12_chop
+                        // ---------------------------------
+                        Istride const stride_alpha = 0;
+                        Istride const stride_beta = 0;
 
                         ROCBLAS_CHECK(rocblasCall_gemm_ex(
                             handle, trans_a, trans_b,
@@ -997,28 +1001,6 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     // ------------------------------
 
                     auto const pfree_saved = pfree;
-
-                    S* A22_re = nullptr;
-                    S* A22_im = nullptr;
-                    if(use_out_of_place)
-                    {
-                        A22_re = (S*)pfree;
-                        pfree += size_A22_re;
-                        A22_im = (S*)pfree;
-                        pfree += size_A22_im;
-                    }
-
-                    CHECK_MEM(pfree);
-
-                    complex2reim(handle, nrows_A22, ncols_A22,
-
-                                 A22, shift_A22, ldA22, stride_A22,
-
-                                 A22_re, shift_A22_re, ldA22_re, stride_A22_re,
-
-                                 A22_im, shift_A22_im, ldA22_im, stride_A22_im,
-
-                                 batch_count);
 
                     // -------------------------------
                     // create L21_re_chop, L21_im_chop
@@ -1235,62 +1217,118 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     size_t const size_A22_im
                         = (use_out_of_place) ? sizeof(T) * stride_A22_im * batch_count : 0;
 
-                    T* const A22_re = (use_out_of_place) ? (T*)pfree : A;
-                    pfree += size_A22_re;
+                    S* const A22_re = (use_out_of_place) ? (S*)pfree : (S*)A;
+                    if(use_out_of_place)
+                    {
+                        pfree += size_A22_re;
+                    }
 
-                    T* const A22_im = (use_out_of_place) ? (T*)pfree : A;
-                    pfree += size_A22_im;
+                    S* const A22_im = (use_out_of_place) ? (S*)pfree : A22_re + nrows_A22_re;
+                    if(use_out_of_place)
+                    {
+                        pfree += size_A22_im;
+                    }
 
                     CHECK_MEM(pfree);
 
-                    complex2reim_outofplace(
-                        handle, nrows_A22_re, ncols_A22_re,
+                    {
+                        // ----------------------
+                        // form A22_re and A22_im
+                        // ----------------------
+                        Smax* const amax_A22_re_null = nullptr;
+                        Smax* const amax_A22_im_null = nullptr;
 
-                        // A, shiftA + idx2D(nextpiv, nextpiv, inca, lda), lda, strideA,
-                        A22, shift_A22, ldA22, stride_A22,
+                        if(use_out_of_place)
+                        {
+                            complex2reim_outofplace(
+                                handle, nrows_A22_re, ncols_A22_re,
 
-                        A22_re, shift_A22_re, ldA22_re, stride_A22_re,
+                                // A, shiftA + idx2D(nextpiv, nextpiv, inca, lda), lda, strideA,
+                                A22, shift_A22, ldA22, stride_A22,
 
-                        A22_im, shift_A22_im, ldA22_im, stride_A22_im,
+                                A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
-                        batch_count);
+                                A22_im, shift_A22_im, ldA22_im, stride_A22_im,
 
-                    /*
-	% -------------------------------------------------------------
-	% A22( i3:m, j3:n ) = A22( i3:m, j3:n) - single(L21) * single(U12);
-	% -------------------------------------------------------------
+                                batch_count, dlimit, amax_A22_re_null, amax_A22_im_null);
+                        }
+                        else
+                        {
+                            // -----------------------------
+                            // use-inplace conversion
+                            // to over-write original storage of A22 complex matrix
+                            // as real part matrix A22_re and
+                            // imaginary part matrix A22_im
+                            //
+                            // [ A22_re ]
+                            // [ A22_im ]
+                            // -----------------------------
 
+                            I const ldA22_tmp = nrows_A22;
+                            Istride const shift_A22_tmp = 0;
+                            Istride const stride_A22_tmp = ldA22_tmp * blk;
+                            size_t const A22_tmp = sizeof(T) * stride_A22_tmp * batch_count;
 
+                            T* A22_tmp = pfree;
+                            pfree += size_A22_tmp;
 
-	% ----------------------------------
-	% Use 4 GEMM to emulate complex GEMM
-	% ----------------------------------
-	% (A22_re + J * A22_im) = (A22_re + J * A22_im) -
-	%                     (L21_re + J * L21_im) * (U12_re + J * U12_im )
-	%
-	% A22_re = A22_re - ( L21_re * U12_re - L21_im * U12_im )
-	% A22_im = A22_im - ( L21_re * U12_im + L21_im * U12_re )
-	%
-	% A22_re = A22_re - L21_re * U12_re
-	% A22_re = A22_re + L21_im * U12_im
-	%
-	% A22_im = A22_im - L21_re * U12_im
-	% A22_im = A22_im - L21_im * U12_re
-	%  ------------------------------
-*/
+                            CHECK_MEM(pfree);
 
-                    double const dlimit_sq = dlimit * dlimit;
+                            for(I jstart = 0; jstart < n; jstart += blk)
+                            {
+                                I const jend = std::min(n, jstart + blk);
+                                I const jsize = jend - jstart;
 
-                    std::vector<double> h_amax_L21_re(batch_count);
-                    std::vector<double> h_amax_L21_im(batch_count);
-                    std::vector<double> h_amax_U12_re(batch_count);
-                    std::vector<double> h_amax_U12_im(batch_count);
-                    /*
-	------------------------------------
-	% A22_im = A22_im - L21_re * U12_im
-	% A22_im = A22_im - L21_im * U12_re
-	------------------------------------
-*/
+                                lacpy(handle, nrows_A22, jsize,
+
+                                      A22, shift_A22 + idx2D(0, j, ldA22_re), ldA22, stride_A22,
+
+                                      A22_tmp, shift_A22_tmp, ldA22_tmp, stride_A22_tmp,
+
+                                      batch_count);
+
+                                complex2reim_outofplace(
+                                    handle, nrows_A22, jsize,
+
+                                    A22_tmp, shift_A22_tmp, ldA22_tmp, stride_A22_tmp,
+
+                                    A22_re, shift_A22_re + idx2D(0, j, ldA22_re), ldA22_re,
+                                    stride_A22_re,
+
+                                    A22_im, shift_A22_im + idx2D(0, j, ldA22_im), ldA22_im,
+                                    stride_A22_im,
+
+                                    batch_count, dlimit, amax_A22_re_null, amax_A22_im_null);
+                            } // end for(bid)
+
+                            pfree = pfree - size_A22_tmp;
+                        }
+                    }
+
+                    // % -------------------------------------------------------------
+                    // % A22( i3:m, j3:n ) = A22( i3:m, j3:n) - single(L21) * single(U12);
+                    // % -------------------------------------------------------------
+
+                    // % ----------------------------------
+                    // % Use 4 GEMM to emulate complex GEMM
+                    // % ----------------------------------
+                    // % (A22_re + J * A22_im) = (A22_re + J * A22_im) -
+                    // %                     (L21_re + J * L21_im) * (U12_re + J * U12_im )
+                    // %
+                    // % A22_re = A22_re - ( L21_re * U12_re - L21_im * U12_im )
+                    // % A22_im = A22_im - ( L21_re * U12_im + L21_im * U12_re )
+                    // %
+                    // % A22_re = A22_re - L21_re * U12_re
+                    // % A22_re = A22_re + L21_im * U12_im
+                    // %
+                    // % A22_im = A22_im - L21_re * U12_im
+                    // % A22_im = A22_im - L21_im * U12_re
+                    // %  ------------------------------
+
+                    // ------------------------------------
+                    // % A22_re = A22_re - L21_re * U12_re
+                    // % A22_re = A22_re + L21_im * U12_im
+                    // ------------------------------------
 
                     // --------------------------------------------
                     // copy the amax arrays to host
@@ -1312,16 +1350,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                     if(is_fp16)
                     {
-                        /*
-	alpha = single( (amax_L21_re / dlimit_sq) * amax_U12_re );
-	A22_re( i3:m, j3:n) = A22_re( i3:m, j3:n ) - ...
-		alpha * single(L21_re_chop) * single(U12_re_chop);
-*/
+                        // -----------------------------------------------------
+                        // alpha = single( (amax_L21_re / dlimit) * (amax_U12_re/dlimit) );
+                        // A22_re( i3:m, j3:n) = A22_re( i3:m, j3:n ) - ...
+                        //    alpha * single(L21_re_chop) * single(U12_re_chop);
+                        // -----------------------------------------------------
 
                         std::vector<S> h_alpha(batch_count);
                         for(I bid = 0; bid < batch_count; bid++)
                         {
-                            h_alpha[bid] = -((h_amax_L21_re[bid] / dlimit_sq) * h_amax_U12_re[bid]);
+                            h_alpha[bid] = -((h_amax_L21_re[bid] / dlimit) * (h_amax_U12_re[bid]/dlimit);
                         }
                         Istride const stride_alpha = 1;
                         Istride const stride_beta = 0;
@@ -1355,7 +1393,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         // -------------------------------------------------------
                         for(I bid = 0; bid < batch_count; bid++)
                         {
-                            h_alpha[bid] = ((h_amax_L21_im[bid] / dlimit_sq) * h_amax_U12_im[bid]);
+                            h_alpha[bid] = ((h_amax_L21_im[bid] / dlimit) * (h_amax_U12_im[bid]/dlimit);
                         }
 
                         {
@@ -1382,10 +1420,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     else
                     {
                         //  -----------------------------
+                        //  using bfloat16, perform
+                        //
                         //  A22_re = A22_re - L21_re_chop * U12_re_chop
+                        //  A22_re = A22_re + L21_im_chop * U12_im_chop
                         //  -----------------------------
 
                         {
+                            //  -------------------------------------------
+                            //  A22_re = A22_re - L21_re_chop * U12_re_chop
+                            //  -------------------------------------------
                             auto const trans_a = rocblas_operation_none;
                             auto const trans_b = rocblas_operation_none;
 
@@ -1409,18 +1453,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                 A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
                                 batch_count, (void*)pfree));
-                        }
-                        //  -----------------------------
-                        //  A_re = A_re + L21_im * U12_im
-                        //  -----------------------------
+                            //  -----------------------------
+                            //  A_re = A_re + L21_im * U12_im
+                            //  -----------------------------
 
-                        {
                             auto const trans_a = rocblas_operation_none;
                             auto const trans_b = rocblas_operation_none;
 
                             auto const lmm = nrows_A22_re;
                             auto const lnn = ncols_A22_re;
-                            auto const lkk = nrows_U12_im;
+                            auto const lkk = ncols_L21_im;
 
                             Istride const stride_alpha = 0;
                             Istride const stride_beta = 0;
@@ -1464,7 +1506,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                             for(I bid = 0; bid < batch_count; bid++)
                             {
                                 h_alpha[bid]
-                                    = -((h_amax_L21_re[bid] / dlimit_sq) * h_amax_U12_im[bid]);
+                                    = -((h_amax_L21_re[bid] / dlimit) * (h_amax_U12_im[bid]/dlimit);
                             }
 
                             I const lmm = nrows_A22_im;
@@ -1487,17 +1529,17 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                 batch_count, (void*)pfree));
                         }
 
-                        /*
-		alpha = single( (amax_L21_im/dlimit_sq) * amax_U12_re );
-		A22_im( i3:m, j3:n) = A22_im( i3:m, j3:n) - ...
-			alpha * single(L21_im_chop) * single(U12_re_chop);
-                */
+                        // ------------------------------------------------------
+                        // alpha = single( (amax_L21_im/dlimit_sq) * amax_U12_re );
+                        // A22_im( i3:m, j3:n) = A22_im( i3:m, j3:n) - ...
+                        //         alpha * single(L21_im_chop) * single(U12_re_chop);
+                        // ------------------------------------------------------
 
                         {
                             for(I bid = 0; bid < batch_count; bid++)
                             {
                                 h_alpha[bid]
-                                    = -((h_amax_L21_im[bid] / dlimit_sq) * h_amax_U12_re[bid]);
+                                    = -((h_amax_L21_im[bid] / dlimit) * (h_amax_U12_re[bid]/dlimit);
                             }
 
                             I const lmm = nrows_A22_im;
@@ -1515,13 +1557,17 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                                 &one, stride_beta,
 
+                                A22_im, shift_A22_im, ldA22_im, stride_A22_im,
+
                                 batch_count, (void*)pfree));
                         }
                     }
                     else
                     {
                         //  -----------------------------
+                        //  use bfloat16, perform
                         //  A22_im = A22_im - L21_re * U12_im
+                        //  A22_im = A22_im - L21_im * U12_re
                         //  -----------------------------
 
                         I const lmm = nrows_A22_im;
@@ -1534,8 +1580,13 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         Istride const stride_alpha = 0;
                         Istride const stride_beta = 0;
 
+                        //  --------------------------------
+                        //  A22_im = A22_im - L21_re * U12_im
+                        //  --------------------------------
                         ROCBLAS_CHECK(rocblasCall_gemm_ex(
-                            handle, trans_a, trans_b, lmm, lnn, lkk,
+                            handle, trans_a, trans_b,
+
+                            lmm, lnn, lkk,
 
                             &minone, stride_alpha,
 
@@ -1554,7 +1605,11 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         // -------------------------------
 
                         ROCBLAS_CHECK(rocblasCall_gemm_ex(
-                            handle, trans_a, trans_b, mm, nn, kk, &minone, stride_alpha,
+                            handle, trans_a, trans_b,
+
+                            lmm, lnn, lkk,
+
+                            &minone, stride_alpha,
 
                             L21_im_chop, shift_L21_im_chop, ldL21_im_chop, stride_L21_im_chop,
 
@@ -1569,16 +1624,66 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                     // -------------------------------
                     // restore back to complex storage
+                    // for complex LU for next panel
                     // -------------------------------
-                    reim2complex_outofplace(
-                        handle, nrows_A22_re, ncols_A22_re,
+                    if(use_out_of_place)
+                    {
+                        reim2complex_outofplace(
+                            handle, nrows_A22_re, ncols_A22_re,
 
-                        A22_re, shift_A22_re, ldA22_re, stride_A22_re,
+                            A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
-                        A22_im, shift_A22_im, ldA22_im, stride_A22_im,
+                            A22_im, shift_A22_im, ldA22_im, stride_A22_im,
 
-                        // A, shiftA + idx2D(nextpiv, nextpiv, inca, lda), lda, strideA,
-                        A22, shift_A22, ldA22, stride_A22, batch_count);
+                            // A, shiftA + idx2D(nextpiv, nextpiv, inca, lda), lda, strideA,
+                            A22, shift_A22, ldA22, stride_A22, batch_count);
+                    }
+                    else
+                    {
+                        // -----------------------------------------
+                        // in-place conversion to over-write separate
+                        // real part matrix and imag part matrix
+                        // into complex matrix
+                        // -----------------------------------------
+
+                        I const ldA22_tmp = nrows_A22;
+                        Istride const shift_A22_tmp = 0;
+                        Istride const stride_A22_tmp = ldA22_tmp * blk;
+                        size_t const A22_tmp = sizeof(T) * stride_A22_tmp * batch_count;
+
+                        T* A22_tmp = pfree;
+                        pfree += size_A22_tmp;
+
+                        CHECK_MEM(pfree);
+
+                        for(I jstart = 0; jstart < n; jstart += blk)
+                        {
+                            I const jend = std::min(n, jstart + blk);
+                            I const jsize = (jend - jstart);
+
+                            reim2complex_outofpalce(
+                                handle, nrows_A22_re, jsize,
+
+                                A22_re, shift_A22_re + idx2D(0, j, ldA22_re), stride_A22_re,
+
+                                A22_im, shift_A22_im + idx2D(0, j, ldA22_im), stride_A22_im,
+
+                                A22_tmp, shfit_A22_tmp, ldA22_tmp, stride_A22_tmp,
+
+                                batch_count);
+
+                            char const uplo = 'A';
+                            lacpy(handle, uplo, nrows_A22_re, jsize,
+
+                                  A22_tmp, shift_A22_tmp, ldA22_tmp, stride_A22_tmp,
+
+                                  A22, shift_A22 + idx2D(0, j, ldA22), ldA22, stride_A22,
+
+                                  batch_count);
+
+                        } // end for(bid)
+                        pfree = pfree - size_A22_tmp;
+                    }
 
                     pfree = pfree_saved;
                 } // end if (is_complex)
