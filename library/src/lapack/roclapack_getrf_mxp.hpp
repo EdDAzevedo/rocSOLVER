@@ -31,18 +31,19 @@
  * *************************************************************************/
 
 #pragma once
+#include <type_traits>
+#include <typeinfo>
 
 #include "hip/hip_bf16.h"
 #include "hip/hip_bfloat16.h"
 #include "hip/hip_fp16.h"
-#include <type_traits>
 
 #include "rocblas.hpp"
 #include "roclapack_getf2.hpp"
 #include "rocsolver/rocsolver.h"
 #include "rocsolver_run_specialized_kernels.hpp"
 
-#include "rocsolver_getrf.hpp"
+#include "roclapack_getrf.hpp"
 
 #include "auxiliary/rocauxiliary_amax_matrix.hpp"
 #include "auxiliary/rocauxiliary_complex2reim.hpp"
@@ -129,7 +130,10 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
 
     bool constexpr is_complex = rocblas_is_complex<T>;
     bool constexpr is_batched = (BATCHED || STRIDED);
-    using S = std::conditional<is_complex, decltype(std::real(T{})), T>::type;
+    bool constexpr ISBATCHED = is_batched;
+
+    using S = decltype(std::real(T{}));
+    using Smax = S;
 
     if(is_batched)
     {
@@ -137,6 +141,10 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
         size_t const size_ptr_array = sizeof(T**) * batch_count * 3;
         size_work += size_ptr_array;
     }
+
+    auto const min_mn = std::min(m, n);
+    auto const dim = min_mn;
+    I const blk = getrf_mxp_get_blksize<ISBATCHED, T>(dim, pivot);
 
     {
         // ----------------
@@ -155,10 +163,6 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
         size_t size_iipiv = 0;
         size_t size_iinfo = 0;
 
-        auto const min_mn = std::min(m, n);
-        auto const dim = min_mn;
-        I const blk = getrf_mxp_get_blksize<ISBATCHED, T>(dim, pivot);
-
         auto const nn = std::min(blk, min_mn);
         rocsolver_getrf_getMemorySize<BATCHED, STRIDED, T, I>(
             m, nn, pivot, batch_count, &size_scalars, &size_work1, &size_work2, &size_work3,
@@ -176,7 +180,7 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
     size_t size_L21_re_chop = (sizeof(Treduced) * m * blk) * batch_count;
     size_t size_U12_re_chop = (sizeof(Treduced) * blk * n) * batch_count;
     size_work += size_L21_re_chop;
-    size_Work += size_U12_re_chop;
+    size_work += size_U12_re_chop;
 
     if(is_complex)
     {
@@ -227,7 +231,7 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
         // ---------------------------------------
         // use out of place for complex conversion
         // ---------------------------------------
-        if(use_out_of_palce)
+        if(use_out_of_place)
         {
             size_t const size_A22_re = (sizeof(S) * m * n) * batch_count;
             size_t const size_A22_im = size_A22_re;
@@ -242,7 +246,9 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
             // in-place conversion
             // -------------------------------
 
-            size_complex2reim_inplace = (sizeof(T) * m * blk) * batch_count;
+            I const num_cu = get_num_cu();
+            size_t const size_complex2reim_inplace
+                = (sizeof(T) * m * std::max(num_cu, blk)) * batch_count;
             size_work += size_complex2reim_inplace;
         }
     }
@@ -254,12 +260,12 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
 #define CHECK_MEM(pfree)                                          \
     {                                                             \
         bool const is_memory_ok = (pfree <= (pwork + size_work)); \
-        assert(is_memory_ok);
-if(!is_memory_ok)
-{
-    return (rocblas_status_internal_error);
-}
-}
+        assert(is_memory_ok);                                     \
+        if(!is_memory_ok)                                         \
+        {                                                         \
+            return (rocblas_status_internal_error);               \
+        }                                                         \
+    }
 #endif
 
 #ifndef ROCBLAS_CHECK
@@ -277,7 +283,7 @@ if(!is_memory_ok)
 // wrapper to prepare call to rocblas_gemm_ex() + batched + strided_batched
 // ------------------------------------------------------------------------
 template <typename T, typename Treduced, typename I, typename Istride>
-static rocblas_status void rocblasCall_gemm_ex(
+static rocblas_status rocblasCall_gemm_ex(
 
     rocblas_handle handle,
     rocblas_operation const trans_a,
@@ -384,7 +390,7 @@ static rocblas_status void rocblasCall_gemm_ex(
 
         auto D = C;
         auto const d_type = c_type;
-        auto const ld_c = ld_d;
+        auto const ld_d = ld_c;
         auto const stride_d = stride_c;
 
         ROCBLAS_CHECK(rocblas_gemm_strided_batched_ex(handle, trans_a, trans_b, m, n, k, alpha,
@@ -406,18 +412,26 @@ static rocblas_status void rocblasCall_gemm_ex(
     return (rocblas_status_success);
 }
 
-template <bool BATCHED, bool STRIDED, typename T, typename Treduced, typename I, typename INFO, typename UA, typename UA_S>
+template <bool BATCHED,
+          bool STRIDED,
+          typename T,
+          typename Treduced,
+          typename I,
+          typename Istride,
+          typename INFO,
+          typename UA,
+          typename UA_S>
 rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                             const I m,
                                             const I n,
                                             T* const A,
-                                            const rocblas_stride shiftA,
+                                            const Istride shiftA,
                                             const I inca,
                                             const I lda,
-                                            const rocblas_stride strideA,
+                                            const Istride strideA,
                                             I* ipiv,
-                                            const rocblas_stride shiftP,
-                                            const rocblas_stride strideP,
+                                            const Istride shiftP,
+                                            const Istride strideP,
                                             INFO* const info,
                                             const I batch_count,
                                             const bool pivot,
@@ -429,19 +443,17 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
     bool constexpr is_complex = rocblas_is_complex<T>;
 
-    using S = std::conditional< is_complex, decltype(std::real(T{}), T >::type;
+    using S = decltype(std::real(T{}));
     using Smax = S;
 
     I const ldA = lda;
     I const fp16_max = 65504; // max valid representable value in FP16
     I const fp16_max_m1 = fp16_max - 1;
+
+    bool constexpr is_fp16 = std::is_same<Treduced, __half>::value
+        || std::is_same<Treduced, _Float16>::value || std::is_same<Treduced, rocblas_half>::value;
+
     Smax const dlimit = (is_fp16) ? fp16_max_m1 : 1;
-
-    bool constexpr is_fp16
-        = std::is_same<Treduced,
-                       __half> || std::is_same<Treduced, _Float16> || std::is_same<Treduced, rocblas_half>;
-
-
 
     // quick return
     if(batch_count == 0)
@@ -449,8 +461,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
         return rocblas_status_success;
     }
 
-    auto ceil = [](auto n, auto b) {
-        return ((n - 1) / b + 1); };
+    auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
 
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
@@ -512,7 +523,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
         I const nn = std::min(blk, dim);
         rocsolver_getrf_getMemorySize<BATCHED, STRIDED, T, I>(
 
-            m, nn, pivot, batchcount,
+            m, nn, pivot, batch_count,
 
             &size_scalars, &size_work1, &size_work2, &size_work3, &size_work4, &size_pivotval,
             &size_pivotidx, &size_iipiv, &size_iinfo, &optim_mem);
@@ -545,7 +556,6 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                                       ipiv, shiftP, strideP, info, batch_count,
                                                       scalars, pivotval, pivotidx, pivot);
 
-
     // everything must be executed with scalars on the host
     rocblas_pointer_mode old_mode;
     rocblas_get_pointer_mode(handle, &old_mode);
@@ -557,11 +567,11 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     // amax arrays
     // -----------
 
-    Smax *amax_L21_re = nullptr;
-    Smax *amax_U12_re = nullptr;
+    Smax* amax_L21_re = nullptr;
+    Smax* amax_U12_re = nullptr;
 
-    Smax *amax_L21_im = nullptr;
-    Smax *amax_U12_im = nullptr;
+    Smax* amax_L21_im = nullptr;
+    Smax* amax_U12_im = nullptr;
 
     Istride const stride_amax_L21_re = 1;
     Istride const stride_amax_U12_re = 1;
@@ -572,8 +582,10 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     size_t const size_amax_L21_re = (is_fp16) ? sizeof(Smax) * stride_amax_L21_re * batch_count : 0;
     size_t const size_amax_U12_re = (is_fp16) ? sizeof(Smax) * stride_amax_U12_re * batch_count : 0;
 
-    size_t const size_amax_L21_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_amax_L21_im * batch_count : 0;
-    size_t const size_amax_U12_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_amax_U12_im * batch_count : 0;
+    size_t const size_amax_L21_im
+        = (is_complex && is_fp16) ? sizeof(Smax) * stride_amax_L21_im * batch_count : 0;
+    size_t const size_amax_U12_im
+        = (is_complex && is_fp16) ? sizeof(Smax) * stride_amax_U12_im * batch_count : 0;
 
     size_t const size_amax_L21 = size_amax_L21_re;
     size_t const size_amax_U12 = size_amax_U12_re;
@@ -582,11 +594,11 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     // scaling arrays
     // --------------
 
-    Smax *scaling_L21_re = nullptr;
-    Smax *scaling_U12_re = nullptr;
+    Smax* scaling_L21_re = nullptr;
+    Smax* scaling_U12_re = nullptr;
 
-    Smax *scaling_L21_im = nullptr;
-    Smax *scaling_U12_im = nullptr;
+    Smax* scaling_L21_im = nullptr;
+    Smax* scaling_U12_im = nullptr;
 
     Istride const stride_scaling_L21_re = 1;
     Istride const stride_scaling_U12_re = 1;
@@ -594,14 +606,15 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     Istride const stride_scaling_L21_im = 1;
     Istride const stride_scaling_U12_im = 1;
 
-    size_t const size_scaling_L21_re = (is_fp16) ? sizeof(Smax) * stride_scaling_L21_re * batch_count : 0;
-    size_t const size_scaling_U12_re = (is_fp16) ? sizeof(Smax) * stride_scaling_U12_re * batch_count : 0;
+    size_t const size_scaling_L21_re
+        = (is_fp16) ? sizeof(Smax) * stride_scaling_L21_re * batch_count : 0;
+    size_t const size_scaling_U12_re
+        = (is_fp16) ? sizeof(Smax) * stride_scaling_U12_re * batch_count : 0;
 
-    size_t const size_scaling_L21_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_scaling_L21_im * batch_count : 0;
-    size_t const size_scaling_U12_im = (is_complex && is_fp16) ? sizeof(Smax) * stride_scaling_U12_im * batch_count : 0;
-
-
-
+    size_t const size_scaling_L21_im
+        = (is_complex && is_fp16) ? sizeof(Smax) * stride_scaling_L21_im * batch_count : 0;
+    size_t const size_scaling_U12_im
+        = (is_complex && is_fp16) ? sizeof(Smax) * stride_scaling_U12_im * batch_count : 0;
 
     std::vector<Smax> h_amax_L21_re(batch_count);
     std::vector<Smax> h_amax_U12_re(batch_count);
@@ -609,21 +622,17 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     std::vector<Smax> h_amax_L21_im(batch_count);
     std::vector<Smax> h_amax_U12_im(batch_count);
 
-
     std::vector<Smax> h_scaling_L21_re(batch_count);
     std::vector<Smax> h_scaling_U12_re(batch_count);
 
     std::vector<Smax> h_scaling_L21_im(batch_count);
     std::vector<Smax> h_scaling_U12_im(batch_count);
 
-
-
-
-
     I jb, dimx, dimy;
     I nextpiv, mm, nn;
     size_t lmemsize;
     I j = 0;
+    bool const optim_mem = true;
 
     // in the npvt cases, panel determines whether the whole block-panel or only the
     // diagonal block is factorized
@@ -715,7 +724,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 auto const nrows_A22 = mm;
                 auto const ncols_A22 = nn;
                 auto const A22 = A;
-                auto const shift_A22 = shiftA + idx2D(nextpiv, nextpiv, inc, lda);
+                auto const shift_A22 = shiftA + idx2D(nextpiv, nextpiv, inca, lda);
                 auto const ldA22 = lda;
                 auto const stride_A22 = strideA;
 
@@ -723,10 +732,14 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 auto const ncols_L21_chop = ncols_L21;
                 I const ldL21_chop = nrows_L21_chop;
                 Istride const stride_L21_chop = ldL21_chop * ncols_L21_chop;
-                size_t const size_L21_chop = (sizeof(Treduced) * strideL_L21_chop) * batch_count;
+                Istride const shift_L21_chop = 0;
+                size_t const size_L21_chop = (sizeof(Treduced) * stride_L21_chop) * batch_count;
 
                 I const nrows_L21_re = nrows_L21;
                 I const ncols_L21_re = ncols_L21;
+                I const nrows_L21_im = nrows_L21;
+                I const ncols_L21_im = ncols_L21;
+
                 size_t const size_L21_re_chop = size_L21_chop;
                 size_t const size_L21_im_chop = size_L21_chop;
 
@@ -734,6 +747,8 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 I const ldL21_im = nrows_L21_im;
                 Istride const stride_L21_re = ldL21_re * ncols_L21;
                 Istride const stride_L21_im = ldL21_im * ncols_L21;
+                Istride const shift_L21_re = 2 * shift_L21;
+                Istride const shift_L21_im = 2 * shift_L21;
 
                 size_t const size_L21_re = sizeof(T) * stride_L21_re * batch_count;
                 size_t const size_L21_im = sizeof(T) * stride_L21_im * batch_count;
@@ -741,7 +756,8 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 I const nrows_U12_chop = nrows_U12;
                 I const ncols_U12_chop = ncols_U12;
                 I const ldU12_chop = nrows_U12_chop;
-                Istride const strie_U12_chop = ldU12_chop * ncols_U12_chop;
+                Istride const stride_U12_chop = ldU12_chop * ncols_U12_chop;
+                Istride const shift_U12_chop = 0;
 
                 size_t const size_U12_chop = (sizeof(Treduced) * stride_U12_chop) * batch_count;
 
@@ -762,20 +778,21 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 I const nrows_A22_re = nrows_A22;
                 I const ncols_A22_re = ncols_A22;
 
-                I const nrows_A22_im = nrows_A_re;
-                I const ncols_A22_im = ncols_A_im;
+                I const nrows_A22_im = nrows_A22_re;
+                I const ncols_A22_im = ncols_A22_re;
 
                 // ------------------------------
                 // assume out of place conversion
                 // ------------------------------
 
-                auto const ldA22_re = (use_out_of_place) ? nrows_A22 : ldA22;
+                auto const ldA22_re = (use_out_of_place) ? nrows_A22 : 2 * ldA22;
                 auto const ldA22_im = ldA22_re;
 
-                auto const shift_A22_re = (use_out_of_place) ? 0 : shift_A22;
+                auto const shift_A22_re = (use_out_of_place) ? 0 : 2 * shift_A22;
                 auto const shift_A22_im = shift_A22_re;
 
-                auto const stride_A22_re = (use_of_out_place) ? (ldA22_re * ncols_A22_re) : strideA;
+                auto const stride_A22_re
+                    = (use_out_of_place) ? (ldA22_re * ncols_A22_re) : 2 * strideA;
                 auto const stride_A22_im = stride_A22_re;
 
                 size_t const size_A22_re
@@ -790,7 +807,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     // to use rocblas_gemm_ex()
                     // --------------------------------------------
 
-                    auto const pfree_save = pfree;
+                    auto const pfree_saved = pfree;
 
                     // ------------------------------
                     // allocate L21_chop and U12_chop
@@ -829,50 +846,41 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         // calling amax_matrix() for computing
                         // the max absolute value of L21 and U12
                         // --------------------------------------
-                                HIP_CHECK( hipMemsetAsync( (void *) amax_U12, 0, size_amax_U12, stream );
-			        HIP_CHECK( hipMemsetAsync( (void *) amax_L21, 0, size_amax_L21, stream );
+                        HIP_CHECK(hipMemsetAsync((void*)amax_U12, 0, size_amax_U12, stream));
+                        HIP_CHECK(hipMemsetAsync((void*)amax_L21, 0, size_amax_L21, stream));
 
-                         amax_matrix( handle, nrows_L21, ncols_L21,
+                        amax_matrix(handle, nrows_L21, ncols_L21,
 
-				 L21, shift_L21, ldL21, stride_L21,
+                                    L21, shift_L21, ldL21, stride_L21,
 
-				 batch_count, amax_L21, nullptr );
+                                    batch_count, amax_L21, nullptr);
 
+                        amax_matrix(handle, nrows_U12, ncols_U12,
 
+                                    U12, shift_U12, ldU12, stride_U12,
 
-			amax_matrix( handle, nrows_U12, ncols_U12,
+                                    batch_count, amax_U12, nullptr);
 
-					U12, shift_U12, ldU12, stride_U12,
+                        // ------------------------------------------------
+                        // scale and convert to fit in limited dynamic range
+                        // of FP16
+                        // ------------------------------------------------
 
-					batch_count,  amax_U12, nullptr );
+                        scale_and_convert(handle, nrows_L21, ncols_L21,
 
+                                          L21, shift_L21, ldL21, stride_L21,
 
+                                          L21_chop, shift_L21_chop, ldL21_chop, stride_L21_chop,
 
+                                          batch_count, dlimit, amax_L21);
 
-			// ------------------------------------------------
-			// scale and convert to fit in limited dynamic range
-			// of FP16
-			// ------------------------------------------------
+                        scale_and_convert(handle, nrows_U12, ncols_U12,
 
+                                          U12, shift_U12, ldU12, stride_U12,
 
+                                          U12_chop, shift_U12_chop, ldU12_chop, stride_U12_chop,
 
-			scale_and_convert( handle,
-					nrows_L21, ncols_L21,
-
-					L21, shift_L21, ldL21, stride_L21,
-
-					L21_chop, shift_L21_chop, ldL21_chop, stride_L21_chop,
-
-					batch_count,   dlimit, amax_L21 );
-
-			scale_and_convert( handle,
-					nrows_U12, ncols_U12,
-
-					U12, shift_U12, ldU12, stride_U12,
-
-					U12_chop, shift_U12_chop, ldU12_chop, stride_U12_chop,
-
-					batch_count,  dlimit, amax_U12 );
+                                          batch_count, dlimit, amax_U12);
                     }
                     else
                     {
@@ -884,7 +892,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         Smax const dlimit_bf16 = 1;
 
                         Smax* const amax_L21_null = nullptr;
-                        Smat* const amax_U12_null = nullptr;
+                        Smax* const amax_U12_null = nullptr;
 
                         scale_and_convert(handle, nrows_L21, ncols_L21,
 
@@ -1691,8 +1699,8 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
         }
     } // end for j
 
-            rocblas_set_pointer_mode(handle, old_mode);
-            return rocblas_status_success;
+    rocblas_set_pointer_mode(handle, old_mode);
+    return rocblas_status_success;
 }
 
 ROCSOLVER_END_NAMESPACE

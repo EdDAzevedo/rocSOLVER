@@ -201,13 +201,13 @@ rocblas_status rocsolver_gesv_mxp_template(rocblas_handle handle,
     std::byte* const pwork = (std::byte*)work;
     std::byte* pfree = pwork;
 
-    anrm = lange('i', n, n, a, lda, rwork) eps = dlamch('epsilon') cte = anrm * eps
-        * sqrt(dble(n))* bwdmax
+    auto const anrm = lange('i', n, n, a, lda, rwork);
+    auto const eps = dlamch('epsilon');
+    auto const cte = anrm * eps * std::sqrt(dble(n)) * bwdmax;
 
-            // ===============================
+    // ===============================
 
-            I blocksReset
-        = (batch_count - 1) / BS1 + 1;
+    I blocksReset = (batch_count - 1) / BS1 + 1;
     dim3 gridReset(blocksReset, 1, 1);
     dim3 threads(BS1, 1, 1);
 
@@ -219,8 +219,13 @@ rocblas_status rocsolver_gesv_mxp_template(rocblas_handle handle,
         return rocblas_status_success;
 
     // constants in host memory
-    const I copyblocksx = (n - 1) / 32 + 1;
-    const I copyblocksy = (nrhs - 1) / 32 + 1;
+
+    auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
+
+    I const nx = 32;
+    I const ny = 32;
+    const I copyblocksx = ceil(n, nx);
+    const I copyblocksy = ceil(nrhs, ny);
 
     I const inca = 1;
     bool const pivot = true;
@@ -231,9 +236,9 @@ rocblas_status rocsolver_gesv_mxp_template(rocblas_handle handle,
         scalars, work1, work2, work3, work4, pivotval, pivotidx, iipiv, iinfo, optim_mem, pivot);
 
     // save elements of B that will be overwritten by GETRS for cases where info is nonzero
-    ROCSOLVER_LAUNCH_KERNEL(copy_mat<T>, dim3(copyblocksx, copyblocksy, batch_count), dim3(32, 32),
-                            0, stream, copymat_to_buffer, n, nrhs, B, shiftB, ldb, strideB,
-                            (T*)work, info_mask(info));
+    ROCSOLVER_LAUNCH_KERNEL(copy_mat<T>, dim3(copyblocksx, copyblocksy, batch_count),
+                            dim3(nx, ny, 1), 0, stream, copymat_to_buffer, n, nrhs, B, shiftB, ldb,
+                            strideB, (T*)work, info_mask(info));
 
     // solve AX = B, overwriting B with X
     rocsolver_getrs_template<BATCHED, STRIDED, T>(
@@ -241,9 +246,9 @@ rocblas_status rocsolver_gesv_mxp_template(rocblas_handle handle,
         shiftB, 1, ldb, strideB, batch_count, work1, work2, work3, work4, optim_mem, true);
 
     // restore elements of B that were overwritten by GETRS in cases where info is nonzero
-    ROCSOLVER_LAUNCH_KERNEL(copy_mat<T>, dim3(copyblocksx, copyblocksy, batch_count), dim3(32, 32),
-                            0, stream, copymat_from_buffer, n, nrhs, B, shiftB, ldb, strideB,
-                            (T*)work, info_mask(info));
+    ROCSOLVER_LAUNCH_KERNEL(copy_mat<T>, dim3(copyblocksx, copyblocksy, batch_count),
+                            dim3(nx, ny, 1), 0, stream, copymat_from_buffer, n, nrhs, B, shiftB,
+                            ldb, strideB, (T*)work, info_mask(info));
 
     return rocblas_status_success;
 }
