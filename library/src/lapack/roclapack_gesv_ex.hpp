@@ -41,6 +41,8 @@
 #include <rocblas/internal/rocblas-complex-types.h>
 #include <rocblas/internal/rocblas-types.h>
 
+#include "roclapack_getrf_mxp.hpp"
+
 ROCSOLVER_BEGIN_NAMESPACE
 
 template <template <typename...> class Lambda, typename... Ts, typename... Args>

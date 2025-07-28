@@ -47,9 +47,7 @@
 
 #include "auxiliary/rocauxiliary_amax_matrix.hpp"
 #include "auxiliary/rocauxiliary_complex2reim.hpp"
-#include "auxiliary/rocauxiliary_lacpy.hpp"
-#include "auxiliary/rocauxiliary_reim2complex.hpp"
-#include "auxiliary/rocauxiliary_scale_and_convert.hpp"
+#include "auxiliary/rocauxiliary_complex2reim_inplace.hpp"
 
 ROCSOLVER_BEGIN_NAMESPACE
 
@@ -735,27 +733,34 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 Istride const shift_L21_chop = 0;
                 size_t const size_L21_chop = (sizeof(Treduced) * stride_L21_chop) * batch_count;
 
-                I const nrows_L21_re = nrows_L21;
-                I const ncols_L21_re = ncols_L21;
-                I const nrows_L21_im = nrows_L21;
-                I const ncols_L21_im = ncols_L21;
+                I const nrows_L21_re_chop = nrows_L21;
+                I const ncols_L21_re_chop = ncols_L21;
+                I const nrows_L21_im_chop = nrows_L21;
+                I const ncols_L21_im_chop = ncols_L21;
 
                 size_t const size_L21_re_chop = size_L21_chop;
                 size_t const size_L21_im_chop = size_L21_chop;
 
-                I const ldL21_re = nrows_L21_re;
-                I const ldL21_im = nrows_L21_im;
-                Istride const stride_L21_re = ldL21_re * ncols_L21;
-                Istride const stride_L21_im = ldL21_im * ncols_L21;
-                Istride const shift_L21_re = 2 * shift_L21;
-                Istride const shift_L21_im = 2 * shift_L21;
+                Istride const shift_L21_re_chop = 0;
+                Istride const shift_L21_im_chop = 0;
 
-                size_t const size_L21_re = sizeof(T) * stride_L21_re * batch_count;
-                size_t const size_L21_im = sizeof(T) * stride_L21_im * batch_count;
+                I const ldL21_re_chop = nrows_L21;
+                I const ldL21_im_chop = nrows_L21;
+
+                Istride const stride_L21_re_chop = stride_L21_chop;
+                Istride const stride_L21_im_chop = stride_L21_chop;
 
                 I const nrows_U12_chop = nrows_U12;
                 I const ncols_U12_chop = ncols_U12;
+
+                I const nrows_U12_re_chop = nrows_U12;
+                I const ncols_U12_re_chop = ncols_U12;
+
+                I const nrows_U12_im_chop = nrows_U12;
+                I const ncols_U12_im_chop = ncols_U12;
+
                 I const ldU12_chop = nrows_U12_chop;
+
                 Istride const stride_U12_chop = ldU12_chop * ncols_U12_chop;
                 Istride const shift_U12_chop = 0;
 
@@ -764,16 +769,14 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                 size_t const size_U12_re_chop = size_U12_chop;
                 size_t const size_U12_im_chop = size_U12_chop;
 
-                I const nrows_U12_re = nrows_U12;
-                I const nrows_U12_im = nrows_U12;
+                Istride const shift_U12_re_chop = 0;
+                Istride const shift_U12_im_chop = 0;
 
-                I const ldU12_re = nrows_U12_re;
-                I const ldU12_im = nrows_U12_im;
-                Istride const stride_U12_re = ldU12_re * ncols_U12;
-                Istride const stride_U12_im = ldU12_im * ncols_U12;
+                I const ldU12_re_chop = nrows_U12;
+                I const ldU12_im_chop = nrows_U12;
 
-                size_t const size_U12_re = sizeof(T) * stride_U12_re * batch_count;
-                size_t const size_U12_im = sizeof(T) * stride_U12_im * batch_count;
+                Istride const stride_U12_re_chop = stride_U12_chop;
+                Istride const stride_U12_im_chop = stride_U12_chop;
 
                 I const nrows_A22_re = nrows_A22;
                 I const ncols_A22_re = ncols_A22;
@@ -1015,15 +1018,6 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     // and U12_re_chop, U12_im_chop
                     // -------------------------------
 
-                    // ---------------------------------------------------------
-                    // (1) create L21_re, L21_im, using complex2reim_outofplace()
-                    //            U12_re, U12_im
-                    // (2) compute amax_L21_re, amax_L21_im, using amax_matrix()
-                    //             amax_U12_re, amax_U12_im
-                    // (3) form L21_re_chop, L21_im_chop, using scale_and_convert()
-                    //          U12_re_chop, U12_im_chop
-                    // ---------------------------------------------------------
-
                     Treduced* const L21_re_chop = (Treduced*)pfree;
                     pfree += size_L21_re_chop;
                     Treduced* const L21_im_chop = (Treduced*)pfree;
@@ -1036,76 +1030,25 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                     CHECK_MEM(pfree);
 
-                    // -------------------------
-                    // (1) create L21_re, L21_im
-                    //            U12_re, U12_im
-                    // -------------------------
+                    Smax* amax_L21_re = nullptr;
+                    Smax* amax_L21_im = nullptr;
 
-                    T* const L21_re = (T*)pfree;
-                    pfree += size_L21_re;
-                    T* const L21_im = (T*)pfree;
-                    pfree += size_L21_im;
-
-                    CHECK_MEM(pfree);
-
-                    complex2reim_outofplace(handle, nrows_L21, ncols_L21,
-
-                                            L21, shift_L21, ldL21, stride_L21,
-
-                                            L21_re, shift_L21_re, ldL21_re, stride_L21_re,
-
-                                            L21_im, shift_L21_im, ldL21_im, stride_L21_re,
-
-                                            batch_count);
-
-                    T* const U12_re = (T*)pfree;
-                    pfree += size_U12_re;
-                    T* const U12_im = (T*)pfree;
-                    pfree += size_U12_im;
-
-                    CHECK_MEM(pfree);
-
-                    complex2reim_outofplace(stream, nrows_U12, ncols_U12,
-
-                                            scaling_U12,
-
-                                            U12, shift_U12, ldU12, stride_U12,
-
-                                            U12_re, shift_U12_re, ldU12_re, stride_U12_re,
-
-                                            U12_im, shift_U12_im, ldU12_im, stride_U12_re,
-
-                                            batch_count);
-
-                    Smax* const amax_L21_re = (is_fp16) ? (Smax*)pfree : nullptr;
-                    pfree = (is_fp16) ? pfree + size_amax_L21_re : pfree;
-
-                    Smax* const amax_L21_im = (is_fp16) ? (Smax*)pfree : nullptr;
-                    pfree = (is_fp16) ? pfree + size_amax_L21_im : pfree;
-
-                    Smax* const amax_U12_re = (is_fp16) ? (Smax*)pfree : nullptr;
-                    pfree = (is_fp16) ? pfree + size_amax_U12_re : pfree;
-
-                    Smax* const amax_U12_im = (is_fp16) ? (Smax*)pfree : nullptr;
-                    pfree = (is_fp16) ? pfree + size_amax_U12_im : pfree;
-
-                    Smax* const scaling_L21_re = (is_fp16) ? (Smax*)pfree;
-                    nullptr;
-                    pfree = (is_fp16) ? pfree + size_scaling_L21_re : pfree;
-
-                    Smax* const scaling_L21_im = (is_fp16) ? (Smax*)pfree;
-                    nullptr;
-                    pfree = (is_fp16) ? pfree + size_scaling_L21_im : pfree;
-
-                    Smax* const scaling_U12_re = (is_fp16) ? (Smax*)pfree;
-                    nullptr;
-                    pfree = (is_fp16) ? pfree + size_scaling_U12_re : pfree;
-
-                    CHECK_MEM(pfree);
+                    Smax* amax_U12_re = nullptr;
+                    Smax* amax_U12_im = nullptr;
 
                     if(is_fp16)
                     {
-                        auto const pfree_saved_chop = pfree;
+                        amax_L21_re = (Smax*)pfree;
+                        pfree += size_amax_L21_re;
+                        amax_L21_im = (Smax*)pfree;
+                        pfree += size_amax_L21_im;
+
+                        amax_U12_re = (Smax*)pfree;
+                        pfree += size_amax_U12_re;
+                        amax_U12_im = (Smax*)pfree;
+                        pfree += size_amax_U12_im;
+
+                        CHECK_MEM(pfree);
 
                         // --------------------------------------
                         // set amax_U12_re, amax_U12_im,
@@ -1122,118 +1065,64 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         // ----------------------------------------------------------------
                         // Note: assume no scratch storage needed for calling amax_matrix()
                         // ----------------------------------------------------------------
-                        amax_matrix(handle, nrows_L21_re, ncols_L21_re,
+                        amax_matrix(handle, nrows_L21, ncols_L21,
 
-                                    L21_re, shift_L21_re, ldL21_re, stride_L21_re,
+                                    L21, shift_L21, ldL21, stride_L21,
 
-                                    batch_count, amax_L21_re);
+                                    batch_count, amax_L21_re, amax_L21_im);
 
-                        amax_matrix(handle, nrows_L21_im, ncols_L21_im,
+                        amax_matrix(handle, nrows_U12, ncols_U12,
 
-                                    L21_im, shift_L21_im, ldL21_im, stride_L21_im,
+                                    U12, shift_U12, ldU12, stride_U12,
 
-                                    batch_count, amax_L21_im);
-
-                        amax_matrix(handle, nrows_U12_re, ncols_U12_re,
-
-                                    U12_re, shift_U12_re, ldU12_re, stride_U12_re,
-
-                                    batch_count, amax_U12_re);
-
-                        amax_matrix(handle, nrows_U12_im, ncols_U12_im,
-
-                                    U12_im, shift_U12_im, ldU12_im, stride_U12_im,
-
-                                    batch_count, amax_U12_im);
-
-                        gen_scaling(batch_count, dlimit, amax_L21_re, scaling_L21_re);
-                        gen_scaling(batch_count, dlimit, amax_L21_im, scaling_L21_im);
-                        gen_scaling(batch_count, dlimit, amax_U12_re, scaling_U12_re);
-                        gen_scaling(batch_count, dlimit, amax_U12_im, scaling_U12_im);
-
-                        scale_and_convert(handle, nrows_L21, ncols_L21, amax_L21_re,
-                                          stride_amax_L21_re, dlimit, L21_re, shift_L21_re,
-                                          ldL21_re, stride_L21_re, L21_re_chop, shift_L21_re_chop,
-                                          ldL21_re_chop, stride_L21_re_chop, batch_count);
-
-                        scale_and_convert(handle, nrows_L21, ncols_L21, amax_L21_im,
-                                          stride_amax_L21_im, dlimit, L21_im, shift_L21_im,
-                                          ldL21_im, stride_L21_im, L21_im_chop, shift_L21_im_chop,
-                                          ldL21_im_chop, stride_L21_im_chop, batch_count);
-
-                        scale_and_convert(handle, nrows_U12, ncols_U12, amax_U12_re,
-                                          stride_amax_U12_re, dlimit, U12_re, shift_U12_re,
-                                          ldU12_re, stride_U12_re, U12_re_chop, shift_U12_re_chop,
-                                          ldU12_re_chop, stride_U12_re_chop, batch_count);
-
-                        scale_and_convert(handle, nrows_U12, ncols_U12, amax_U12_im,
-                                          stride_amax_U12_im, dlimit, U12_im, shift_U12_im,
-                                          ldU12_im, stride_U12_im, U12_im_chop, shift_U12_im_chop,
-                                          ldU12_im_chop, stride_U12_im_chop, batch_count);
-
-                        pfree = pfree_saved_chop;
+                                    batch_count, amax_U12_re, amax_U12_im);
                     }
-                    else
-                    {
-                        // ------------------------------
-                        // use bfloat16, no need to scale
-                        // ------------------------------
 
-                        char const uplo = 'A';
+                    // -------------------------------------------------------
+                    // split complex matrix into real part and imaginary part
+                    // and in reduced precision
+                    // -------------------------------------------------------
 
-                        lacpy(handle, uplo, nrows_L21, ncols_L21,
+                    complex2reim_outofplace(
+                        handle, nrows_L21, ncols_L21,
 
-                              L21_re, shift_L21_re, ldL21_re, stride_L21_re,
+                        L21, shift_L21, ldL21, stride_L21,
 
-                              L21_re_chop, shift_L21_re_chop, ldL21_re_chop, stride_L21_re_chop,
+                        L21_re_chop, shift_L21_re_chop, ldL21_re_chop, stride_L21_re_chop,
 
-                              batch_count);
+                        L21_im_chop, shift_L21_im_chop, ldL21_im_chop, stride_L21_im_chop,
 
-                        lacpy(handle, uplo, nrows_L21, ncols_L21,
+                        batch_count, dlimit,
 
-                              L21_im, shift_L21_im, ldL21_im, stride_L21_im,
+                        (is_fp16) ? amax_L21_re : nullptr,
 
-                              L21_im_chop, shift_L21_im_chop, ldL21_im_chop, stride_L21_im_chop,
+                        (is_fp16) ? amax_L21_im : nullptr);
 
-                              batch_count);
+                    complex2reim_outofplace(
+                        handle, nrows_U12, ncols_U12,
 
-                        lacpy(handle, uplo, nrows_U12, ncols_U12,
+                        U12, shift_U12, ldU12, stride_U12,
 
-                              U12_re, shift_U12_re, ldU12_re, stride_U12_re,
+                        U12_re_chop, shift_U12_re_chop, ldU12_re_chop, stride_U12_re_chop,
 
-                              U12_re_chop, shift_U12_re_chop, ldU12_re_chop, stride_U12_re_chop,
+                        U12_im_chop, shift_U12_im_chop, ldU12_im_chop, stride_U12_im_chop,
 
-                              batch_count);
+                        batch_count, dlimit,
 
-                        lacpy(handle, uplo, nrows_U12, ncols_U12,
+                        (is_fp16) ? amax_U12_re : nullptr,
 
-                              U12_im, shift_U12_im, ldU12_im, stride_U12_im,
-
-                              U12_im_chop, shift_U12_im_chop, ldU12_im_chop, stride_U12_im_chop,
-
-                              batch_count);
-
-                    } // end if (is_fp16)
+                        (is_fp16) ? amax_U12_im : nullptr);
 
                     // ---------------------------
                     // use out-of-place conversion
                     // to form A_re, A_im
                     // ---------------------------
 
-                    size_t const size_A22_re
-                        = (use_out_of_place) ? sizeof(T) * stride_A22_re * batch_count : 0;
-                    size_t const size_A22_im
-                        = (use_out_of_place) ? sizeof(T) * stride_A22_im * batch_count : 0;
-
                     S* const A22_re = (use_out_of_place) ? (S*)pfree : (S*)A;
-                    if(use_out_of_place)
-                    {
-                        pfree += size_A22_re;
-                    }
-
                     S* const A22_im = (use_out_of_place) ? (S*)pfree : A22_re + nrows_A22_re;
                     if(use_out_of_place)
                     {
+                        pfree += size_A22_re;
                         pfree += size_A22_im;
                     }
 
@@ -1263,53 +1152,31 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         else
                         {
                             // -----------------------------
-                            // use-inplace conversion
-                            // to over-write original storage of A22 complex matrix
+                            // use-inplace conversion to save temporary storage
+                            // by over-writing original storage of A22 complex matrix
                             // as real part matrix A22_re and
                             // imaginary part matrix A22_im
                             //
                             // [ A22_re ]
                             // [ A22_im ]
                             // -----------------------------
+                            S* const amax_A22_re_null = nullptr;
+                            S* const amax_A22_im_null = nullptr;
 
-                            I const ldA22_tmp = nrows_A22;
-                            Istride const shift_A22_tmp = 0;
-                            Istride const stride_A22_tmp = ldA22_tmp * blk;
-                            size_t const A22_tmp = sizeof(T) * stride_A22_tmp * batch_count;
+                            void* const lwork = (void*)pfree;
+                            size_t const size_avail = (pwork + size_work) - pfree;
+                            size_t const size_lwork = size_avail;
 
-                            T* A22_tmp = pfree;
-                            pfree += size_A22_tmp;
+                            complex2reim_inplace(handle, nrows_A22, ncols_A22,
 
-                            CHECK_MEM(pfree);
+                                                 A22, shift_A22, ldA22, stride_A22,
 
-                            for(I jstart = 0; jstart < n; jstart += blk)
-                            {
-                                I const jend = std::min(n, jstart + blk);
-                                I const jsize = jend - jstart;
+                                                 A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
-                                lacpy(handle, nrows_A22, jsize,
+                                                 A22_im, shift_A22_im, ldA22_im, stride_A22_im,
 
-                                      A22, shift_A22 + idx2D(0, j, ldA22_re), ldA22, stride_A22,
-
-                                      A22_tmp, shift_A22_tmp, ldA22_tmp, stride_A22_tmp,
-
-                                      batch_count);
-
-                                complex2reim_outofplace(
-                                    handle, nrows_A22, jsize,
-
-                                    A22_tmp, shift_A22_tmp, ldA22_tmp, stride_A22_tmp,
-
-                                    A22_re, shift_A22_re + idx2D(0, j, ldA22_re), ldA22_re,
-                                    stride_A22_re,
-
-                                    A22_im, shift_A22_im + idx2D(0, j, ldA22_im), ldA22_im,
-                                    stride_A22_im,
-
-                                    batch_count, dlimit, amax_A22_re_null, amax_A22_im_null);
-                            } // end for(bid)
-
-                            pfree = pfree - size_A22_tmp;
+                                                 batch_count, dlimit, amax_A22_re_null,
+                                                 amax_A22_im_null, lwork, size_lwork);
                         }
                     }
 
@@ -1367,7 +1234,8 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         std::vector<S> h_alpha(batch_count);
                         for(I bid = 0; bid < batch_count; bid++)
                         {
-                            h_alpha[bid] = -((h_amax_L21_re[bid] / dlimit) * (h_amax_U12_re[bid]/dlimit);
+                            h_alpha[bid]
+                                = -((h_amax_L21_re[bid] / dlimit) * (h_amax_U12_re[bid] / dlimit));
                         }
                         Istride const stride_alpha = 1;
                         Istride const stride_beta = 0;
@@ -1378,16 +1246,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         {
                             I const lmm = nrows_A22_re;
                             I const lnn = ncols_A22_re;
-                            I const lkk = ncols_L21_re;
+                            I const lkk = ncols_L21_re_chop;
 
                             ROCBLAS_CHECK(rocblasCall_gemm_ex(
                                 handle, trans_a, trans_b, lmm, lnn, lkk,
 
                                 &(h_alpha[0]), stride_alpha,
 
-                                L21_re_chop, shift_L21_re_chop, ldL21_chop_re, stride_L21_re,
+                                L21_re_chop, shift_L21_re_chop, ldL21_re_chop, stride_L21_re_chop,
 
-                                U12_re_chop, shift_U12_re_chop, ldU12_chop_re, stride_U12_re,
+                                U12_re_chop, shift_U12_re_chop, ldU12_re_chop, stride_U12_re_chop,
 
                                 &one, stride_beta,
 
@@ -1401,13 +1269,14 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         // -------------------------------------------------------
                         for(I bid = 0; bid < batch_count; bid++)
                         {
-                            h_alpha[bid] = ((h_amax_L21_im[bid] / dlimit) * (h_amax_U12_im[bid]/dlimit);
+                            h_alpha[bid]
+                                = ((h_amax_L21_im[bid] / dlimit) * (h_amax_U12_im[bid] / dlimit));
                         }
 
                         {
                             I const lmm = nrows_A22_re;
                             I const lnn = ncols_A22_re;
-                            I const lkk = ncols_L21_im;
+                            I const lkk = ncols_L21_im_chop;
 
                             ROCBLAS_CHECK(rocblasCall_gemm_ex(
                                 handle, trans_a, trans_b, lmm, lnn, lkk,
@@ -1434,16 +1303,16 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         //  A22_re = A22_re + L21_im_chop * U12_im_chop
                         //  -----------------------------
 
+                        //  -------------------------------------------
+                        //  A22_re = A22_re - L21_re_chop * U12_re_chop
+                        //  -------------------------------------------
                         {
-                            //  -------------------------------------------
-                            //  A22_re = A22_re - L21_re_chop * U12_re_chop
-                            //  -------------------------------------------
                             auto const trans_a = rocblas_operation_none;
                             auto const trans_b = rocblas_operation_none;
 
                             auto const lmm = nrows_A22_re;
                             auto const lnn = ncols_A22_re;
-                            auto const lkk = nrows_U12_re;
+                            auto const lkk = ncols_L21_re_chop;
 
                             Istride const stride_alpha = 0;
                             Istride const stride_beta = 0;
@@ -1461,16 +1330,18 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                                 A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
                                 batch_count, (void*)pfree));
-                            //  -----------------------------
-                            //  A_re = A_re + L21_im * U12_im
-                            //  -----------------------------
+                        }
+                        //  -----------------------------
+                        //  A_re = A_re + L21_im * U12_im
+                        //  -----------------------------
 
+                        {
                             auto const trans_a = rocblas_operation_none;
                             auto const trans_b = rocblas_operation_none;
 
                             auto const lmm = nrows_A22_re;
                             auto const lnn = ncols_A22_re;
-                            auto const lkk = ncols_L21_im;
+                            auto const lkk = ncols_L21_im_chop;
 
                             Istride const stride_alpha = 0;
                             Istride const stride_beta = 0;
@@ -1513,13 +1384,13 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         {
                             for(I bid = 0; bid < batch_count; bid++)
                             {
-                                h_alpha[bid]
-                                    = -((h_amax_L21_re[bid] / dlimit) * (h_amax_U12_im[bid]/dlimit);
+                                h_alpha[bid] = -((h_amax_L21_re[bid] / dlimit)
+                                                 * (h_amax_U12_im[bid] / dlimit));
                             }
 
                             I const lmm = nrows_A22_im;
                             I const lnn = ncols_A22_im;
-                            I const lkk = ncols_L21_re;
+                            I const lkk = ncols_L21_re_chop;
 
                             ROCBLAS_CHECK(rocblasCall_gemm_ex(
                                 handle, trans_a, trans_b, lmm, lnn, lkk,
@@ -1546,13 +1417,13 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         {
                             for(I bid = 0; bid < batch_count; bid++)
                             {
-                                h_alpha[bid]
-                                    = -((h_amax_L21_im[bid] / dlimit) * (h_amax_U12_re[bid]/dlimit);
+                                h_alpha[bid] = -((h_amax_L21_im[bid] / dlimit)
+                                                 * (h_amax_U12_re[bid] / dlimit));
                             }
 
                             I const lmm = nrows_A22_im;
                             I const lnn = ncols_A22_im;
-                            I const lkk = ncols_L21_im;
+                            I const lkk = ncols_L21_im_chop;
 
                             ROCBLAS_CHECK(rocblasCall_gemm(
                                 handle, trans_a, trans_b, lmm, lnn, lkk,
@@ -1580,7 +1451,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                         I const lmm = nrows_A22_im;
                         I const lnn = ncols_A22_im;
-                        I const lkk = ncols_L21_re;
+                        I const lkk = ncols_L21_re_chop;
 
                         rocblas_operation const trans_a = rocblas_operation_none;
                         rocblas_operation const trans_b = rocblas_operation_none;
@@ -1637,7 +1508,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     if(use_out_of_place)
                     {
                         reim2complex_outofplace(
-                            handle, nrows_A22_re, ncols_A22_re,
+                            handle, nrows_A22, ncols_A22,
 
                             A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
@@ -1654,43 +1525,18 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                         // into complex matrix
                         // -----------------------------------------
 
-                        I const ldA22_tmp = nrows_A22;
-                        Istride const shift_A22_tmp = 0;
-                        Istride const stride_A22_tmp = ldA22_tmp * blk;
-                        size_t const A22_tmp = sizeof(T) * stride_A22_tmp * batch_count;
+                        void* const lwork = (void*)pfree;
+                        size_t const size_avail = (pwork + size_work) - pfree;
+                        size_t const size_lwork = size_avail;
 
-                        T* A22_tmp = pfree;
-                        pfree += size_A22_tmp;
+                        reim2complex_inplace(handle, nrows_A22, ncols_A22,
 
-                        CHECK_MEM(pfree);
+                                             A22_re, shift_A22_re, ldA22_re, stride_A22_re,
 
-                        for(I jstart = 0; jstart < n; jstart += blk)
-                        {
-                            I const jend = std::min(n, jstart + blk);
-                            I const jsize = (jend - jstart);
+                                             A22_im, shift_A22_im, ldA22_im, stride_A22_im,
 
-                            reim2complex_outofpalce(
-                                handle, nrows_A22_re, jsize,
-
-                                A22_re, shift_A22_re + idx2D(0, j, ldA22_re), stride_A22_re,
-
-                                A22_im, shift_A22_im + idx2D(0, j, ldA22_im), stride_A22_im,
-
-                                A22_tmp, shfit_A22_tmp, ldA22_tmp, stride_A22_tmp,
-
-                                batch_count);
-
-                            char const uplo = 'A';
-                            lacpy(handle, uplo, nrows_A22_re, jsize,
-
-                                  A22_tmp, shift_A22_tmp, ldA22_tmp, stride_A22_tmp,
-
-                                  A22, shift_A22 + idx2D(0, j, ldA22), ldA22, stride_A22,
-
-                                  batch_count);
-
-                        } // end for(bid)
-                        pfree = pfree - size_A22_tmp;
+                                             A22, shift_A22, ldA22, stride_A22, batch_count, lwork,
+                                             size_lwork);
                     }
 
                     pfree = pfree_saved;

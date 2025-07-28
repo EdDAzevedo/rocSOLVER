@@ -49,12 +49,18 @@ ROCSOLVER_BEGIN_NAMESPACE
     }
 #endif
 
-template <typename Tfull, typename Treduced, typename I, typename Istride>
+// -------------------------------------------------------------
+// scale and convert C(i,j,bid) = dlimit * (A(i,j,bid)/amax(bid))
+//
+// launch as dim3(nbx,nby,nbz), dim3(nx,ny,1)
+// where
+// nbx = min( max_blocks, ceil(m, nx))
+// nby = min( max_blocks, ceil(n, ny))
+// nbz = min( max_blocks, batch_count)
+// -------------------------------------------------------------
+template <typename Tfull, typename Treduced, typename Tscale, typename I, typename Istride>
 static __global__ void scale_and_convert_kernel(I const nrows,
                                                 I const ncols,
-                                                Tfull const dlimit,
-                                                Tfull* p_amax,
-                                                Istride const strideP,
 
                                                 Tfull* const A_,
                                                 Istride const shift_A,
@@ -66,7 +72,11 @@ static __global__ void scale_and_convert_kernel(I const nrows,
                                                 I const ldC,
                                                 Istride const stride_C,
 
-                                                I const batch_count)
+                                                I const batch_count,
+                                                Tscale const dlimit,
+                                                Tscale* p_amax
+
+)
 {
     bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
     if(!has_work)
@@ -85,30 +95,27 @@ static __global__ void scale_and_convert_kernel(I const nrows,
 
     auto idx2D = [](auto i, auto j, auto ld) { return (i + (j * static_cast<int64_t>(ld))); };
 
-    Tfull const zero = 0;
-    Tfull const one = 1;
+    Tscale const zero = 0;
+    Tscale const one = 1;
 
     for(auto bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        Tfull const amax = (p_amax == nullptr) ? one : p_amax[bid * strideP];
-        bool const amax_is_one = (amax == one);
-        bool const dlimit_is_one = (dlimit == one);
-        auto const inv_amax = (amax == zero) ? one : one / amax;
+        Tscale const amax = (p_amax == nullptr) ? one : p_amax[bid];
+        Tscale const inv_amax = (amax == zero) ? one : one / amax;
 
-        auto const A_p = load_ptr_batch(A_, bid, shift_A, stride_A);
-        auto const C_p = load_ptr_batch(C_, bid, shift_C, stride_C);
+        Tfull const* const __restrict__ A_p = load_ptr_batch(A_, bid, shift_A, stride_A);
+        Treduced* const __restrict__ C_p = load_ptr_batch(C_, bid, shift_C, stride_C);
 
-        for(auto j = j_start; j < ncols; j += j_inc)
+        for(I j = j_start; j < ncols; j += j_inc)
         {
-            for(auto i = i_start; i < nrows; i += i_inc)
+            for(I i = i_start; i < nrows; i += i_inc)
             {
                 auto const ij_a = idx2D(i, j, ldA);
-                auto const ij_c = idx2D(i, j, ldC);
 
                 auto const aij = A_p[ij_a];
-                auto const aij_normalized = (amax_is_one) ? aij : inv_amax * aij;
-                auto const cij = (dlimit_is_one) ? aij_normalized : dlimit * aij_normalized;
+                auto const cij = (aij * inv_amax) * dlimit;
 
+                auto const ij_c = idx2D(i, j, ldC);
                 C_p[ij_c] = (Treduced)cij;
             }
         }
@@ -119,12 +126,10 @@ static __global__ void scale_and_convert_kernel(I const nrows,
 //  scale and convert from A(0:(nrows-1), 0:(ncols-1))
 //  to C(:, :) =    dlimit .* ( (1/amax) * A(:,:) )
 //  ---------------------------------------------------------
-template <typename Tfull, typename Treduced, typename I, typename Istride>
-static void scale_and_convert(hipStream_t stream,
+template <typename Tfull, typename Treduced, typename Tscale, typename I, typename Istride>
+static void scale_and_convert(rocblas_handle handle,
                               I const nrows,
                               I const ncols,
-                              Tfull* p_amax,
-                              Istride const strideP,
 
                               Tfull* const A_,
                               Istride const shift_A,
@@ -136,7 +141,11 @@ static void scale_and_convert(hipStream_t stream,
                               I const ldC,
                               Istride const stride_C,
 
-                              I const batch_count)
+                              I const batch_count,
+                              Tscale const dlimit,
+                              Tscale* const p_amax
+
+)
 {
     bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
     if(!has_work)
@@ -146,25 +155,27 @@ static void scale_and_convert(hipStream_t stream,
 
     auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
 
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
     I const nx = 32;
     I const ny = 32;
 
-    I const num_cu = get_num_cu();
-    I const max_blocks = num_cu;
+    I const max_blocks = 1024;
 
-    I nbx = std::min(max_blocks, ceil(nrows, nx));
-    I nby = std::min(max_blocks, ceil(ncols, ny));
-    I nbz = std::min(max_blocks, batch_count);
+    I const nbx = std::min(max_blocks, ceil(nrows, nx));
+    I const nby = std::min(max_blocks, ceil(ncols, ny));
+    I const nbz = std::min(max_blocks, batch_count);
 
-    scale_and_convert_kernel<Tfull, Treduced, I, Istride>
-        <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(nrows, ncols, dlimit,
-
-                                                              p_amax, strideP,
+    scale_and_convert_kernel<Tfull, Treduced, Tscale, I, Istride>
+        <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(nrows, ncols,
 
                                                               A_, shift_A, ldA, stride_A,
 
                                                               C_, shift_C, ldC, stride_C,
 
-                                                              batch_count);
+                                                              batch_count, dlimit, p_amax
+
+        );
 }
 ROCSOLVER_END_NAMESPACE

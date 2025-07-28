@@ -138,7 +138,8 @@ constexpr bool gesv_ex_mxp_lu_accepts(rocblas_datatype A_type,
                                       rocblas_datatype X_type,
                                       rocblas_datatype compute_type)
 {
-    if(!(A_type == B_type == X_type))
+    bool const is_ABX_all_same = (A_type == B_type) && (B_type == X_type);
+    if(!(is_ABX_all_same))
     {
         return false;
     }
@@ -218,7 +219,10 @@ rocblas_status rocsolver_gesv_ex_impl(rocblas_handle handle,
     using T = void*;
     ROCSOLVER_ENTER_TOP("gesv_ex", "-n", n, "--nrhs", nrhs, "--lda", lda, "--ldb", ldb);
 
-    if(A_type == B_type == X_type == compute_type)
+    bool const is_ABXC_all_same
+        = (A_type == B_type) && (B_type == X_type) && (X_type == compute_type);
+
+    if(is_ABXC_all_same)
     {
         rocsolver_ex_datatype_dispatch<gesv_call>(A_type, handle, n, nrhs, A, lda, ipiv, B, ldb, X,
                                                   ldx, max_iter, tol, niter, info);
