@@ -51,6 +51,7 @@ set(rocsolver_lapack_source
   lapack/roclapack_getrs_batched.cpp
   lapack/roclapack_getrs_strided_batched.cpp
   lapack/roclapack_gesv.cpp
+  lapack/roclapack_gesv_ex.cpp
   lapack/roclapack_gesv_batched.cpp
   lapack/roclapack_gesv_strided_batched.cpp
   lapack/roclapack_gesv_outofplace.cpp

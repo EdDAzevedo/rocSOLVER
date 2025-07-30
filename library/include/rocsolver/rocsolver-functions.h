@@ -9968,6 +9968,100 @@ ROCSOLVER_EXPORT rocblas_status rocsolver_zgesv(rocblas_handle handle,
 //! @}
 
 /*! @{
+    \brief GESV_EX solves a general system of n linear equations on n variables, with support for using mixed precisions.
+
+    \details
+    The linear system is of the form
+
+    \f[
+        A X = B
+    \f]
+
+    where A is a general n-by-n matrix. Matrix A is first factorized in triangular factors L and U
+    using \ref rocsolver_sgetrf "GETRF"; then, the solution is computed with an iterative refinement algorithm.
+
+    @param[in]
+    handle      rocblas_handle.
+    @param[in]
+    n           rocblas_int. n >= 0.
+                The order of the system, i.e. the number of columns and rows of A.
+    @param[in]
+    nrhs        rocblas_int. nrhs >= 0.
+                The number of right hand sides, i.e., the number of columns
+                of the matrix B.
+    @param[inout]
+    A           pointer to void. Array on the GPU of dimension lda*n.
+                On entry, the matrix A.
+                On exit, if info = 0, the factors L and U of the LU decomposition of A returned by
+                \ref rocsolver_sgetrf "GETRF".
+    @param[in]
+    A_type      rocblas_datatype.
+                The storage type for A.
+    @param[in]
+    lda         rocblas_int. lda >= n.
+                The leading dimension of A.
+    @param[out]
+    ipiv        pointer to rocblas_int. Array on the GPU of dimension n.
+                The pivot indices returned by \ref rocsolver_sgetrf "GETRF".
+    @param[in]
+    B           pointer to void. Array on the GPU of dimension ldb*nrhs.
+                On entry, the right hand side matrix B.
+    @param[in]
+    B_type      rocblas_datatype.
+                The storage type for B.
+    @param[in]
+    ldb         rocblas_int. ldb >= n.
+                The leading dimension of B.
+    @param[out]
+    X           pointer to void. Array on the GPU.
+                On exit, the solutions of A X = B
+    @param[in]
+    X_type      rocblas_datatype.
+                The storage type for X.
+    @param[in]
+    ldx         rocblas_int.
+                The leading dimension of X
+    @param[in]
+    max_iter    rocblas_int
+                The maximum number of refinement steps to perform.
+    @param[in]
+    tol         double.
+                The tolerance for considering a solution good enough to stop iteration.
+    @param[out]
+    niter       pointer to rocblas_int on the CPU.
+                On exit, the number of iterations performed during the solve.
+    @param[in]
+    compute_type rocblas_datatype.
+                The storage type to use for the LU factorization step of the solve.
+    @param[out]
+    info        pointer to a rocblas_int on the GPU.
+                If info = 0, successful exit.
+                If info = i > 0, U is singular, and the solution could not be computed.
+                U[i,i] is the first zero element in the diagonal.
+   ********************************************************************/
+
+ROCSOLVER_EXPORT rocblas_status rocsolver_gesv_ex(rocblas_handle handle,
+                                                  const rocblas_int n,
+                                                  const rocblas_int nrhs,
+                                                  void* A,
+                                                  const rocblas_datatype A_type,
+                                                  const rocblas_int lda,
+                                                  rocblas_int* ipiv,
+                                                  void* B,
+                                                  const rocblas_datatype B_type,
+                                                  const rocblas_int ldb,
+                                                  void* X,
+                                                  const rocblas_datatype X_type,
+                                                  const rocblas_int ldx,
+                                                  const rocblas_int max_iter,
+                                                  const double tol,
+                                                  rocblas_int* niter,
+                                                  rocblas_datatype compute_type,
+                                                  rocblas_int* info);
+
+//! @}
+
+/*! @{
     \brief GESV_BATCHED solves a batch of general systems of n linear equations on n
     variables.
 
