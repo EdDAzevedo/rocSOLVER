@@ -31,7 +31,8 @@ int main(int argc, char** argv)
     auto dev_lib = dlopen(dev_lib_path.c_str(), RTLD_LAZY);
 
     auto ref_zgesv = reinterpret_cast<decltype(&rocsolver_zgesv)>(dlsym(ref_lib, "rocsolver_zgesv"));
-    auto dev_zgesv = reinterpret_cast<decltype(&rocsolver_zgesv)>(dlsym(dev_lib, "rocsolver_zgesv"));
+    auto dev_gesv_ex
+        = reinterpret_cast<decltype(&rocsolver_gesv_ex)>(dlsym(dev_lib, "rocsolver_gesv_ex"));
 
     size_t ntrial = std::stoull(argv[5]);
 
@@ -134,7 +135,6 @@ int main(int argc, char** argv)
     {
         for(auto run_ref : {true, false})
         {
-            auto zgesv = run_ref ? ref_zgesv : dev_zgesv;
             auto& gpu_time = run_ref ? ref_gpu_time : dev_gpu_time;
             auto& output = run_ref ? ref_output : dev_output;
 
@@ -161,9 +161,27 @@ int main(int argc, char** argv)
                 throw std::runtime_error("failed to record start event");
 
             // solve
-            auto status = zgesv(handle, kkrmat_dims[0], tmat_dims[0], kkrmat_data_device.data(),
-                                kkrmat_dims[1], ipiv.data(), tmat_data_device.data(),
-                                kkrmat_dims[1], info.data());
+            rocblas_status status;
+            rocblas_int niter = 0;
+            if(run_ref)
+            {
+                status = ref_zgesv(handle, kkrmat_dims[0], tmat_dims[0], kkrmat_data_device.data(),
+                                   kkrmat_dims[1], ipiv.data(), tmat_data_device.data(),
+                                   kkrmat_dims[1], info.data());
+            }
+            else
+            {
+                const double tol = 1e-12;
+                const rocblas_int max_iter = 30;
+
+                status = dev_gesv_ex(handle, kkrmat_dims[0], tmat_dims[0],
+                                     kkrmat_data_device.data(), rocblas_datatype_f64_c,
+
+                                     kkrmat_dims[1], ipiv.data(), tmat_data_device.data(),
+                                     rocblas_datatype_f64_c, kkrmat_dims[1], tmat_data_device.data(),
+                                     rocblas_datatype_f64_c, kkrmat_dims[1], max_iter, tol, &niter,
+                                     rocblas_datatype_f16_c, info.data());
+            }
 
             if(hipEventRecord(stop) != hipSuccess)
                 throw std::runtime_error("failed to record stop event");
@@ -180,7 +198,8 @@ int main(int argc, char** argv)
                != hipSuccess)
                 throw std::runtime_error("failed to copy info back");
 
-            printf("%s trial %zu info=%d status=%d\n", run_ref ? "ref" : "dev", i, info_host, status);
+            printf("%s trial %zu info=%d status=%d niter=%d\n", run_ref ? "ref" : "dev", i,
+                   info_host, status, niter);
 
             if(!output)
             {
