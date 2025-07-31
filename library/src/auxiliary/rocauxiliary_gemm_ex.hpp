@@ -70,7 +70,7 @@ ROCSOLVER_BEGIN_NAMESPACE
     }
 #endif
 
-template <typename Tfull, typename Treduced, typename I, typename Istride>
+template <typename Tfull, typename Treduced, typename I>
 static void rocblasCall_gemm_strided_batched_ex_getMemorySize(rocblas_operation const trans_A,
                                                               rocblas_operation const trans_B,
                                                               I const m,
@@ -477,6 +477,11 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     // step (1) Cr = beta * Cr + alpha * Ar * Br
     // -----------------------------------------
 
+    // -----------------------------------
+    // NOTE: raise the compute type to FP32
+    // for higher accuracy and
+    // since the output array is in FP32
+    // -----------------------------------
     rocblas_datatype lcompute_type = rocblas_datatype_f32_r;
 
     {
