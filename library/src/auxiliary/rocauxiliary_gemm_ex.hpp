@@ -235,30 +235,35 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     // ----------------------------------------
     // try evaluation as one of the supported types
     // ----------------------------------------
-    ROCBLAS_CHECK(rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k, alpha,
+    auto const istat = (rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k, alpha,
 
-                                                  A, type_A, ld_A, stride_A,
+                                                        A, type_A, ld_A, stride_A,
 
-                                                  B, type_B, ld_B, stride_B,
+                                                        B, type_B, ld_B, stride_B,
 
-                                                  beta,
+                                                        beta,
 
-                                                  C, type_C, ld_C, stride_C,
+                                                        C, type_C, ld_C, stride_C,
 
-                                                  D, type_D, ld_D, stride_D,
+                                                        D, type_D, ld_D, stride_D,
 
-                                                  batch_count,
+                                                        batch_count,
 
-                                                  compute_type, algo, solution_index, flags));
+                                                        compute_type, algo, solution_index, flags));
+    if(istat != rocblas_status_not_implemented)
+    {
+        return (istat);
+    }
 
     // ----------------------------------------------------
     // implement computation where storage type is
     // F32_C or F32_R and compute type is BF16 or FP16
     //
-    // This is to match cusolverGemmEx
+    // This is to match cublasGemmEx
     // with A/B/C type be CUDA_R_32F or CUDA_C_32F
     // but compute type is
-    // CUBLAS_COMPUTE_F32_FAST_16BF OR
+    // CUBLAS_COMPUTE_F32_FAST_16BF
+    // or
     // CUBLAS_COMPUTE_F32_FAST_16F
     // ----------------------------------------------------
 
@@ -338,7 +343,6 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
     Istride const shift_C_re = 0;
     Istride const shift_C_im = 0;
-    Istride const shift_C = 0;
 
     Istride const stride_C_re = ldC_re * ncols_C;
     Istride const stride_C_im = stride_C_re;
@@ -386,14 +390,21 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
     Istride const shift_A = 0;
     Istride const shift_B = 0;
+    Istride const shift_C = 0;
+
+    Istride const shift_A_re_chop = 0;
+    Istride const shift_A_im_chop = 0;
+
+    Istride const shift_B_re_chop = 0;
+    Istride const shift_B_im_chop = 0;
 
     complex2reim_clamp(handle, nrows_A, ncols_A,
 
-                       A + shift_A, ld_A, stride_A,
+                       A, shift_A, ld_A, stride_A,
 
-                       A_re_chop, ldA_re_chop, stride_A_re_chop,
+                       A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
 
-                       A_im_chop, ldA_im_chop, stride_A_im_chop,
+                       A_im_chop, shift_A_im_chop, ldA_im_chop, stride_A_im_chop,
 
                        batch_count,
 
@@ -401,11 +412,11 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
     complex2reim_clamp(handle, nrows_B, ncols_B,
 
-                       B + shift_B, ld_B, stride_B,
+                       B, shift_B, ld_B, stride_B,
 
-                       B_re_chop, ldB_re_chop, stride_B_re_chop,
+                       B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
 
-                       B_im_chop, ldB_im_chop, stride_B_im_chop,
+                       B_im_chop, shift_B_im_chop, ldB_im_chop, stride_B_im_chop,
 
                        batch_count,
 
@@ -429,11 +440,11 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
         complex2reim_clamp(handle, nrows_C, ncols_C,
 
-                           C + shift_C, ldC, stride_C,
+                           C, shift_C, ldC, stride_C,
 
-                           C_re, ldC_re, stride_C_re,
+                           C_re, shift_C_re, ldC_re, stride_C_re,
 
-                           C_im, ldC_im, stride_C_im,
+                           C_im, shift_C_im, ldC_im, stride_C_im,
 
                            batch_count,
 

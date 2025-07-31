@@ -663,18 +663,22 @@ template <typename Tcomplex, typename Treal, typename Tscale, typename I, typena
 void complex2reim_clamp(rocblas_handle handle,
                         const I m,
                         const I n,
+
                         const Tcomplex* A,
                         const Istride shiftA,
                         const I lda,
                         const Istride strideA,
+
                         Treal* A_re,
                         const Istride shiftA_re,
                         const I ld_re,
                         const Istride strideA_re,
+
                         Treal* A_im,
                         const Istride shiftA_im,
                         const I ld_im,
                         const Istride strideA_im,
+
                         const I batch_count,
                         const Tscale dlimit)
 {
