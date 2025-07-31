@@ -50,36 +50,47 @@ ROCSOLVER_BEGIN_NAMESPACE
 #endif
 
 // ---------------------------------
-// copy lower or upper or full
-// m by n submatrix from A to C
+// compute norm of a matrix
+// norm == 'M' or 'm', max( abs(A(i,j)) )
+// norm == '1' or 'O' or 'o', norm1(A), max column sum
+// norm == 'I' or 'i', normI(A), max row sum
+// norm == 'F' or 'f', 'E' or 'e', sqrt of sum of squares
 //
-// launch as
-// dim3(nbx,nby,nbz), dim3(nx,ny,1)
-// where
-// nbx = min( max_blocks, ceil( m, nx ))
-// nby = min( max_blocks, ceil( n, ny ))
-// nbz = min( max_blocks, batch_count)
+// NOTE: assume dnorm[] has been set to zero
+// this is important for correctness
 // ---------------------------------
 
-template <typename I, typename Istride, typename AA, typename CC>
-__global__ static void lacpy_kernel(char const uplo,
+template <typename I, typename Istride, typename UA>
+__global__ static void lange_kernel(char const norm,
                                     I const m,
                                     I const n,
-                                    AA A,
+                                    UA A,
                                     Istride const shiftA,
                                     I const lda,
                                     Istride strideA,
-                                    CC C,
-                                    Istride const shiftC,
-                                    I const ldc,
-                                    Istride strideC,
-                                    I const batch_count)
+
+                                    double dnorm[],
+                                    I const batch_count,
+                                    void* work,
+                                    size_t size_work)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
     if(!has_work)
     {
         return;
     }
+
+    // max abs(A(i,j))
+    bool const is_norm_M = (norm == 'M') || (norm == 'm');
+
+    // max column sum
+    bool const is_norm_1 = (norm == '1') || (norm == 'O') || (norm == 'o');
+
+    // max row sum
+    bool const is_norm_I = (norm == 'I') || (norm == 'i');
+
+    // sqrt of sum of squares
+    bool const is_norm_F = (norm == 'F') || (norm == 'f') || (norm == 'E') || (norm == 'e');
 
     I const bid_start = hipBlockIdx_z;
     I const bid_inc = hipGridDim_z;
@@ -90,65 +101,124 @@ __global__ static void lacpy_kernel(char const uplo,
     I const i_start = hipThreadIdx_x + hipBlockIdx_x * hipBlockDim_x;
     I const j_start = hipThreadIdx_y + hipBlockIdx_y * hipBlockDim_y;
 
-    bool const use_upper = (uplo == 'U') || (uplo == 'u');
-    bool const use_lower = (uplo == 'L') || (uplo == 'l');
-    bool const use_all = (!use_upper) && (!use_lower);
+    I const tid = hipThreadIdx_x + hipThreadIdx_y * hipBlockDim_x
+        + hipThreadIdx_z * (hipBlockDim_x * hipBlockDim_y);
+    I const nthreads = hipBlockDim_x * hipBlockDim_y * hipBlockDim_z;
 
+    extern __shared__ double sharedData[];
+
+    auto sum_reduction = [=]() {
+        // ---------------------------------
+        // max reduction using shared memory
+        // ---------------------------------
+        for(int stride = nthreads / 2; stride > 0; stride /= 2)
+        {
+            if(tid < stride)
+            {
+                sharedData[tid] = (sharedData[tid] + sharedData[tid + stride]);
+            }
+            __syncthreads();
+        }
+        __syncthreads();
+    };
+    auto max_reduction = [=]() {
+        // ---------------------------------
+        // max reduction using shared memory
+        // ---------------------------------
+        for(int stride = nthreads / 2; stride > 0; stride /= 2)
+        {
+            if(tid < stride)
+            {
+                sharedData[tid] = std::max(sharedData[tid], sharedData[tid + stride]);
+            }
+            __syncthreads();
+        }
+        __syncthreads();
+    };
     auto idx2D = [](auto i, auto j, auto ld) { return (i + (j * static_cast<int64_t>(ld))); };
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        auto const Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        auto const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+        auto __restrict__ Ap = load_ptr_batch(A_, bid, shiftA, strideA);
+        auto A = [=](auto i, auto j) { return (Ap[idx2D(i, j, ldA)]); };
 
-        if(use_all)
+        if(is_norm_M)
         {
+            // ----------------
+            // max( abs(A(i,j))
+            // ----------------
+            double amax = 0;
             for(I j = j_start; j < n; j += j_inc)
             {
                 for(I i = i_start; i < m; i += i_inc)
                 {
-                    auto const ij_c = idx2D(i, j, ldc);
-                    auto const ij_a = idx2D(i, j, lda);
-                    Cp[ij_c] = Ap[ij_a];
+                    amax = std::max(amax, std::abs(A(i, j)));
                 }
             }
+
+            sharedData[tid] = amax;
+            __syncthreads();
+
+            max_reduction();
+
+            __syncthreads();
+            if(tid == 0)
+            {
+                atomicMax(&(dnorm[bid]), sharedData[0]);
+            }
+            __syncthreads();
         }
-        else
+        else if(is_norm_1)
         {
+            // max column sum
+
+            // ------------------------------------------------------------
+            // launch as dim(1, nby,1), dim3(1024,1,1), sizeof(double)*1024
+            // ------------------------------------------------------------
+            double max_col_sum = 0;
             for(I j = j_start; j < n; j += j_inc)
             {
-                for(I i = i_start; i < m; i += i_inc)
+                double col_sum = 0;
+                for(I i = tid; i < m; i += nthreads)
                 {
-                    bool const do_assign = (use_upper && (i <= j)) || (use_lower && (i >= j));
-
-                    if(do_assign)
-                    {
-                        auto const ij_c = idx2D(i, j, ldc);
-                        auto const ij_a = idx2D(i, j, lda);
-                        Cp[ij_c] = Ap[ij_a];
-                    }
+                    col_sum += std::abs(A(i, j));
                 }
+
+                sharedData[tid] = col_sum;
+                __syncthreads();
+
+                sum_reduction();
+                __syncthreads();
+
+                if(tid == 0)
+                {
+                    max_col_sum = std::max(max_col_sum, sharedDatat[0]);
+                }
+            } // end for j
+            __syncthreads();
+            if(tid == 0)
+            {
+                atomicMax(&(dnorm[bid]), max_col_sum);
             }
+            __syncthreads();
         }
-    }
+
+    } // end for bid
 }
 
 template <typename I, typename Istride, typename AA, typename CC>
-static void lacpy(rocblas_handle handle,
+static void lacpy(hipStream_t stream,
                   char const uplo,
                   I const m,
                   I const n,
-
                   AA A,
                   Istride const shiftA,
                   I const lda,
                   Istride strideA,
-
                   CC C,
                   Istride const shiftC,
                   I const ldc,
                   Istride strideC,
-
                   I const batch_count)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
@@ -157,9 +227,6 @@ static void lacpy(rocblas_handle handle,
         return;
     }
 
-    hipStream_t stream;
-    rocblas_get_stream(handle, &stream);
-
     auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
 
     I const max_blocks = 1024;
@@ -167,7 +234,7 @@ static void lacpy(rocblas_handle handle,
     I const ny = 32;
     I const nbx = std::min(max_blocks, ceil(m, nx));
     I const nby = std::min(max_blocks, ceil(n, ny));
-    I const nbz = std::min(max_blocks, batch_count);
+    I const nyz = std::min(max_blocks, batch_count);
 
     lacpy_kernel<I, Istride, AA, CC>
         <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(uplo, m, n,
