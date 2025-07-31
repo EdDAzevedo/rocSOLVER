@@ -285,21 +285,6 @@ int main(int argc, char** argv)
     rocblas_destroy_handle(handle);
     handle = nullptr;
 
-    // compare results
-    double l_inf = 0.0;
-    double l_2 = 0.0;
-#pragma omp parallel for reduction(max : l_inf) reduction(+ : l_2)
-    for(size_t i = 0; i < kkrmat.getInMemDataSize() / sizeof(rocblas_double_complex); ++i)
-    {
-        double rdiff = std::abs(ref_output[i].x - dev_output[i].x);
-        l_inf = std::max(rdiff, l_inf);
-        double idiff = std::abs(ref_output[i].y - dev_output[i].y);
-        l_inf = std::max(idiff, l_inf);
-        l_2 += rdiff * rdiff + idiff * idiff;
-    }
-    l_2 = sqrt(l_2);
-    printf("Diff L2=%e, L-inf=%e\n", l_2, l_inf);
-
     for(auto run_ref : {true, false})
     {
         auto& gpu_time = run_ref ? ref_gpu_time : dev_gpu_time;
