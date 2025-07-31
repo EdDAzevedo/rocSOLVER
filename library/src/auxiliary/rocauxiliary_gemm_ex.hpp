@@ -477,27 +477,31 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     // step (1) Cr = beta * Cr + alpha * Ar * Br
     // -----------------------------------------
 
+    rocblas_datatype lcompute_type = rocblas_datatype_f32_r;
+
     {
         // ---------------------------------------------
         // no need to adjust alpha or beta
         // ---------------------------------------------
 
         ROCBLAS_CHECK(
-            rocblas_gemm_strided_batched(handle, trans_A, trans_B, m, n, k,
+            rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                         alpha,
+                                            alpha,
 
-                                         A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
+                                            A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
 
-                                         B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
+                                            B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
 
-                                         beta,
+                                            beta,
 
-                                         C_re, C_re_type, ldC_re, stride_C_re,
+                                            C_re, C_re_type, ldC_re, stride_C_re,
 
-                                         batch_count,
+                                            C_re, C_re_type, ldC_re, stride_C_re, // D matrix
 
-                                         pfree));
+                                            batch_count,
+
+                                            lcompute_type, algo, solution_index, flags));
     }
 
     if(is_complex)
@@ -514,21 +518,23 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
             Treduced beta_one = 1;
 
             ROCBLAS_CHECK(
-                rocblas_gemm_strided_batched(handle, trans_A, trans_B, m, n, k,
+                rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                             &neg_alpha_value,
+                                                &neg_alpha_value,
 
-                                             A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
+                                                A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
 
-                                             B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
+                                                B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
 
-                                             &beta_one,
+                                                &beta_one,
 
-                                             C_re, C_re_type, ldC_re, stride_C_re,
+                                                C_re, C_re_type, ldC_re, stride_C_re,
 
-                                             batch_count,
+                                                C_re, C_re_type, ldC_re, stride_C_re, // D matrix
 
-                                             pfree));
+                                                batch_count,
+
+                                                lcompute_type, algo, solution_index, flags));
         }
 
         // ------------------------------------
@@ -537,21 +543,23 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
         {
             ROCBLAS_CHECK(
-                rocblas_gemm_strided_batched(handle, trans_A, trans_B, m, n, k,
+                rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                             alpha,
+                                                alpha,
 
-                                             A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
+                                                A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
 
-                                             B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
+                                                B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
 
-                                             beta,
+                                                beta,
 
-                                             C_im, C_im_type, ldC_im, stride_C_im,
+                                                C_im, C_im_type, ldC_im, stride_C_im,
 
-                                             batch_count,
+                                                C_im, C_im_type, ldC_im, stride_C_im, // D matrix
 
-                                             pfree));
+                                                batch_count,
+
+                                                lcompute_type, algo, solution_index, flags));
         }
 
         // ------------------------------------
@@ -562,21 +570,23 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
             Treduced beta_one = 1;
 
             ROCBLAS_CHECK(
-                rocblas_gemm_strided_batched(handle, trans_A, trans_B, m, n, k,
+                rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                             alpha,
+                                                alpha,
 
-                                             A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
+                                                A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
 
-                                             B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
+                                                B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
 
-                                             &beta_one,
+                                                &beta_one,
 
-                                             C_im, C_im_type, ldC_im, stride_C_im,
+                                                C_im, C_im_type, ldC_im, stride_C_im,
 
-                                             batch_count,
+                                                C_im, C_im_type, ldC_im, stride_C_im, // D matrix
 
-                                             pfree));
+                                                batch_count,
+
+                                                lcompute_type, algo, solution_index, flags));
         }
 
         // -------------------------------------------------------
