@@ -198,8 +198,11 @@ int main(int argc, char** argv)
                != hipSuccess)
                 throw std::runtime_error("failed to copy info back");
 
-            printf("%s trial %zu info=%d status=%d niter=%d\n", run_ref ? "ref" : "dev", i,
-                   info_host, status, niter);
+            printf("%s trial %zu info=%d status=%d", run_ref ? "ref" : "dev", i, info_host, status);
+            if(!run_ref)
+                printf(" niter=%d\n", niter);
+            else
+                puts("");
 
             if(!output)
             {
