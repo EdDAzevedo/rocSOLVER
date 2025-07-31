@@ -260,7 +260,7 @@ int main(int argc, char** argv)
                         l_2_r += rdiff * rdiff + idiff * idiff;
                     }
                     l_2_r = sqrt(l_2_r);
-                    printf("Residual L2=%e, L-inf=%e\n", l_2_r, l_inf_r);
+                    printf("Residual norm L2=%e, L-inf=%e\n", l_2_r, l_inf_r);
 
                     double l_inf_b = 0.0;
                     double l_2_b = 0.0;
@@ -274,9 +274,9 @@ int main(int argc, char** argv)
                         l_2_r += rdiff * rdiff + idiff * idiff;
                     }
                     l_2_r = sqrt(l_2_r);
-                    printf("B L2=%e, B=%e\n", l_2_r, l_inf_r);
+                    printf("B norm L2=%e, B=%e\n", l_2_r, l_inf_r);
 
-                    printf("R/B L2=%e, B=%e\n", l_2_b / l_2_r, l_inf_b / l_inf_r);
+                    printf("R norm / B norm L2=%e, B=%e\n", l_2_b / l_2_r, l_inf_b / l_inf_r);
                 }
             }
         }
