@@ -37,6 +37,7 @@
 #include "hip/hip_runtime.h"
 #include "hip/hip_runtime_api.h"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 
@@ -340,8 +341,7 @@ static void reim2complex_outofplace_simple(hipStream_t stream,
 
     auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
 
-    I const num_cu = get_num_cu();
-    I const max_blocks = num_cu;
+    I const max_blocks = 1024;
 
     I const nx = 32;
     I const ny = 32;
@@ -498,21 +498,106 @@ __global__ void complex2reim_inplace_kernel(const I m,
     } // end for bid
 }
 
+// --------------------------------------------------
+// perform conversion but use the std::clamp to avoid
+// generating overflow Inf values
+//
+// launch with dim3(nbx,nby,nbx), dim3(nx,ny,1)
+// nbx = ceil(m, nx)
+// nby = ceil(n, ny)
+// nbz = batch_count
+// --------------------------------------------------
+template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
+__global__ void complex2reim_clamp_kernel(const I m,
+                                          const I n,
+
+                                          const Tcomplex* A,
+                                          const Istride shiftA,
+                                          const I ldA,
+                                          const Istride strideA,
+
+                                          Treal* A_re,
+                                          const Istride shiftA_re,
+                                          const I ldA_re,
+                                          const Istride strideA_re,
+
+                                          Treal* A_im,
+                                          const Istride shiftA_im,
+                                          const I ldA_im,
+                                          const Istride strideA_im,
+
+                                          const I batch_count,
+                                          const Tscale dlimit_arg)
+{
+    bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return;
+    }
+
+    auto const dlimit = std::abs(dlimit_arg);
+
+    I const i_inc = blockDim.x * gridDim.x;
+    I const j_inc = blockDim.y * gridDim.y;
+
+    I const i_start = threadIdx.x + blockIdx.x * blockDim.x;
+    I const j_start = threadIdx.y + blockIdx.y * blockDim.y;
+
+    I const bid_inc = gridDim.z;
+    I const bid_start = blockIdx.z;
+
+    bool constexpr is_complex = rocblas_is_complex<Tcomplex>;
+
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        Tcomplex* const A_bid = load_ptr_batch(A, bid, shiftA, strideA);
+        Treal* const A_re_bid = load_ptr_batch(A_re, bid, shiftA_re, strideA_re);
+        Treal* const A_im_bid = (is_complex && (A_im != nullptr))
+            ? load_ptr_batch(A_im, bid, shiftA_im, strideA_im)
+            : nullptr;
+
+        for(I j = j_start; j < n; j += j_inc)
+        {
+            for(I i = i_start; i < m; i += i_inc)
+            {
+                auto const ij_A = idx2D(i, j, ldA);
+                auto const aij = A_bid[ij_A];
+                auto const aij_re = std::real(aij);
+
+                auto const ij_A_re = idx2D(i, j, ldA_re);
+                A_re_bid[ij_A_re] = std::clamp(aij_re, -dlimit, dlimit);
+
+                if constexpr(is_complex)
+                {
+                    if(A_im_bid != nullptr)
+                    {
+                        auto const ij_A_im = idx2D(i, j, ldA_im);
+                        auto const aij_im = std::imag(aij);
+
+                        A_im_bid[ij_A_im] = std::clamp(aij_im, -dlimit, dlimit);
+                    }
+                }
+            }
+        }
+
+    } // end for bid
+}
+
 template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
 void complex2reim_inplace(rocblas_handle handle,
                           const I m,
                           const I n,
                           const Tcomplex* A,
                           const Istride shiftA,
-                          const I lda,
+                          const I ldA,
                           const Istride strideA,
                           Treal* A_re,
                           const Istride shiftA_re,
-                          const I ld_re,
+                          const I ldA_re,
                           const Istride strideA_re,
                           Treal* A_im,
                           const Istride shiftA_im,
-                          const I ld_im,
+                          const I ldA_im,
                           const Istride strideA_im,
                           const I batch_count,
                           const Tscale dlimit,
@@ -561,16 +646,63 @@ void complex2reim_inplace(rocblas_handle handle,
         <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), lds_size, stream>>>(
             m, n,
 
-            A, shiftA, lda, strideA,
+            A, shiftA, ldA, strideA,
 
-            A_re, shiftA_re, ld_re, strideA_re,
+            A_re, shiftA_re, ldA_re, strideA_re,
 
-            A_im, shiftA_im, ld_im, strideA_im,
+            A_im, shiftA_im, ldA_im, strideA_im,
 
             batch_count,
 
             dlimit, amax_re, amax_im,
 
             work, size_work);
+}
+
+template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
+void complex2reim_clamp(rocblas_handle handle,
+                        const I m,
+                        const I n,
+                        const Tcomplex* A,
+                        const Istride shiftA,
+                        const I lda,
+                        const Istride strideA,
+                        Treal* A_re,
+                        const Istride shiftA_re,
+                        const I ld_re,
+                        const Istride strideA_re,
+                        Treal* A_im,
+                        const Istride shiftA_im,
+                        const I ld_im,
+                        const Istride strideA_im,
+                        const I batch_count,
+                        const Tscale dlimit)
+{
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
+
+    I const max_blocks = 1024;
+
+    I const nx = 32;
+    I const ny = 32;
+
+    I const nbx = std::min(max_blocks, ceil(m, nx));
+    I const nby = std::min(max_blocks, ceil(n, ny));
+    I const nbz = std::min(max_blocks, batch_count);
+
+    complex2reim_clamp_kernel<Tcomplex, Treal, Tscale, I, Istride>
+        <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(m, n,
+
+                                                              A, shiftA, lda, strideA,
+
+                                                              A_re, shiftA_re, ld_re, strideA_re,
+
+                                                              A_im, shiftA_im, ld_im, strideA_im,
+
+                                                              batch_count,
+
+                                                              dlimit);
 }
 ROCSOLVER_END_NAMESPACE
