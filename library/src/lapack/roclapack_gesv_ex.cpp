@@ -32,8 +32,10 @@
 ROCSOLVER_BEGIN_NAMESPACE
 
 template <typename T>
-constexpr bool gesv_ex_homogenous_accepts = std::is_same_v<T, float> || std::is_same_v<T, double>
-    || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
+constexpr bool gesv_ex_homogenous_accepts
+    = std::is_same_v<
+          T,
+          float> || std::is_same_v<T, double> || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
 
 template <typename T, std::enable_if_t<gesv_ex_homogenous_accepts<T>, int> = 0>
 rocblas_status rocsolver_gesv_ex_homogenous(rocblas_handle handle,
@@ -136,16 +138,18 @@ rocblas_status rocsolver_gesv_ex_homogenous(rocblas_handle handle,
 }
 
 template <typename T>
-constexpr bool is_gesv_ex_mxp_lu_storage = std::is_same_v<T, float> || std::is_same_v<T, double>
-    || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
+constexpr bool is_gesv_ex_mxp_lu_storage
+    = std::is_same_v<
+          T,
+          float> || std::is_same_v<T, double> || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
 
 template <typename T>
-constexpr bool is_gesv_ex_mxp_lu_compute = std::is_same_v<T, rocblas_half>
-    || std::is_same_v<T, rocblas_bfloat16> || is_gesv_ex_mxp_lu_storage<T>;
+constexpr bool is_gesv_ex_mxp_lu_compute
+    = std::is_same_v<T, rocblas_half> || std::is_same_v<T, rocblas_bfloat16> || is_gesv_ex_mxp_lu_storage<T>;
 
 template <typename T, typename LU, typename R = LU>
 constexpr bool gesv_ex_mxp_lu_accepts
-    = is_gesv_ex_mxp_lu_storage<T> && is_gesv_ex_mxp_lu_compute<LU> && is_gesv_ex_mxp_lu_compute<R>;
+    = is_gesv_ex_mxp_lu_storage<T>&& is_gesv_ex_mxp_lu_compute<LU>&& is_gesv_ex_mxp_lu_compute<R>;
 
 template <typename T, typename LU, typename R = LU, std::enable_if_t<gesv_ex_mxp_lu_accepts<T, LU, R>, int> = 0>
 rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
@@ -255,21 +259,16 @@ rocblas_status rocsolver_gesv_ex_impl(rocblas_handle handle,
     using T = void*;
     ROCSOLVER_ENTER_TOP("gesv_ex", "-n", n, "--nrhs", nrhs, "--lda", lda, "--ldb", ldb);
 
-    rocblas_status ret;
+    bool const is_ABXC_all_same
+        = (A_type == B_type) && (B_type == X_type) && (X_type == compute_type);
 
-    ret = rocsolver_ex_datatype_dispatch<gesv_call>(A_type, handle, n, nrhs, A, lda, ipiv, B, ldb,
-                                                    X, ldx, max_iter, tol, niter, info);
+    if(is_ABXC_all_same)
+        return rocsolver_ex_datatype_dispatch<gesv_call>(A_type, handle, n, nrhs, A, lda, ipiv, B,
+                                                         ldb, X, ldx, max_iter, tol, niter, info);
 
-    if(ret != rocblas_status_not_implemented)
-    {
-        return ret;
-    }
-
-    ret = rocsolver_ex_datatype_dispatch<gesv_mxp_lu_call>(A_type, compute_type, handle, n, nrhs, A,
-                                                           lda, ipiv, B, ldb, X, ldx, max_iter, tol,
-                                                           niter, info);
-
-    return ret;
+    return rocsolver_ex_datatype_dispatch<gesv_mxp_lu_call>(A_type, compute_type, handle, n, nrhs,
+                                                            A, lda, ipiv, B, ldb, X, ldx, max_iter,
+                                                            tol, niter, info);
 }
 
 ROCSOLVER_END_NAMESPACE
