@@ -107,19 +107,19 @@ __global__ static void lacpy_kernel(char const uplo,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        auto const Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        auto const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+        auto const __restrict__ Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        auto const __restrict__ Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
         using Tf = decltype(*Ap);
         using Tr = decltype(*Cp);
         using Sr = decltype(std::real(*Cp));
-        bool const is_complex = rocblas_is_complex<Tf>;
+        bool constexpr is_complex = rocblas_is_complex<Tf>;
         assert(rocblas_is_complex<Tf> == rocblas_is_complex<Tr>);
 
         // -------------------------
         // clamp values to avoid Inf
         // -------------------------
-        double dlimit = std::numeric_limits<Sr>::max();
+        double const dlimit = std::numeric_limits<Sr>::max();
 
         if(use_all)
         {
@@ -168,8 +168,8 @@ __global__ static void lacpy_kernel(char const uplo,
                             auto const aij_real = std::real(aij);
                             auto const aij_imag = std::imag(aij);
 
-                            auto const cij_real = std::clamp(aij_real, -dlimit, dlimit);
-                            auto const cij_imag = std::clamp(aij_imag, -dlimit, dlimit);
+                            Sr const cij_real = std::clamp(aij_real, -dlimit, dlimit);
+                            Sr const cij_imag = std::clamp(aij_imag, -dlimit, dlimit);
 
                             Cp[ij_c] = Tr{cij_real, cij_imag};
                         }
