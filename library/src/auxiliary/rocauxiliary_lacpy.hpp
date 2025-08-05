@@ -36,8 +36,10 @@
 #include "hip/hip_runtime.h"
 #include "hip/hip_runtime_api.h"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
+#include <limits>
 
 ROCSOLVER_BEGIN_NAMESPACE
 
@@ -53,6 +55,10 @@ ROCSOLVER_BEGIN_NAMESPACE
 // copy lower or upper or full
 // m by n submatrix from A to C
 //
+// this routine can also be used for type conversion
+// with clamp to avoid Inf values
+//
+//
 // launch as
 // dim3(nbx,nby,nbz), dim3(nx,ny,1)
 // where
@@ -65,14 +71,17 @@ template <typename I, typename Istride, typename AA, typename CC>
 __global__ static void lacpy_kernel(char const uplo,
                                     I const m,
                                     I const n,
+
                                     AA A,
                                     Istride const shiftA,
                                     I const lda,
                                     Istride strideA,
+
                                     CC C,
                                     Istride const shiftC,
                                     I const ldc,
                                     Istride strideC,
+
                                     I const batch_count)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
@@ -101,15 +110,42 @@ __global__ static void lacpy_kernel(char const uplo,
         auto const Ap = load_ptr_batch(A, bid, shiftA, strideA);
         auto const Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
+        using Tf = decltype(*Ap);
+        using Tr = decltype(*Cp);
+        using Sr = decltype(std::real(*Cp));
+        bool const is_complex = rocblas_is_complex<Tf>;
+        assert(rocblas_is_complex<Tf> == rocblas_is_complex<Tr>);
+
+        // -------------------------
+        // clamp values to avoid Inf
+        // -------------------------
+        double dlimit = std::numeric_limits<Sr>::max();
+
         if(use_all)
         {
             for(I j = j_start; j < n; j += j_inc)
             {
                 for(I i = i_start; i < m; i += i_inc)
                 {
-                    auto const ij_c = idx2D(i, j, ldc);
                     auto const ij_a = idx2D(i, j, lda);
-                    Cp[ij_c] = Ap[ij_a];
+                    auto const aij = Ap[ij_a];
+                    auto const ij_c = idx2D(i, j, ldc);
+
+                    if constexpr(is_complex)
+                    {
+                        auto const aij_real = std::real(aij);
+                        auto const aij_imag = std::imag(aij);
+
+                        Sr const cij_real = std::clamp(aij_real, -dlimit, dlimit);
+                        Sr const cij_imag = std::clamp(aij_imag, -dlimit, dlimit);
+
+                        Cp[ij_c] = Tr{cij_real, cij_imag};
+                    }
+                    else
+                    {
+                        Sr const cij = std::clamp(aij, -dlimit, dlimit);
+                        Cp[ij_c] = cij;
+                    }
                 }
             }
         }
@@ -125,7 +161,23 @@ __global__ static void lacpy_kernel(char const uplo,
                     {
                         auto const ij_c = idx2D(i, j, ldc);
                         auto const ij_a = idx2D(i, j, lda);
-                        Cp[ij_c] = Ap[ij_a];
+                        auto const aij = Ap[ij_a];
+
+                        if constexpr(is_complex)
+                        {
+                            auto const aij_real = std::real(aij);
+                            auto const aij_imag = std::imag(aij);
+
+                            auto const cij_real = std::clamp(aij_real, -dlimit, dlimit);
+                            auto const cij_imag = std::clamp(aij_imag, -dlimit, dlimit);
+
+                            Cp[ij_c] = Tr{cij_real, cij_imag};
+                        }
+                        else
+                        {
+                            Sr const cij = std::clamp(aij, -dlimit, dlimit);
+                            Cp[ij_c] = cij;
+                        }
                     }
                 }
             }
