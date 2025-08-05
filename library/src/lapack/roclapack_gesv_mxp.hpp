@@ -37,6 +37,7 @@
 #include "roclapack_getrs.hpp"
 #include "rocsolver/rocsolver.h"
 
+#include "roclapack_zcgesv.hpp"
 ROCSOLVER_BEGIN_NAMESPACE
 
 template <typename T>
