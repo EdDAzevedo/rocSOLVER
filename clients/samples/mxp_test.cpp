@@ -271,13 +271,13 @@ int main(int argc, char** argv)
                     for(size_t i = 0; i < kkrmat_dims[0] * tmat_dims[0]; ++i)
                     {
                         double rdiff = std::abs(tmat_data_pad_host[i].x);
-                        l_inf_r = std::max(rdiff, l_inf_r);
+                        l_inf_b = std::max(rdiff, l_inf_b);
                         double idiff = std::abs(tmat_data_pad_host[i].y);
-                        l_inf_r = std::max(idiff, l_inf_r);
-                        l_2_r += rdiff * rdiff + idiff * idiff;
+                        l_inf_b = std::max(idiff, l_inf_b);
+                        l_2_b += rdiff * rdiff + idiff * idiff;
                     }
-                    l_2_r = sqrt(l_2_r);
-                    printf("B norm L2=%e, B=%e\n", l_2_r, l_inf_r);
+                    l_2_b = sqrt(l_2_b);
+                    printf("B norm L2=%e, B=%e\n", l_2_b, l_inf_b);
 
                     printf("R norm / B norm L2=%e, B=%e\n", l_2_b / l_2_r, l_inf_b / l_inf_r);
                 }
