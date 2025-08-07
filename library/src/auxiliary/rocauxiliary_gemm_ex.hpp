@@ -42,6 +42,7 @@
 #include "lib_host_helpers.hpp"
 
 #include "auxiliary/rocauxiliary_complex2reim_inplace.hpp"
+#include "auxiliary/rocauxiliary_lacpy.hpp"
 
 #include <limits>
 
@@ -133,16 +134,17 @@ static void rocblasCall_gemm_strided_batched_ex_getMemorySize(rocblas_operation 
         size_work += size_A_re_chop;
         size_work += size_B_re_chop;
 
-        size_t size_amax_A_re = 0;
-        size_t size_amax_A_im = 0;
-        size_t size_amax_B_re = 0;
-        size_t size_amax_B_im = 0;
-
+        bool constexpr need_amax = false;
         // --------------------------------
         // storage for amax to fit in FP16
         // --------------------------------
-        if(is_fp16_compute)
+        if(is_fp16_compute && need_amax)
         {
+            size_t size_amax_A_re = 0;
+            size_t size_amax_A_im = 0;
+            size_t size_amax_B_re = 0;
+            size_t size_amax_B_im = 0;
+
             size_amax_A_re = sizeof(Sr) * batch_count;
             size_amax_B_re = sizeof(Sr) * batch_count;
 
@@ -308,16 +310,17 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     std::byte* pfree = pwork;
 
     double const fp32_max = std::numeric_limits<float>::max();
-    double const fp16_max = 65504;
-    Sr const dlimit = (is_fp16_compute) ? fp16_max : fp32_max;
+    double const bf16_max = fp32_max;
+    double const fp16_max = 65504; // largest valid number in FP16
+    Sr const dlimit = (is_fp16_compute) ? fp16_max : bf16_max;
 
     Sf* C_re = nullptr;
     Sf* C_im = nullptr;
 
-    Treduced* A_re_chop = nullptr;
-    Treduced* A_im_chop = nullptr;
-    Treduced* B_re_chop = nullptr;
-    Treduced* B_im_chop = nullptr;
+    Sr* A_re_chop = nullptr;
+    Sr* A_im_chop = nullptr;
+    Sr* B_re_chop = nullptr;
+    Sr* B_im_chop = nullptr;
 
     I const ldA_re_chop = nrows_A;
     I const ldA_im_chop = ldA_re_chop;
@@ -364,7 +367,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     // ----------------------------------------------------
     rocblas_pointer_mode old_mode;
     rocblas_get_pointer_mode(handle, &old_mode);
-    auto const is_valid_mode = (old_mode == rocblas_pointer_mode_host);
+    bool const is_valid_mode = (old_mode == rocblas_pointer_mode_host);
     if(!is_valid_mode)
     {
         return (rocblas_status_internal_error);
@@ -398,29 +401,52 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     Istride const shift_B_re_chop = 0;
     Istride const shift_B_im_chop = 0;
 
-    complex2reim_clamp(handle, nrows_A, ncols_A,
+    if(is_complex)
+    {
+        complex2reim_clamp(handle, nrows_A, ncols_A,
 
-                       A, shift_A, ld_A, stride_A,
+                           A, shift_A, ld_A, stride_A,
 
-                       A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
+                           A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
 
-                       A_im_chop, shift_A_im_chop, ldA_im_chop, stride_A_im_chop,
+                           A_im_chop, shift_A_im_chop, ldA_im_chop, stride_A_im_chop,
 
-                       batch_count,
+                           batch_count,
 
-                       dlimit);
+                           dlimit);
 
-    complex2reim_clamp(handle, nrows_B, ncols_B,
+        complex2reim_clamp(handle, nrows_B, ncols_B,
 
-                       B, shift_B, ld_B, stride_B,
+                           B, shift_B, ld_B, stride_B,
 
-                       B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
+                           B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
 
-                       B_im_chop, shift_B_im_chop, ldB_im_chop, stride_B_im_chop,
+                           B_im_chop, shift_B_im_chop, ldB_im_chop, stride_B_im_chop,
 
-                       batch_count,
+                           batch_count,
 
-                       dlimit);
+                           dlimit);
+    }
+    else
+    {
+        char const uplo = 'A';
+
+        lacpy(handle, uplo, nrows_A, ncols_A,
+
+              A, shift_A, ld_A, stride_A,
+
+              A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
+
+              batch_count);
+
+        lacpy(handle, uplo, nrows_B, ncols_B,
+
+              B, shift_B, ld_B, stride_B,
+
+              B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
+
+              batch_count);
+    }
 
     // ----------------------------------------------
     // split the "C" into the real part and imag part
@@ -516,7 +542,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
         // ------------------------------------
 
         {
-            Treduced* p_alpha = (Treduced*)p_alpha;
+            Treduced* const p_alpha = (Treduced*)alpha;
             Treduced alpha_value = *p_alpha;
             Treduced neg_alpha_value = -alpha_value;
 
