@@ -214,12 +214,12 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
                                                           const void* beta,
 
-                                                          const void* C,
+                                                          void* C,
                                                           rocblas_datatype type_C,
                                                           I const ld_C,
                                                           Istride const stride_C,
 
-                                                          const void* D,
+                                                          void* D,
                                                           rocblas_datatype type_D,
                                                           I const ld_D,
                                                           Istride const stride_D,
