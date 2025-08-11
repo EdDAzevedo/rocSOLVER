@@ -503,6 +503,7 @@ target_include_directories(gemm_ex_test
 target_link_libraries(gemm_ex_test
   PRIVATE
   roc::rocblas
+  rocsolver
   hip::device
 )
 foreach(target rocsolver gemm_ex_test)
