@@ -527,15 +527,13 @@ __global__ void complex2reim_clamp_kernel(const I m,
                                           const Istride strideA_im,
 
                                           const I batch_count,
-                                          const Tscale dlimit_arg)
+                                          const Tscale dlimit)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
     if(!has_work)
     {
         return;
     }
-
-    auto const dlimit = std::abs(dlimit_arg);
 
     I const i_inc = blockDim.x * gridDim.x;
     I const j_inc = blockDim.y * gridDim.y;
@@ -550,9 +548,9 @@ __global__ void complex2reim_clamp_kernel(const I m,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        Tcomplex* const A_bid = load_ptr_batch(A, bid, shiftA, strideA);
-        Treal* const A_re_bid = load_ptr_batch(A_re, bid, shiftA_re, strideA_re);
-        Treal* const A_im_bid = (is_complex && (A_im != nullptr))
+        const Tcomplex* A_bid = load_ptr_batch(A, bid, shiftA, strideA);
+        const Treal* A_re_bid = load_ptr_batch(A_re, bid, shiftA_re, strideA_re);
+        const Treal* A_im_bid = (is_complex && (A_im != nullptr))
             ? load_ptr_batch(A_im, bid, shiftA_im, strideA_im)
             : nullptr;
 
@@ -560,19 +558,19 @@ __global__ void complex2reim_clamp_kernel(const I m,
         {
             for(I i = i_start; i < m; i += i_inc)
             {
-                auto const ij_A = idx2D(i, j, ldA);
-                auto const aij = A_bid[ij_A];
-                auto const aij_re = std::real(aij);
+                const auto ij_A = idx2D(i, j, ldA);
+                const auto aij = A_bid[ij_A];
+                const auto aij_re = std::real(aij);
 
-                auto const ij_A_re = idx2D(i, j, ldA_re);
+                const auto ij_A_re = idx2D(i, j, ldA_re);
                 A_re_bid[ij_A_re] = std::clamp(aij_re, -dlimit, dlimit);
 
                 if constexpr(is_complex)
                 {
                     if(A_im_bid != nullptr)
                     {
-                        auto const ij_A_im = idx2D(i, j, ldA_im);
-                        auto const aij_im = std::imag(aij);
+                        const auto ij_A_im = idx2D(i, j, ldA_im);
+                        const auto aij_im = std::imag(aij);
 
                         A_im_bid[ij_A_im] = std::clamp(aij_im, -dlimit, dlimit);
                     }

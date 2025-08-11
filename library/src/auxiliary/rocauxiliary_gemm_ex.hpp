@@ -41,8 +41,10 @@
 
 #include "lib_host_helpers.hpp"
 
+#include "auxiliary/rocauxiliary_complex2reim.hpp"
 #include "auxiliary/rocauxiliary_complex2reim_inplace.hpp"
 #include "auxiliary/rocauxiliary_lacpy.hpp"
+#include "lapack/roclapack_gesv_ex.hpp"
 
 #include <limits>
 
@@ -190,72 +192,52 @@ static void rocblasCall_gemm_strided_batched_ex_getMemorySize(rocblas_operation 
 //
 // simple interface to emulate rocblas_gemm_ex() or rocblas_gemm_ex_strided_batched()
 //
-template <typename Tfull, typename Treduced, typename I, typename Istride>
-static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
+template <typename TA, typename TB, typename TC, typename TD, typename TCompute, typename I, typename Istride>
+static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle handle,
 
-                                                          rocblas_operation const trans_A,
-                                                          rocblas_operation const trans_B,
+                                                               rocblas_operation const trans_A,
+                                                               rocblas_operation const trans_B,
 
-                                                          I const m,
-                                                          I const n,
-                                                          I const k,
+                                                               I const m,
+                                                               I const n,
+                                                               I const k,
 
-                                                          const void* alpha,
+                                                               const TCompute* alpha,
 
-                                                          const void* A,
-                                                          rocblas_datatype type_A,
-                                                          I const ld_A,
-                                                          Istride const stride_A,
+                                                               const TA* A,
+                                                               I const ld_A,
+                                                               Istride const stride_A,
 
-                                                          const void* B,
-                                                          rocblas_datatype type_B,
-                                                          I const ld_B,
-                                                          Istride const stride_B,
+                                                               const TB* B,
+                                                               I const ld_B,
+                                                               Istride const stride_B,
 
-                                                          const void* beta,
+                                                               const TCompute* beta,
 
-                                                          void* C,
-                                                          rocblas_datatype type_C,
-                                                          I const ld_C,
-                                                          Istride const stride_C,
+                                                               const TC* C,
+                                                               I const ld_C,
+                                                               Istride const stride_C,
 
-                                                          void* D,
-                                                          rocblas_datatype type_D,
-                                                          I const ld_D,
-                                                          Istride const stride_D,
+                                                               TD* D,
+                                                               I const ld_D,
+                                                               Istride const stride_D,
 
-                                                          I const batch_count,
+                                                               I const batch_count,
 
-                                                          rocblas_datatype compute_type,
-                                                          rocblas_gemm_algo algo,
-                                                          int32_t solution_index,
-                                                          uint32_t flags,
+                                                               rocblas_gemm_algo algo,
+                                                               int32_t solution_index,
+                                                               uint32_t flags,
 
-                                                          void* work,
-                                                          size_t size_work)
+                                                               void* work,
+                                                               size_t size_work)
 {
-    // ----------------------------------------
-    // try evaluation as one of the supported types
-    // ----------------------------------------
-    auto const istat = (rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k, alpha,
-
-                                                        A, type_A, ld_A, stride_A,
-
-                                                        B, type_B, ld_B, stride_B,
-
-                                                        beta,
-
-                                                        C, type_C, ld_C, stride_C,
-
-                                                        D, type_D, ld_D, stride_D,
-
-                                                        batch_count,
-
-                                                        compute_type, algo, solution_index, flags));
-    if(istat != rocblas_status_not_implemented)
-    {
-        return (istat);
-    }
+    // A, B, C, D must be all real or all complex
+    constexpr bool is_A_complex = rocblas_is_complex<TA>;
+    constexpr bool is_B_complex = rocblas_is_complex<TB>;
+    constexpr bool is_C_complex = rocblas_is_complex<TC>;
+    constexpr bool is_D_complex = rocblas_is_complex<TD>;
+    if(is_A_complex != is_B_complex || is_B_complex != is_C_complex || is_C_complex != is_D_complex)
+        return rocblas_status_not_implemented;
 
     // ----------------------------------------------------
     // implement computation where storage type is
@@ -269,24 +251,26 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     // CUBLAS_COMPUTE_F32_FAST_16F
     // ----------------------------------------------------
 
-    bool const is_complex = rocblas_is_complex<Tfull>;
+    constexpr bool is_complex = is_A_complex;
 
-    bool const is_A_fp32 = (type_A == rocblas_datatype_f32_r) || (type_A == rocblas_datatype_f32_c);
-    bool const is_B_fp32 = (type_B == rocblas_datatype_f32_r) || (type_B == rocblas_datatype_f32_c);
-    bool const is_C_fp32 = (type_C == rocblas_datatype_f32_r) || (type_C == rocblas_datatype_f32_c);
+    constexpr bool is_A_fp32 = std::is_same_v<TA, float> || std::is_same_v<TA, rocblas_float_complex>;
+    constexpr bool is_B_fp32 = std::is_same_v<TB, float> || std::is_same_v<TB, rocblas_float_complex>;
+    constexpr bool is_C_fp32 = std::is_same_v<TC, float> || std::is_same_v<TC, rocblas_float_complex>;
 
-    bool const is_fp32_store = is_A_fp32 && is_B_fp32 && is_C_fp32 && (type_D == type_C);
+    constexpr bool is_fp32_store = is_A_fp32 && is_B_fp32 && is_C_fp32 && std::is_same_v<TC, TD>;
 
-    bool const is_fp16_compute
-        = (compute_type == rocblas_datatype_f16_r) || (compute_type == rocblas_datatype_f16_c);
+    constexpr bool is_fp16_compute
+        = std::is_same_v<TCompute,
+                         rocblas_half> || std::is_same_v<TCompute, rocblas_complex_num<rocblas_half>>;
 
-    bool const is_bf16_compute
-        = (compute_type == rocblas_datatype_bf16_r) || (compute_type == rocblas_datatype_bf16_c);
+    constexpr bool is_bf16_compute
+        = std::is_same_v<TCompute,
+                         rocblas_bfloat16> || std::is_same_v<TCompute, rocblas_complex_num<rocblas_bfloat16>>;
 
-    bool const is_supported = is_fp32_store && (is_fp16_compute || is_bf16_compute);
+    constexpr bool is_supported = is_fp32_store && (is_fp16_compute || is_bf16_compute);
     if(!is_supported)
     {
-        return (rocblas_status_not_implemented);
+        return rocblas_status_not_implemented;
     }
 
     // =============================== //
@@ -303,8 +287,8 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     I const nrows_C = m;
     I const ncols_C = n;
 
-    using Sf = decltype(std::real(Tfull{}));
-    using Sr = decltype(std::real(Treduced{}));
+    using Sf = decltype(std::real(TA{}));
+    using Sr = decltype(std::real(TCompute{}));
 
     std::byte* const pwork = (std::byte*)work;
     std::byte* pfree = pwork;
@@ -341,13 +325,13 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     size_t const size_B_im_chop = (is_complex) ? size_B_re_chop : 0;
 
     I const ldC = ld_C;
-    I const ldC_re = nrows_C;
-    I const ldC_im = ldC_re;
+    I ldC_re = nrows_C;
+    I ldC_im = ldC_re;
 
     Istride const shift_C_re = 0;
     Istride const shift_C_im = 0;
 
-    Istride const stride_C_re = ldC_re * ncols_C;
+    Istride stride_C_re = ldC_re * ncols_C;
     Istride const stride_C_im = stride_C_re;
 
     size_t const size_C_re = sizeof(Sf) * stride_C_re * batch_count;
@@ -478,7 +462,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     }
     else
     {
-        C_re = C;
+        C_re = const_cast<Sf*>(static_cast<const Sf*>(C));
         ldC_re = ld_C;
         stride_C_re = stride_C;
     }
@@ -542,11 +526,11 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
         // ------------------------------------
 
         {
-            Treduced* const p_alpha = (Treduced*)alpha;
-            Treduced alpha_value = *p_alpha;
-            Treduced neg_alpha_value = -alpha_value;
+            TCompute* const p_alpha = (TCompute*)alpha;
+            TCompute alpha_value = *p_alpha;
+            TCompute neg_alpha_value = -alpha_value;
 
-            Treduced beta_one = 1;
+            TCompute beta_one = 1;
 
             ROCBLAS_CHECK(
                 rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
@@ -598,7 +582,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
         // ------------------------------------
 
         {
-            Treduced beta_one = 1;
+            TCompute beta_one = 1;
 
             ROCBLAS_CHECK(
                 rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
@@ -624,16 +608,181 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
         // convert from real and imag parts back to complex matrix
         // -------------------------------------------------------
 
-        reim2complex_simple(handle, nrows_C, ncols_C,
+        reim2complex_outofplace(handle, nrows_C, ncols_C,
 
-                            C_re, shift_C_re, ldC_re, stride_C_re,
+                                C_re, shift_C_re, ldC_re, stride_C_re,
 
-                            C_im, shift_C_im, ldC_im, stride_C_im,
+                                C_im, shift_C_im, ldC_im, stride_C_im,
 
-                            C, shift_C, ldC, stride_C);
+                                C, shift_C, ldC, stride_C, static_cast<I>(1), static_cast<Sr>(1.0),
+                                static_cast<const Sr*>(nullptr), static_cast<const Sr*>(nullptr));
     }
 
     return (rocblas_status_success);
+}
+
+template <typename TA, typename TB, typename TC, typename TD, typename TCompute>
+constexpr bool gemm_ex_accepts = std::is_same_v<TA, TB>&& std::is_same_v<TA, TC>&&
+                                     std::is_same_v<TA, TD> && !std::is_same_v<TA, TCompute>;
+
+template <typename TA, typename TB, typename TC, typename TD, typename TCompute, typename...>
+struct gemm_ex_call
+{
+    rocblas_status operator()(rocblas_handle handle,
+
+                              rocblas_operation const trans_A,
+                              rocblas_operation const trans_B,
+
+                              rocblas_int const m,
+                              rocblas_int const n,
+                              rocblas_int const k,
+
+                              const void* alpha,
+
+                              const void* A,
+                              rocblas_int const ld_A,
+                              rocblas_int const stride_A,
+
+                              const void* B,
+                              rocblas_int const ld_B,
+                              rocblas_int const stride_B,
+
+                              const void* beta,
+
+                              const void* C,
+                              rocblas_int const ld_C,
+                              rocblas_int const stride_C,
+
+                              void* D,
+                              rocblas_int const ld_D,
+                              rocblas_int const stride_D,
+
+                              rocblas_int const batch_count,
+
+                              rocblas_gemm_algo algo,
+                              int32_t solution_index,
+                              uint32_t flags,
+
+                              void* work,
+                              size_t size_work)
+    {
+        if constexpr(gemm_ex_accepts<TA, TB, TC, TD, TCompute>)
+        {
+            // return rocblasCall_gemm_strided_batched_ex_impl<TA, TB, TC, TD, TCompute>(
+            //     handle,
+
+            //     trans_A, trans_B,
+
+            //     m, n, k,
+
+            //     alpha,
+
+            //     A, ld_A, stride_A,
+
+            //     B, ld_B, stride_B,
+
+            //     beta,
+
+            //     C, ld_C, stride_C,
+
+            //     D, ld_D, stride_D,
+
+            //     batch_count,
+
+            //     algo, solution_index, flags,
+
+            //     work, size_work);
+            return rocblas_status_success;
+        }
+        return rocblas_status_not_implemented;
+    }
+};
+
+template <typename I, typename Istride>
+static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
+
+                                                          rocblas_operation const trans_A,
+                                                          rocblas_operation const trans_B,
+
+                                                          I const m,
+                                                          I const n,
+                                                          I const k,
+
+                                                          const void* alpha,
+
+                                                          const void* A,
+                                                          rocblas_datatype type_A,
+                                                          I const ld_A,
+                                                          Istride const stride_A,
+
+                                                          const void* B,
+                                                          rocblas_datatype type_B,
+                                                          I const ld_B,
+                                                          Istride const stride_B,
+
+                                                          const void* beta,
+
+                                                          const void* C,
+                                                          rocblas_datatype type_C,
+                                                          I const ld_C,
+                                                          Istride const stride_C,
+
+                                                          void* D,
+                                                          rocblas_datatype type_D,
+                                                          I const ld_D,
+                                                          Istride const stride_D,
+
+                                                          I const batch_count,
+
+                                                          rocblas_datatype compute_type,
+                                                          rocblas_gemm_algo algo,
+                                                          int32_t solution_index,
+                                                          uint32_t flags,
+
+                                                          void* work,
+                                                          size_t size_work)
+{
+    auto status = rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k, alpha,
+
+                                                  A, type_A, ld_A, stride_A,
+
+                                                  B, type_B, ld_B, stride_B,
+
+                                                  beta,
+
+                                                  C, type_C, ld_C, stride_C,
+
+                                                  D, type_D, ld_D, stride_D,
+
+                                                  batch_count,
+
+                                                  compute_type, algo, solution_index, flags);
+
+    return rocsolver_ex_datatype_dispatch<gemm_ex_call>(type_A, type_B, type_C, type_D, compute_type,
+
+                                                        handle,
+
+                                                        trans_A, trans_B,
+
+                                                        m, n, k,
+
+                                                        alpha,
+
+                                                        A, ld_A, stride_A,
+
+                                                        B, ld_B, stride_B,
+
+                                                        beta,
+
+                                                        C, ld_C, stride_C,
+
+                                                        D, ld_D, stride_D,
+
+                                                        batch_count,
+
+                                                        algo, solution_index, flags,
+
+                                                        work, size_work);
 }
 
 ROCSOLVER_END_NAMESPACE
