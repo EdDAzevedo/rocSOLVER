@@ -563,7 +563,17 @@ __global__ void complex2reim_clamp_kernel(const I m,
                 const auto aij_re = std::real(aij);
 
                 const auto ij_A_re = idx2D(i, j, ldA_re);
-                A_re_bid[ij_A_re] = static_cast<Treal>(aij_re); // std::clamp(aij_re, -dlimit, dlimit);
+
+                // implement our own clamp that can run on device
+                auto clamp = [](double v, double low, double high) {
+                    if(v < low)
+                        return low;
+                    if(v > high)
+                        return high;
+                    return v;
+                };
+
+                A_re_bid[ij_A_re] = static_cast<Treal>(clamp(aij_re, -dlimit, dlimit));
 
                 if constexpr(is_complex)
                 {
@@ -572,8 +582,7 @@ __global__ void complex2reim_clamp_kernel(const I m,
                         const auto ij_A_im = idx2D(i, j, ldA_im);
                         const auto aij_im = std::imag(aij);
 
-                        A_im_bid[ij_A_im]
-                            = static_cast<Treal>(aij_im); // std::clamp(aij_im, -dlimit, dlimit);
+                        A_im_bid[ij_A_im] = static_cast<Treal>(clamp(aij_im, -dlimit, dlimit));
                     }
                 }
             }

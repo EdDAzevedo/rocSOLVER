@@ -297,7 +297,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
     double const fp32_max = std::numeric_limits<float>::max();
     double const bf16_max = fp32_max;
     double const fp16_max = 65504; // largest valid number in FP16
-    Sr const dlimit = static_cast<Sr>((is_fp16_compute) ? fp16_max : bf16_max);
+    double const dlimit = is_fp16_compute ? fp16_max : bf16_max;
 
     Sf* C_re = nullptr;
     Sf* C_im = nullptr;
@@ -438,7 +438,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
     // ----------------------------------------------
     if constexpr(is_complex)
     {
-        Sf const dlimit_C = fp32_max;
+        double const dlimit_C = fp32_max;
         Sf* const amax_C_re_null = nullptr;
         Sf* const amax_C_im_null = nullptr;
 
