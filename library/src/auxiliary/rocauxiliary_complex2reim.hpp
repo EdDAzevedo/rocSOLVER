@@ -218,16 +218,16 @@ void __global__ __launch_bounds__(PLANAR_THREADS)
             auto elem_re = in_re[read_re_idx];
             auto elem_im = in_im[read_im_idx];
 
-            Tcomplex elem_out;
+            Tcomplex elem_out{};
             if(amax_re)
-                elem_out.x = static_cast<Tscale>(elem_re) * dlimit / amax_re[batch_id];
+                elem_out.real(static_cast<Tscale>(elem_re) * dlimit / amax_re[batch_id]);
             else
-                elem_out.x = elem_re;
+                elem_out.real(elem_re);
 
             if(amax_im)
-                elem_out.y = static_cast<Tscale>(elem_im) * dlimit / amax_im[batch_id];
+                elem_out.imag(static_cast<Tscale>(elem_im) * dlimit / amax_im[batch_id]);
             else
-                elem_out.y = elem_im;
+                elem_out.imag(elem_im);
 
             out[write_idx] = elem_out;
         }

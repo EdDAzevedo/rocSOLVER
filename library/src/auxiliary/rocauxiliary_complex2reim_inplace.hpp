@@ -549,8 +549,8 @@ __global__ void complex2reim_clamp_kernel(const I m,
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         const Tcomplex* A_bid = load_ptr_batch(A, bid, shiftA, strideA);
-        const Treal* A_re_bid = load_ptr_batch(A_re, bid, shiftA_re, strideA_re);
-        const Treal* A_im_bid = (is_complex && (A_im != nullptr))
+        Treal* A_re_bid = load_ptr_batch(A_re, bid, shiftA_re, strideA_re);
+        Treal* A_im_bid = (is_complex && (A_im != nullptr))
             ? load_ptr_batch(A_im, bid, shiftA_im, strideA_im)
             : nullptr;
 
@@ -563,7 +563,7 @@ __global__ void complex2reim_clamp_kernel(const I m,
                 const auto aij_re = std::real(aij);
 
                 const auto ij_A_re = idx2D(i, j, ldA_re);
-                A_re_bid[ij_A_re] = std::clamp(aij_re, -dlimit, dlimit);
+                A_re_bid[ij_A_re] = static_cast<Treal>(aij_re); // std::clamp(aij_re, -dlimit, dlimit);
 
                 if constexpr(is_complex)
                 {
@@ -572,7 +572,8 @@ __global__ void complex2reim_clamp_kernel(const I m,
                         const auto ij_A_im = idx2D(i, j, ldA_im);
                         const auto aij_im = std::imag(aij);
 
-                        A_im_bid[ij_A_im] = std::clamp(aij_im, -dlimit, dlimit);
+                        A_im_bid[ij_A_im]
+                            = static_cast<Treal>(aij_im); // std::clamp(aij_im, -dlimit, dlimit);
                     }
                 }
             }
