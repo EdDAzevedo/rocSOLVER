@@ -43,17 +43,17 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
-template <typename T>
+template <typename T, typename I>
 rocblas_status rocsolver_zcgesv_mxp_argCheck(rocblas_handle handle,
-                                             const rocblas_int n,
-                                             const rocblas_int nrhs,
-                                             const rocblas_int lda,
-                                             const rocblas_int ldb,
+                                             const I n,
+                                             const I nrhs,
+                                             const I lda,
+                                             const I ldb,
                                              T* A,
                                              T* B,
-                                             const rocblas_int* ipiv,
-                                             const rocblas_int* info,
-                                             const rocblas_int batch_count = 1)
+                                             const I* ipiv,
+                                             const I* info,
+                                             const I batch_count = 1)
 {
     // order is important for unit tests:
 
@@ -237,7 +237,7 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
                                              const I n,
                                              const I nrhs,
                                              T* const A,
-                                             const I shiftA,
+                                             const Istride shiftA,
                                              const I lda,
                                              const Istride strideA,
 
@@ -245,12 +245,12 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
                                              const Istride strideP,
 
                                              T* const B,
-                                             const I shiftB,
+                                             const Istride shiftB,
                                              const I ldb,
                                              const Istride strideB,
 
                                              T* const X,
-                                             const I shiftX,
+                                             const Istride shiftX,
                                              const I ldx,
                                              const Istride strideX,
 
