@@ -166,7 +166,7 @@ static void rocblasCall_gemm_strided_batched_ex_getMemorySize(rocblas_operation 
         if(is_complex)
         {
             size_t const size_A_im_chop = size_A_re_chop;
-            size_t const size_B_im_chop = size_B_im_chop;
+            size_t const size_B_im_chop = size_B_re_chop;
 
             size_work += size_A_im_chop;
             size_work += size_B_im_chop;
@@ -758,6 +758,8 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
                                                   batch_count,
 
                                                   compute_type, algo, solution_index, flags);
+    if(status != rocblas_status_not_implemented)
+        return status;
 
     return rocsolver_ex_datatype_dispatch<gemm_ex_call>(type_A, type_B, type_C, type_D, compute_type,
 
