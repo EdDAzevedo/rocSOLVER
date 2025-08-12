@@ -180,7 +180,7 @@ int main(int argc, char** argv)
                                      kkrmat_dims[1], ipiv.data(), tmat_data_device.data(),
                                      rocblas_datatype_f64_c, kkrmat_dims[1], tmat_data_device.data(),
                                      rocblas_datatype_f64_c, kkrmat_dims[1], max_iter, tol, &niter,
-                                     rocblas_datatype_f16_c, info.data());
+                                     rocblas_datatype_f16_r, info.data());
             }
 
             if(hipEventRecord(stop) != hipSuccess)
