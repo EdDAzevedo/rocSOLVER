@@ -36,8 +36,8 @@ int main()
     std::vector<rocblas_float_complex> B_host(16);
     std::vector<rocblas_float_complex> C_host(16);
     std::fill(A_host.begin(), A_host.end(), rocblas_float_complex{0.25, 0.5});
-    std::fill(B_host.begin(), B_host.end(), rocblas_float_complex{-0.25, 0.4});
-    std::fill(C_host.begin(), C_host.end(), rocblas_float_complex{1.1, 0.9});
+    std::fill(B_host.begin(), B_host.end(), rocblas_float_complex{-0.25, 0.5});
+    std::fill(C_host.begin(), C_host.end(), rocblas_float_complex{1.5, 2.0});
 
     gpubuf_t<rocblas_float_complex> A;
     size_t A_bytes = A_host.size() * sizeof(rocblas_float_complex);
@@ -54,6 +54,18 @@ int main()
     if(C.alloc(C_bytes) != hipSuccess)
         throw std::runtime_error("failed to alloc C");
 
+    gpubuf_t<rocblas_float_complex> D_ref;
+    if(D_ref.alloc(C_bytes) != hipSuccess)
+        throw std::runtime_error("failed to alloc D_ref");
+    if(hipMemset(D_ref.data(), 0, C_bytes) != hipSuccess)
+        throw std::runtime_error("failed to memset D_ref");
+
+    gpubuf_t<rocblas_float_complex> D_ex;
+    if(D_ex.alloc(C_bytes) != hipSuccess)
+        throw std::runtime_error("failed to alloc D_ex");
+    if(hipMemset(D_ex.data(), 0, C_bytes) != hipSuccess)
+        throw std::runtime_error("failed to memset D_ex");
+
     if(hipMemcpy(A.data(), A_host.data(), A_bytes, hipMemcpyHostToDevice) != hipSuccess)
         throw std::runtime_error("failed to memcpy A");
     if(hipMemcpy(B.data(), B_host.data(), B_bytes, hipMemcpyHostToDevice) != hipSuccess)
@@ -61,44 +73,75 @@ int main()
     if(hipMemcpy(C.data(), C_host.data(), C_bytes, hipMemcpyHostToDevice) != hipSuccess)
         throw std::runtime_error("failed to memcpy C");
 
-    // rocblas_float_complex alpha{1.0, 0.0};
-    // rocblas_float_complex beta{1.0, 0.0};
-    rocblas_half alpha{1.0};
-    rocblas_half beta{1.0};
+    rocblas_float_complex alpha_complex{1.0, 0.0};
+    rocblas_float_complex beta_complex{1.0, 0.0};
+    rocblas_half alpha_real{1.0};
+    rocblas_half beta_real{1.0};
 
-    auto status = rocblasCall_gemm_strided_batched_ex(
+    auto D_host = C_host;
+
+    auto status = rocblas_gemm_ex(handle, rocblas_operation_none, rocblas_operation_none,
+
+                                  4, 4, 4,
+
+                                  &alpha_complex,
+
+                                  A.data(), rocblas_datatype_f32_c, 4,
+
+                                  B.data(), rocblas_datatype_f32_c, 4,
+
+                                  &beta_complex,
+
+                                  C.data(), rocblas_datatype_f32_c, 4,
+
+                                  D_ref.data(), rocblas_datatype_f32_c, 4,
+
+                                  rocblas_datatype_f32_c, rocblas_gemm_algo_standard, 0, 0);
+
+    printf("status ref : %d\n", static_cast<int>(status));
+
+    if(hipMemcpy(D_host.data(), D_ref.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
+        throw std::runtime_error("failed to copy D_ref back");
+
+    for(auto elem : D_host)
+    {
+        printf("(%f, %f) ", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
+    }
+    puts("");
+
+    status = rocblasCall_gemm_strided_batched_ex(
         handle, rocblas_operation_none, rocblas_operation_none,
 
         4, 4, 4,
 
-        &alpha,
+        &alpha_real,
 
         A.data(), rocblas_datatype_f16_r, 4, 0,
 
         B.data(), rocblas_datatype_f32_c, 4, 0,
 
-        &beta,
+        &beta_real,
 
         C.data(), rocblas_datatype_f32_c, 4, 0,
 
-        C.data(), rocblas_datatype_f32_c, 4, 0,
+        D_ex.data(), rocblas_datatype_f32_c, 4, 0,
 
-	       1,
+        1,
 
         rocblas_datatype_f32_c, rocblas_gemm_algo_standard, 0, 0,
 
-	       workmem.data(), work_size);
+        workmem.data(), work_size);
 
-    printf("status: %d\n", static_cast<int>(status));
+    printf("status ex : %d\n", static_cast<int>(status));
 
-    if(hipMemcpy(C_host.data(), C.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
-      throw std::runtime_error("failed to copy C back");
+    if(hipMemcpy(D_host.data(), D_ex.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
+        throw std::runtime_error("failed to copy D_ex back");
 
-    for(auto elem : C_host)
-      {
-	printf("(%f, %f) ", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
-      }
+    for(auto elem : D_host)
+    {
+        printf("(%f, %f) ", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
+    }
     puts("");
-    
+
     return 0;
 }
