@@ -565,9 +565,9 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
 
                                                 alpha,
 
-                                                A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
+                                                A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
 
-                                                B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
+                                                B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
 
                                                 beta,
 
@@ -592,9 +592,9 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
 
                                                 alpha,
 
-                                                A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
+                                                A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
 
-                                                B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
+                                                B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
 
                                                 &beta_one,
 
