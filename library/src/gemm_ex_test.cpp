@@ -35,6 +35,8 @@ int main()
     std::vector<rocblas_float_complex> A_host(16);
     std::vector<rocblas_float_complex> B_host(16);
     std::vector<rocblas_float_complex> C_host(16);
+    std::vector<rocblas_float_complex> D_host_ref(16);
+    std::vector<rocblas_float_complex> D_host_ex(16);
     std::fill(A_host.begin(), A_host.end(), rocblas_float_complex{0.25, 0.5});
     std::fill(B_host.begin(), B_host.end(), rocblas_float_complex{-0.25, 0.5});
     std::fill(C_host.begin(), C_host.end(), rocblas_float_complex{1.5, 2.0});
@@ -78,8 +80,6 @@ int main()
     rocblas_half alpha_real{1.0};
     rocblas_half beta_real{1.0};
 
-    auto D_host = C_host;
-
     auto status = rocblas_gemm_ex(handle, rocblas_operation_none, rocblas_operation_none,
 
                                   4, 4, 4,
@@ -100,10 +100,10 @@ int main()
 
     printf("status ref : %d\n", static_cast<int>(status));
 
-    if(hipMemcpy(D_host.data(), D_ref.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
+    if(hipMemcpy(D_host_ref.data(), D_ref.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
         throw std::runtime_error("failed to copy D_ref back");
 
-    for(auto elem : D_host)
+    for(auto elem : D_host_ref)
     {
         printf("(%f, %f) ", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
     }
@@ -134,10 +134,10 @@ int main()
 
     printf("status ex : %d\n", static_cast<int>(status));
 
-    if(hipMemcpy(D_host.data(), D_ex.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
+    if(hipMemcpy(D_host_ex.data(), D_ex.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
         throw std::runtime_error("failed to copy D_ex back");
 
-    for(auto elem : D_host)
+    for(auto elem : D_host_ex)
     {
         printf("(%f, %f) ", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
     }
