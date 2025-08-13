@@ -497,6 +497,9 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
     // since the output array is in FP32
     // -----------------------------------
     rocblas_datatype lcompute_type = rocblas_datatype_f32_r;
+    const float alpha_f32 = std::real(*alpha);
+    const float beta_f32 = std::real(*beta);
+    const float beta_one_f32 = 1.0;
 
     {
         // ---------------------------------------------
@@ -506,13 +509,13 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
         ROCBLAS_CHECK(
             rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                            alpha,
+                                            &alpha_f32,
 
                                             A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
 
                                             B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
 
-                                            beta,
+                                            &beta_f32,
 
                                             C_re, C_re_type, ldC_re, stride_C_re,
 
@@ -530,21 +533,18 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
         // ------------------------------------
 
         {
-            TCompute alpha_value = *alpha;
-            TCompute neg_alpha_value = -alpha_value;
-
-            TCompute beta_one{1};
+            float neg_alpha_f32 = -alpha_f32;
 
             ROCBLAS_CHECK(
                 rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                                &neg_alpha_value,
+                                                &neg_alpha_f32,
 
                                                 A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
 
                                                 B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
 
-                                                &beta_one,
+                                                &beta_one_f32,
 
                                                 C_re, C_re_type, ldC_re, stride_C_re,
 
@@ -563,13 +563,13 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
             ROCBLAS_CHECK(
                 rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                                alpha,
+                                                &alpha_f32,
 
                                                 A_re_chop, A_re_type, ldA_re_chop, stride_A_re_chop,
 
                                                 B_im_chop, B_im_type, ldB_im_chop, stride_B_im_chop,
 
-                                                beta,
+                                                &beta_f32,
 
                                                 C_im, C_im_type, ldC_im, stride_C_im,
 
@@ -590,13 +590,13 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
             ROCBLAS_CHECK(
                 rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k,
 
-                                                alpha,
+                                                &alpha_f32,
 
                                                 A_im_chop, A_im_type, ldA_im_chop, stride_A_im_chop,
 
                                                 B_re_chop, B_re_type, ldB_re_chop, stride_B_re_chop,
 
-                                                &beta_one,
+                                                &beta_one_f32,
 
                                                 C_im, C_im_type, ldC_im, stride_C_im,
 
