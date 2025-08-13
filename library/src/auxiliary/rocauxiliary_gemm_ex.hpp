@@ -388,29 +388,31 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
 
     if constexpr(is_complex)
     {
-        complex2reim_clamp(handle, nrows_A, ncols_A,
+        complex2reim_outofplace(handle, nrows_A, ncols_A,
 
-                           A, shift_A, ld_A, stride_A,
+                                A, shift_A, ld_A, stride_A,
 
-                           A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
+                                A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
 
-                           A_im_chop, shift_A_im_chop, ldA_im_chop, stride_A_im_chop,
+                                A_im_chop, shift_A_im_chop, ldA_im_chop, stride_A_im_chop,
 
-                           batch_count,
+                                batch_count,
 
-                           dlimit);
+                                dlimit, static_cast<const double*>(nullptr),
+                                static_cast<const double*>(nullptr));
 
-        complex2reim_clamp(handle, nrows_B, ncols_B,
+        complex2reim_outofplace(handle, nrows_B, ncols_B,
 
-                           B, shift_B, ld_B, stride_B,
+                                B, shift_B, ld_B, stride_B,
 
-                           B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
+                                B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
 
-                           B_im_chop, shift_B_im_chop, ldB_im_chop, stride_B_im_chop,
+                                B_im_chop, shift_B_im_chop, ldB_im_chop, stride_B_im_chop,
 
-                           batch_count,
+                                batch_count,
 
-                           dlimit);
+                                dlimit, static_cast<const double*>(nullptr),
+                                static_cast<const double*>(nullptr));
     }
     else
     {
@@ -449,17 +451,18 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
 
         CHECK_MEM(pfree);
 
-        complex2reim_clamp(handle, nrows_C, ncols_C,
+        complex2reim_outofplace(handle, nrows_C, ncols_C,
 
-                           C, shift_C, ldC, stride_C,
+                                C, shift_C, ldC, stride_C,
 
-                           C_re, shift_C_re, ldC_re, stride_C_re,
+                                C_re, shift_C_re, ldC_re, stride_C_re,
 
-                           C_im, shift_C_im, ldC_im, stride_C_im,
+                                C_im, shift_C_im, ldC_im, stride_C_im,
 
-                           batch_count,
+                                batch_count,
 
-                           dlimit_C);
+                                dlimit_C, static_cast<const double*>(nullptr),
+                                static_cast<const double*>(nullptr));
     }
     else
     {

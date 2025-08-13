@@ -100,14 +100,16 @@ void __global__ __launch_bounds__(PLANAR_THREADS)
             auto elem = in[read_idx];
 
             if(amax_re)
-                out_re[write_re_idx] = static_cast<Tscale>(elem.x) * dlimit / amax_re[batch_id];
+                out_re[write_re_idx] = static_cast<Treal>(static_cast<Tscale>(std::real(elem))
+                                                          * dlimit / amax_re[batch_id]);
             else
-                out_re[write_re_idx] = elem.x;
+                out_re[write_re_idx] = static_cast<Treal>(std::real(elem));
 
             if(amax_im)
-                out_im[write_im_idx] = static_cast<Tscale>(elem.y) * dlimit / amax_im[batch_id];
+                out_im[write_im_idx] = static_cast<Treal>(static_cast<Tscale>(std::imag(elem))
+                                                          * dlimit / amax_im[batch_id]);
             else
-                out_im[write_im_idx] = elem.y;
+                out_im[write_im_idx] = static_cast<Treal>(std::imag(elem));
         }
     }
 }
