@@ -556,7 +556,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
         }
 
         // ------------------------------------
-        // step (3) Cc = beta * Cc + alpha * Ac * Br
+        // step (3) Cc = beta * Cc + alpha * Ar * Bc
         // ------------------------------------
 
         {
@@ -581,7 +581,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
         }
 
         // ------------------------------------
-        // step (4) Cc =        Cc + alpha * Ar * Bc
+        // step (4) Cc =        Cc + alpha * Ac * Br
         // ------------------------------------
 
         {
