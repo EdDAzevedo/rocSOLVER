@@ -38,10 +38,234 @@
 #include "rocsolver/rocsolver.h"
 
 #include "roclapack_gesv.hpp"
+#include "roclapack_getrf_mxp.hpp"
 
-#include "rocauxiliary_lacpy.hpp"
+#include "auxiliary/rocauxiliary_lacpy.hpp"
 
 ROCSOLVER_BEGIN_NAMESPACE
+
+// -----------------------------------------------------
+// gather the value from iamax into xnrm
+//
+// assume launch as dim3( nbx, 1, nbz ), dim3(nx,1,1)
+// nbx = ceil( nrhs, nx )
+// nby = batch_count
+// -----------------------------------------------------
+template <typename T, typename S, typename I, typename Istride>
+__device__ static void gather_norm_kernel(I const n,
+                                          I const nrhs,
+
+                                          T* const X,
+                                          Istride const shiftX,
+                                          I const ldx,
+                                          Istride const strideX,
+
+                                          I* const ixnrm,
+
+                                          S* const xnrm,
+
+                                          I const batch_count)
+{
+    I const bid_start = blockIdx.z;
+    I const bid_inc = gridDim.z;
+
+    I const irhs_start = threadIdx.x + blockIdx.x * blockDim.x;
+    I const irhs_inc = blockDim.x * gridDim.x;
+
+    auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
+
+    for(I irhs = irhs_start; irhs < nrhs; irhs += irhs_inc)
+    {
+        for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+        {
+            auto const Xp = load_ptr_batch(X, bid, shiftX, strideX);
+
+            auto const irow = ixnrm[bid + irhs * batch_count];
+            auto const jcol = irhs;
+            auto const xi = Xp[idx2D(irow, jcol, ldx)];
+            xnrm[bid + irhs * batch_count] = std::abs(xi);
+        }
+    }
+}
+
+template <typename T, typename S, typename I, typename Istride>
+static void gather_norm(rocblas_handle handle,
+                        I const n,
+                        I const nrhs,
+
+                        T* const X,
+                        Istride const shiftX,
+                        I const ldx,
+                        Istride const strideX,
+
+                        I* const ixnrm,
+
+                        S* const xnrm,
+
+                        I const batch_count)
+{
+    auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
+
+    I const max_blocks = 1024;
+    I const nx = 64;
+    I const nbx = std::min(max_blocks, ceil(n, nx));
+    I const nby = 1;
+    I const nbz = std::min(max_blocks, batch_count);
+
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    gather_norm_kernel<T, S, I, Istride><<<dim3(nbx, nby, nbz), dim3(nx, 1, 1), 0, stream>>>(
+
+        n, nrhs,
+
+        X, shiftX, ldx, strideX,
+
+        ixnrm, xnrm, batch_count);
+}
+
+// -----------------------------------------
+// assume one thread block handle one vector
+// launch as
+// dim3(1,nrhs,batch_count), dim3(nx,1,1,), ldsize, stream
+// ldsize = nx * sizeof(double)
+// -----------------------------------------
+template <typename T, typename I, typename Istride>
+__global__ static void check_convergence_kernel(I const n,
+                                                I const nrhs,
+
+                                                T* X,
+                                                Istride const shiftX,
+                                                I const ldx,
+                                                Istride const strideX,
+
+                                                T* R,
+                                                Istride const shiftR,
+                                                I const ldr,
+                                                Istride const strideR,
+
+                                                I const batch_count,
+                                                double tol,
+
+                                                bool* p_is_converged)
+{
+    bool is_converged = false;
+    *p_is_converged = is_converged;
+
+    extern __shared__ double ldmem[];
+
+    I const bid_start = blockIdx.z;
+    I const bid_inc = gridDim.z;
+
+    I const irhs_start = blockIdx.y;
+    I const irhs_inc = gridDim.y;
+
+    I const tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * (blockDim.x * blockDim.y);
+    I const nthreads = (blockDim.x * blockDim.y) * blockDim.z;
+
+    I const i_start = tid;
+    I const i_inc = nthreads;
+
+    assert(gridDim.x == 1);
+
+    I nconverged = 0;
+    for(I bid = bid_start; bid < batch_count; bid += bid_inc)
+    {
+        T const* const Xp = load_ptr_batch(X, bid, shiftX, strideX);
+        T const* const Rp = load_ptr_batch(R, bid, shiftR, strideR);
+
+        for(I irhs = irhs_start; irhs < nrhs; irhs += irhs_inc)
+        {
+            double xmax = 0;
+            double rmax = 0;
+            for(I i = i_start; i < n; i += i_inc)
+            {
+                auto const xi = Xp[idx2D(i, irhs, ldx)];
+                auto const ri = Rp[idx2D(i, irhs, ldr)];
+                double const abs_xi = std::abs(xi);
+                double const abs_ri = std::abs(ri);
+
+                xmax = std::max(xmax, abs_xi);
+                rmax = std::max(rmax, abs_ri);
+            }
+            __syncthreads();
+
+            // ---------------------------------
+            // perform max reduction
+            // the answer is in the [0] position
+            // ---------------------------------
+            auto max_reduce = [=](auto& xmax) {
+                ldmem[tid] = xmax;
+                __syncthreads();
+
+                for(I gap = nthreads / 2; gap > 0; gap = gap / 2)
+                {
+                    if(tid < gap)
+                    {
+                        ldmem[tid] = std::max(ldmem[tid], ldmem[tid + gap]);
+                    }
+                    __syncthreads();
+                }
+                __syncthreads();
+                xmax = ldmem[0];
+                __syncthreads();
+            };
+
+            max_reduce(xmax);
+            max_reduce(rmax);
+
+            if(rmax <= xmax * tol)
+            {
+                nconverged++;
+            }
+
+        } // end for irhs
+        __syncthreads();
+    } // end for bid
+
+    __syncthreads();
+
+    is_converged = (nconverged >= (nrhs * batch_count));
+
+    *p_is_converged = is_converged;
+}
+
+// check for convergence
+template <typename T, typename I, typename Istride>
+static void check_convergence(rocblas_handle handle,
+                              I const n,
+                              I const nrhs,
+
+                              T* X,
+                              Istride const shiftX,
+                              I const ldx,
+                              Istride const strideX,
+
+                              T* R,
+                              Istride const shiftR,
+                              I const ldr,
+                              Istride const strideR,
+
+                              I const batch_count,
+                              double tol,
+
+                              bool* d_is_converged)
+{
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
+    I const nx = 1024;
+    size_t const ldsize = sizeof(double) * nx;
+    check_convergence_kernel<T, I, Istride>
+        <<<dim3(1, nrhs, batch_count), dim3(nx, 1, 1), ldsize, stream>>>(n, nrhs,
+
+                                                                         X, shiftX, ldx, strideX,
+
+                                                                         R, shiftR, ldr, strideR,
+
+                                                                         batch_count, tol,
+                                                                         d_is_converged);
+}
 
 template <typename T, typename I>
 rocblas_status rocsolver_zcgesv_mxp_argCheck(rocblas_handle handle,
@@ -84,10 +308,10 @@ void rocsolver_gesv_mxp_getMemorySize(const I n,
 
 )
 {
-    using S = decltype{std::real(T{})};
+    using S = decltype(std::real(T{}));
 
     bool constexpr BATCHED = true;
-    bool constexpr STRIDD = true;
+    bool constexpr STRIDED = true;
 
     size_t size_work = 0;
     *p_size_work = size_work;
@@ -159,7 +383,7 @@ void rocsolver_gesv_mxp_getMemorySize(const I n,
         rocsolver_getrs_getMemorySize<BATCHED, STRIDED, Tlu>(rocblas_operation_none, n, nrhs,
                                                              batch_count, &w1, &w2, &w3, &w4, &opt2);
 
-        size_t const size_getrs += w1 + w2 + w3 + w4;
+        size_t const size_getrs = w1 + w2 + w3 + w4;
 
         size_work += size_getrs;
     }
@@ -170,9 +394,8 @@ void rocsolver_gesv_mxp_getMemorySize(const I n,
     size_t size_getrf_mxp = 0;
     {
         auto const m = n;
-        rocsolver_getrf_mxp_getMemorySize( Tlu, Treduced, I>(
-				    m, n,  use_pivot, batch_count,
-				    &size_getrf_mxp );
+        rocsolver_getrf_mxp_getMemorySize<Tlu, Treduced, I>(m, n, use_pivot, batch_count,
+                                                            &size_getrf_mxp);
     }
 
     size_work += std::max(size_getrf, size_getrf_mxp);
@@ -181,16 +404,23 @@ void rocsolver_gesv_mxp_getMemorySize(const I n,
     // storage for xnrm, rnrm
     // ----------------------
     {
-        size_t const size_xnrm = sizeof(S) * batch_count;
-        size_t const size_rnrm = sizeof(S) * batch_count;
+        size_t const size_xnrm = sizeof(S) * batch_count * nrhs;
+        size_t const size_rnrm = sizeof(S) * batch_count * nrhs;
+
+        size_t const size_ixnrm = sizeof(I) * batch_count * nrhs;
+        size_t const size_irnrm = sizeof(I) * batch_count * nrhs;
 
         // ---------------------------------------------------------------
         // TODO: not clear how much workspace is needed in rocblas_iamax()
         // ---------------------------------------------------------------
-        size_t const size_iamax = sizeof(S) * n * batch_count;
+        size_t const size_iamax = 2 * sizeof(S*) * n * batch_count;
 
         size_work += size_xnrm;
         size_work += size_rnrm;
+
+        size_work += size_ixnrm;
+        size_work += size_irnrm;
+
         size_work += size_iamax;
     }
 
@@ -229,39 +459,50 @@ void rocsolver_gesv_mxp_getMemorySize(const I n,
         size_work = std::max(size_work, size_gesv);
     }
 
+    {
+        // -----------------
+        // check convergence
+        // -----------------
+
+        size_work += sizeof(bool);
+    }
+
     *p_size_work = size_work;
 }
 
 template <typename T, typename Treduced, typename I, typename Istride>
 rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
-                                             const I n,
-                                             const I nrhs,
-                                             T* const A,
-                                             const Istride shiftA,
-                                             const I lda,
-                                             const Istride strideA,
+                                             I const n,
+                                             I const nrhs,
 
-                                             I* ipiv,
-                                             const Istride strideP,
+                                             T* const A,
+                                             Istride const shiftA,
+                                             I const lda,
+                                             Istride const strideA,
+
+                                             I* const ipiv,
+                                             Istride const strideP,
 
                                              T* const B,
-                                             const Istride shiftB,
-                                             const I ldb,
-                                             const Istride strideB,
+                                             Istride const shiftB,
+                                             I const ldb,
+                                             Istride const strideB,
 
                                              T* const X,
-                                             const Istride shiftX,
-                                             const I ldx,
-                                             const Istride strideX,
+                                             Istride const shiftX,
+                                             I const ldx,
+                                             Istride const strideX,
 
                                              I const max_iter_arg,
                                              double const tol_arg,
-                                             I* niter,
+                                             I* const niter,
 
                                              I* info,
-                                             const I batch_count,
-                                             void* work,
-                                             size_t size_work)
+                                             I const batch_count,
+                                             bool const use_pivot,
+
+                                             void* const work,
+                                             size_t const size_work)
 {
     ROCSOLVER_ENTER("zcgesv_mxp", "n:", n, "nrhs:", nrhs, "shiftA:", shiftA, "lda:", lda,
                     "shiftB:", shiftB, "ldb:", ldb, "bc:", batch_count);
@@ -277,8 +518,8 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
 
     bool constexpr is_complex = rocblas_is_complex<T>;
 
-    using Sfull = std::conditional<is_complex, decltype(std::real(T{})), T>::type;
-    using Tlu = std::conditional<is_complex, rocblas_complex_num<float>, float>::type;
+    using Sfull = typename std::conditional<is_complex, decltype(std::real(T{})), T>::type;
+    using Tlu = typename std::conditional<is_complex, rocblas_complex_num<float>, float>::type;
     using Slu = decltype(std::real(Tlu{}));
     using Sreduced = decltype(std::real(Treduced{}));
 
@@ -304,6 +545,17 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
     std::byte* const pwork = (std::byte*)work;
     std::byte* pfree = pwork;
 
+#ifndef CHECK_MEM
+#define CHECK_MEM(pfree)                                       \
+    {                                                          \
+        bool const is_mem_ok = (pfree <= (pwork + size_work)); \
+        if(!is_mem_ok)                                         \
+        {                                                      \
+            return (rocblas_status_memory_error);              \
+        }                                                      \
+    }
+#endif
+
     // ----------------------
     // allocate B_lu and A_lu
     // ----------------------
@@ -318,13 +570,13 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
     auto const ncols_X = ncols_B;
 
     I const ldB_lu = nrows_B;
-    size_t const strideB_lu = ldB_lu * ncols_B;
+    Istride const strideB_lu = ldB_lu * ncols_B;
     size_t const size_B_lu = sizeof(Tlu) * strideB_lu * batch_count;
     Tlu* const B_lu = (Tlu*)pfree;
     pfree += size_B_lu;
 
-    I const lda_lu = nrows_A;
-    size_t const strideA_lu = ldA_lu * ncols_A;
+    I const ldA_lu = nrows_A;
+    Istride const strideA_lu = ldA_lu * ncols_A;
     size_t const size_A_lu = sizeof(Tlu) * strideA_lu * batch_count;
     Tlu* const A_lu = (Tlu*)pfree;
     pfree += size_A_lu;
@@ -340,27 +592,26 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
     // ----------------
     {
         char const uplo = 'A';
-        lacpy(handle, uplo, nrows_A, ncols_A,
+        lacpy<I, Istride>(handle, uplo, nrows_A, ncols_A,
 
-              A, shiftA, lda, strideA,
+                          A, shiftA, lda, strideA,
 
-              A_lu, shiftA_lu, lda_lu, strideA_lu,
+                          A_lu, shiftA_lu, ldA_lu, strideA_lu,
 
-              batch_count);
+                          batch_count);
 
-        lacpy(handle, uplo, nrows_B, ncols_B,
+        lacpy<I, Istride>(handle, uplo, nrows_B, ncols_B,
 
-              B, shiftB, ldb, strideB,
+                          B, shiftB, ldb, strideB,
 
-              B_lu, shiftB_lu, ldb_lu, strideB_lu,
+                          B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
-              batch_count);
+                          batch_count);
     }
 
     // ------------------------
     // perform LU factorization
     // ------------------------
-    bool const use_pivot = true;
 
     bool const use_mixed_precision = !std::is_same<Tlu, Treduced>::value;
     if(use_mixed_precision)
@@ -371,12 +622,19 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
 
         I const inca = 1;
 
-        auto const istat = rocsolver_getrf_mxp_template<Tlu, Treduced>(
-            handle, nrows_A, ncols_A,
+        Istride shiftP = 0;
+        bool const use_pivot = true;
 
-            A_lu, shiftA_lu, inca, ldA_lu, strideA_lu,
+        auto const istat
+            = rocsolver_getrf_mxp_template<Tlu, Treduced>(handle, nrows_A, ncols_A,
 
-            ipiv, shiftP, strideP, info, pfree, size_remain);
+                                                          A_lu, shiftA_lu, inca, ldA_lu, strideA_lu,
+
+                                                          ipiv, shiftP, strideP,
+
+                                                          info, batch_count, use_pivot,
+
+                                                          pfree, size_remain);
 
         if(istat != rocblas_status_success)
         {
@@ -436,9 +694,12 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
         CHECK_MEM(pfree);
 
         rocsolver_getrf_template<BATCHED, STRIDED, Tlu>(
-            handle, n, n, A, shiftA, inca, lda, strideA, ipiv, shiftP, strideP, info, batch_count,
-            scalars, work1, work2, work3, work4, pivotval, pivotidx, iipiv, iinfo, optim_mem,
-            use_pivot);
+            handle, n, n,
+
+            A_lu, shiftA_lu, inca, ldA_lu, strideA_lu,
+
+            ipiv, shiftP, strideP, info, batch_count, scalars, work1, work2, work3, work4, pivotval,
+            pivotidx, iipiv, iinfo, optim_mem, use_pivot);
 
         pfree = pfree_saved;
     }
@@ -449,7 +710,7 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
     // ------------------------------------
 
     auto solve_rhs = [=]() {
-        auto const pfree_saved = pfree;
+        auto pfree_local = pfree;
 
         I const inca = 1;
         I const incb = 1;
@@ -462,37 +723,43 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
         size_t size_work4 = 0;
         bool optim_mem = true;
 
-        rocsolver_getrs_getMemorySize<BATCHED, STRIDED, Tlu, I>(
-            rocblas_operation trans, n, nrhs, batch_count,
+        bool constexpr BATCHED = true;
+        bool constexpr STRIDED = true;
+        rocsolver_getrs_getMemorySize<BATCHED, STRIDED, Tlu, I>(trans, n, nrhs, batch_count,
 
-            &size_work1, &size_work2, &size_work3, &size_work4, &optim_mem);
+                                                                &size_work1, &size_work2,
+                                                                &size_work3, &size_work4, &optim_mem);
 
-        Tlu* const work1 = (Tlu*)pfree;
-        pfree += size_work1;
-        Tlu* const work2 = (Tlu*)pfree;
-        pfree += size_work2;
-        Tlu* const work3 = (Tlu*)pfree;
-        pfree += size_work3;
-        Tlu* const work4 = (Tlu*)pfree;
-        pfree += size_work4;
+        Tlu* const work1 = (Tlu*)pfree_local;
+        pfree_local += size_work1;
+        Tlu* const work2 = (Tlu*)pfree_local;
+        pfree_local += size_work2;
+        Tlu* const work3 = (Tlu*)pfree_local;
+        pfree_local += size_work3;
+        Tlu* const work4 = (Tlu*)pfree_local;
+        pfree_local += size_work4;
 
-        CHECK_MEM(pfree);
+        CHECK_MEM(pfree_local);
 
-        rocsolver_getrs_template<BATCHED, STRIDED, Tlu>(handle, trans, n, nrhs,
+        return (rocsolver_getrs_template<BATCHED, STRIDED, Tlu>(
+            handle, trans, n, nrhs,
 
-                                                        A_lu, shiftA_lu, inca, lda_lu, strideA_lu,
+            A_lu, shiftA_lu, inca, ldA_lu, strideA_lu,
 
-                                                        ipiv, strideP,
+            ipiv, strideP,
 
-                                                        B_lu, shiftB_lu, incb, ldb_lu, strideB_lu,
+            B_lu, shiftB_lu, incb, ldB_lu, strideB_lu,
 
-                                                        batch_count, work1, work2, work3, work4,
-                                                        optim_mem, use_pivot);
-
-        pfree = pfree_saved;
+            batch_count, work1, work2, work3, work4, optim_mem, use_pivot));
     }; // end solve_rhs()
 
-    solve_rhs();
+    {
+        auto const istat = solve_rhs();
+        if(istat != rocblas_status_success)
+        {
+            return (istat);
+        }
+    }
 
     // --------------------
     // convert solution back to FP64
@@ -501,7 +768,7 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
         char const uplo = 'A';
         lacpy(handle, uplo, nrows_B, ncols_B,
 
-              B_lu, shiftB_lu, ldb_lu, strideB_lu,
+              B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
               X, shiftX, ldx, strideX,
 
@@ -555,84 +822,48 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
             I const nn = ncols_R;
             I const kk = ncols_A;
 
-            auto const trans1 = rocblas_operation_none;
-            auto const trans2 = rocblas_operation_none;
+            rocblas_operation const trans1 = rocblas_operation_none;
+            rocblas_operation const trans2 = rocblas_operation_none;
 
-            auto const istat = rocblasCall_gemm(handle, trans1, trans2, mm, nn, kk,
+            auto const istat = rocblasCall_gemm<T, I>(handle, trans1, trans2, mm, nn, kk,
 
-                                                &alpha,
+                                                      &alpha,
 
-                                                A, shiftA, lda, strideA,
+                                                      A, shiftA, lda, strideA,
 
-                                                X, shiftX, ldx, strideX,
+                                                      X, shiftX, ldx, strideX,
 
-                                                &beta,
+                                                      &beta,
 
-                                                R, shiftR, ldr, strideR,
+                                                      R, shiftR, ldr, strideR,
 
-                                                batch_count, pfree);
+                                                      batch_count, (T**)pfree);
 
             assert(istat == rocblas_status_success);
         }
     }; // end compute_residual()
 
-    compute_residual();
-
-    auto num_converged = [=]() -> I {
-        auto const pfree_saved = pfree;
-
-        I nconverged = 0;
-        I const incx = 1;
-        I const incr = 1;
-
-        size_t const size_rnrm = sizeof(S) * batch_count;
-        size_t const size_xnrm = sizeof(S) * batch_count;
-
-        S* xnrm = (S*)pfree;
-        pfree += size_xnrm;
-        S* rnrm = (S*)pfree;
-        pfree += size_rnrm;
-
-        CHECK_MEM(pfree);
-
-        std::vector<S> h_xnrm(batch_count);
-        std::vector<S> h_rnrm(batch_count);
-
-        for(I irhs = 0; irhs < nrhs; irhs++)
-        {
-            {
-                auto const istat = rocblasCall_iamax(handle, X, shiftX + idx2D(0, irhs, ldx), incx,
-                                                     strideX, xnrm, batch_count, (void*)pfree);
-                assert(istat == rocblas_status_success);
-            }
-
-            {
-                auto const istat = rocblasCall_iamax(handle, R, shiftR + idx2D(0, irhs, ldr), incr,
-                                                     strideR, rnrm, batch_count, pfree);
-                assert(istat == rocblas_status_success);
-            }
-
-            HIP_CHECK(hipMemcpyAsync(&(h_rnrm[0]), rnrm, size_rnrm, hipMemcpyDeviceToHost, stream));
-            HIP_CHECK(hipMemcpyAsync(&(h_xnrm[0]), xnrm, size_xnrm, hipMemcpyDeviceToHost, stream));
-            HIP_CHECK(hipStreamSynchronize(stream));
-
-            for(I bid = 0; bid < batch_count; bid++)
-            {
-                bool const is_converged = (h_rnrm[bid] <= h_xnrm[bid] * tol);
-                if(is_converged)
-                {
-                    nconverged++;
-                }
-            }
-
-        } // end for irhs
-
-        pfree = pfree_saved;
-        return (nconverged);
-    }; // end num_converged()
-
     I iter = 0;
-    bool const is_all_converged = (num_converged() >= nrhs * batch_count);
+    bool is_all_converged = false;
+
+    {
+        bool* const d_is_all_converged = (bool*)pfree;
+        pfree += sizeof(bool);
+        check_convergence(handle, n, nrhs,
+
+                          X, shiftX, ldx, strideX,
+
+                          R, shiftR, ldr, strideR,
+
+                          batch_count, tol, d_is_all_converged);
+
+        HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(bool),
+                                 hipMemcpyDeviceToHost, stream));
+        HIP_CHECK(hipStreamSynchronize(stream));
+
+        pfree = pfree - sizeof(bool);
+    }
+
     if(is_all_converged)
     {
         *niter = iter;
@@ -651,7 +882,7 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
 
                   R, shiftR, ldr, strideR,
 
-                  B_lu, shiftB_lu, ldb_lu, strideB_lu,
+                  B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
                   batch_count);
         }
@@ -660,7 +891,13 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
         // solve for "dx" correction
         // answer over-writes B_lu
         // -------------------------
-        solve_rhs();
+        {
+            auto const istat = solve_rhs();
+            if(istat != rocblas_status_success)
+            {
+                return (istat);
+            }
+        }
 
         // ------------
         // update X <-  X + dx
@@ -679,9 +916,9 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
                 char const uplo = 'A';
                 lacpy(handle, uplo, nrows_R, ncols_R,
 
-                      B_lu, shiftB_lu, ldb_lu, strideB_lu,
+                      B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
-                      R, shfitR, ldr, strideR,
+                      R, shiftR, ldr, strideR,
 
                       batch_count);
             }
@@ -729,7 +966,7 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
 
                   R, shiftR, ldr, strideR,
 
-                  B_lu, shiftB_lu, ldb_lu, strideB_lu,
+                  B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
                   batch_count);
         }
@@ -743,8 +980,28 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
         // -----------------
         // check convergence
         // -----------------
-        bool const is_all_converged = (num_converged() >= nrhs * batch_count);
-        if(is_all_converge)
+
+        bool is_all_converged = false;
+
+        {
+            bool* const d_is_all_converged = (bool*)pfree;
+            pfree += sizeof(bool);
+            check_convergence(handle, n, nrhs,
+
+                              X, shiftX, ldx, strideX,
+
+                              R, shiftR, ldr, strideR,
+
+                              batch_count, tol, d_is_all_converged);
+
+            HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(bool),
+                                     hipMemcpyDeviceToHost, stream));
+            HIP_CHECK(hipStreamSynchronize(stream));
+
+            pfree = pfree - sizeof(bool);
+        }
+
+        if(is_all_converged)
         {
             *info = 0;
             *niter = iter;
@@ -792,27 +1049,34 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
 
             &size_pivotidx, &size_iipiv, &size_iinfo, &optim_mem);
 
-        T* const size_scalars = (T*)pfree;
+        T* const scalars = (T*)pfree;
         pfree += size_scalars;
-        T* const size_work0 = (T*)pfree;
+
+        T* const work0 = (T*)pfree;
         pfree += size_work0;
-        T* const size_work1 = (T*)pfree;
+
+        T* const work1 = (T*)pfree;
         pfree += size_work1;
-        T* const size_work2 = (T*)pfree;
+
+        T* const work2 = (T*)pfree;
         pfree += size_work2;
-        T* const size_work3 = (T*)pfree;
+
+        T* const work3 = (T*)pfree;
         pfree += size_work3;
-        T* const size_work4 = (T*)pfree;
+
+        T* const work4 = (T*)pfree;
         pfree += size_work4;
 
-        T* const size_pivotval = (T*)pfree;
+        T* const pivotval = (T*)pfree;
         pfree += size_pivotval;
 
-        I* const size_pivotidx = (I*)pfree;
+        I* const pivotidx = (I*)pfree;
         pfree += size_pivotidx;
-        I* const size_iipiv = (I*)pfree;
+
+        I* const iipiv = (I*)pfree;
         pfree += size_iipiv;
-        I* const size_iinfo = (I*)pfree;
+
+        I* const iinfo = (I*)pfree;
         pfree += size_iinfo;
 
         CHECK_MEM(pfree);
@@ -822,7 +1086,7 @@ rocblas_status rocsolver_zcgesv_mxp_template(rocblas_handle handle,
         // ------
         {
             auto const uplo = 'A';
-            lacpy(handle, uplo, nrows_B, ncolsB,
+            lacpy(handle, uplo, nrows_B, ncols_B,
 
                   B, shiftB, ldb, strideB,
 

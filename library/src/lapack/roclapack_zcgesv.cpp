@@ -29,39 +29,39 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
-template <typename Tfull, typename Tlu, typename I, typename Istride>
+template <typename T, typename Tlu, typename I, typename Istride>
 rocblas_status rocsolver_zcgesv_impl(rocblas_handle handle,
                                      I const n,
                                      I const nrhs,
 
-                                     Tfull* const A,
-                                     Istride const strideA,
+                                     T* const A,
+                                     Istride const shiftA,
                                      I const lda,
-                                     Istride strideA,
+                                     Istride const strideA,
 
                                      I* const ipiv,
 
-                                     Tfull* const B,
-                                     Istride const strideB,
+                                     T* const B,
+                                     Istride const shiftB,
                                      I const ldb,
-                                     Istride strideB,
+                                     Istride const strideB,
 
-                                     Tfull* const X,
-                                     Istride const strideX,
+                                     T* const X,
+                                     Istride const shiftX,
                                      I const ldx,
-                                     Istride strideX,
+                                     Istride const strideX,
 
                                      I const max_iter_arg,
                                      double const tol_arg,
-                                     I* niter,
+                                     I* const niter,
 
-                                     I* info,
-                                     const I batch_count,
-                                     void* work,
-                                     size_t size_work)
+                                     I* const info,
+                                     I const batch_count,
+                                     bool const use_pivot)
 
 {
     using Treduced = Tlu;
+    using Tfull = T;
 
     ROCSOLVER_ENTER_TOP("zcgesv", "-n", n, "-nrhs", nrhs, "--lda", lda, "--ldb", ldb, "--ldx", ldx,
                         "--max_iter", max_iter_arg, "--tol", tol_arg);
@@ -94,18 +94,24 @@ rocblas_status rocsolver_zcgesv_impl(rocblas_handle handle,
     // execution
     //
 
-    return rocsolver_zcgesv_mxp_template(handle, n, nrhs,
+    {
+        Istride const strideP = 0;
+        return rocsolver_zcgesv_mxp_template<T, Treduced, I, Istride>(handle, n, nrhs,
 
-                                         A, shiftA, lda, strideA,
+                                                                      A, shiftA, lda, strideA,
 
-                                         ipiv,
+                                                                      ipiv, strideP,
 
-                                         B, shiftB, ldb, strideB,
+                                                                      B, shiftB, ldb, strideB,
 
-                                         X, shiftX, ldx, strideX,
+                                                                      X, shiftX, ldx, strideX,
 
-                                         max_iter_arg, tol_arg, niter, info, batch_count,
-                                         work size_work);
+                                                                      max_iter_arg, tol_arg, niter,
+
+                                                                      info, batch_count, use_pivot,
+
+                                                                      work, size_work);
+    }
 }
 
 ROCSOLVER_END_NAMESPACE
@@ -123,40 +129,48 @@ rocblas_status rocsolver_zcgesv_strided_batched(rocblas_handle handle,
                                                 rocblas_int const nrhs,
 
                                                 rocblas_double_complex* const A,
+                                                rocblas_stride const shiftA,
+                                                rocblas_int const lda,
                                                 rocblas_stride const strideA,
-                                                rocblas_int lda,
-                                                rocblas_stride strideA,
 
                                                 rocblas_int* ipiv,
 
                                                 rocblas_double_complex* const B,
+                                                rocblas_stride const shiftB,
+                                                rocblas_int const ldb,
                                                 rocblas_stride const strideB,
-                                                rocblas_int ldb,
-                                                rocblas_stride strideB,
 
                                                 rocblas_double_complex* const X,
+                                                rocblas_stride const shiftX,
+                                                rocblas_int const ldx,
                                                 rocblas_stride const strideX,
-                                                rocblas_int ldx,
-                                                rocblas_stride strideX,
 
                                                 rocblas_int const max_iter,
                                                 double const tol,
-                                                rocblas_int* niter,
-                                                rocblas_int* info,
+                                                rocblas_int* const niter,
+                                                rocblas_int* const info,
                                                 rocblas_int const batch_count)
 {
-    return rocsolver_gesv_impl<rocblas_double_complex, rocblas_float_complex, rocblas_int, rocblas_stride>(
-        handle, n, nrhs,
+    using T = rocblas_double_complex;
+    using Treduced = rocblas_float_complex;
+    using I = rocblas_int;
+    using Istride = rocblas_stride;
 
-        A, strideA, lda, strideA,
+    bool const use_pivot = true;
 
-        ipiv,
+    return rocsolver::rocsolver_zcgesv_impl<T, Treduced, I, Istride>(handle, n, nrhs,
 
-        B, strideB, ldb, strideB,
+                                                                     A, shiftA, lda, strideA,
 
-        X, strideX, ldx, strideX,
+                                                                     ipiv,
 
-        max_iter, tol, niter, info, batch_count);
+                                                                     B, shiftB, ldb, strideB,
+
+                                                                     X, shiftX, ldx, strideX,
+
+                                                                     max_iter, tol, niter,
+
+                                                                     info, batch_count, use_pivot);
 }
 
 rocblas_status rocsolver_zcgesv(rocblas_handle handle,
@@ -164,21 +178,20 @@ rocblas_status rocsolver_zcgesv(rocblas_handle handle,
                                 rocblas_int const nrhs,
 
                                 rocblas_double_complex* const A,
-                                rocblas_int lda,
+                                rocblas_int const lda,
 
-                                rocblas_int* ipiv,
+                                rocblas_int* const ipiv,
 
                                 rocblas_double_complex* const B,
-                                rocblas_int ldb,
+                                rocblas_int const ldb,
 
                                 rocblas_double_complex* const X,
-                                rocblas_int ldx,
+                                rocblas_int const ldx,
 
                                 rocblas_int const max_iter,
                                 double const tol,
-                                rocblas_int* niter,
-                                rocblas_int* info,
-                                rocblas_int const batch_count)
+                                rocblas_int* const niter,
+                                rocblas_int* const info)
 {
     rocblas_int const batch_count = 1;
 
@@ -192,15 +205,15 @@ rocblas_status rocsolver_zcgesv(rocblas_handle handle,
 
     return rocsolver_zcgesv_strided_batched(handle, n, nrhs,
 
-                                            A, strideA, lda, strideA,
+                                            A, shiftA, lda, strideA,
 
                                             ipiv,
 
-                                            B, strideB, ldb, strideB,
+                                            B, shiftB, ldb, strideB,
 
-                                            X, strideX, ldx, strideX,
+                                            X, shiftX, ldx, strideX,
 
-                                            max_ter, tol, niter, info, batch_count);
+                                            max_iter, tol, niter, info, batch_count);
 }
 
 rocblas_status rocsolver_dsgesv_strided_batched(rocblas_handle handle,
@@ -208,40 +221,44 @@ rocblas_status rocsolver_dsgesv_strided_batched(rocblas_handle handle,
                                                 rocblas_int const nrhs,
 
                                                 double* const A,
+                                                rocblas_stride const shiftA,
+                                                rocblas_int const lda,
                                                 rocblas_stride const strideA,
-                                                rocblas_int lda,
-                                                rocblas_stride strideA,
 
-                                                rocblas_int* ipiv,
+                                                rocblas_int* const ipiv,
 
                                                 double* const B,
+                                                rocblas_stride const shiftB,
+                                                rocblas_int const ldb,
                                                 rocblas_stride const strideB,
-                                                rocblas_int ldb,
-                                                rocblas_stride strideB,
 
                                                 double* const X,
+                                                rocblas_stride const shiftX,
+                                                rocblas_int const ldx,
                                                 rocblas_stride const strideX,
-                                                rocblas_int ldx,
-                                                rocblas_stride strideX,
 
                                                 rocblas_int const max_iter,
                                                 double const tol,
-                                                rocblas_int* niter,
-                                                rocblas_int* info,
+                                                rocblas_int* const niter,
+                                                rocblas_int* const info,
                                                 rocblas_int const batch_count)
 {
-    return rocsolver_gesv_impl<double, float, rocblas_int, rocblas_stride>(handle, n, nrhs,
+    bool const use_pivot = true;
 
-                                                                           A, strideA, lda, strideA,
+    return rocsolver::rocsolver_zcgesv_impl<double, float, rocblas_int, rocblas_stride>(
+        handle, n, nrhs,
 
-                                                                           ipiv,
+        A, shiftA, lda, strideA,
 
-                                                                           B, strideB, ldb, strideB,
+        ipiv,
 
-                                                                           X, strideX, ldx, strideX,
+        B, shiftB, ldb, strideB,
 
-                                                                           max_iter, tol, niter,
-                                                                           info, batch_count);
+        X, shiftX, ldx, strideX,
+
+        max_iter, tol, niter,
+
+        info, batch_count, use_pivot);
 }
 
 rocblas_status rocsolver_dsgesv(rocblas_handle handle,
@@ -249,21 +266,20 @@ rocblas_status rocsolver_dsgesv(rocblas_handle handle,
                                 rocblas_int const nrhs,
 
                                 double* const A,
-                                rocblas_int lda,
+                                rocblas_int const lda,
 
-                                rocblas_int* ipiv,
+                                rocblas_int* const ipiv,
 
                                 double* const B,
-                                rocblas_int ldb,
+                                rocblas_int const ldb,
 
                                 double* const X,
-                                rocblas_int ldx,
+                                rocblas_int const ldx,
 
                                 rocblas_int const max_iter,
                                 double const tol,
-                                rocblas_int* niter,
-                                rocblas_int* info,
-                                rocblas_int const batch_count)
+                                rocblas_int* const niter,
+                                rocblas_int* const info)
 {
     rocblas_int const batch_count = 1;
 
@@ -277,15 +293,15 @@ rocblas_status rocsolver_dsgesv(rocblas_handle handle,
 
     return rocsolver_dsgesv_strided_batched(handle, n, nrhs,
 
-                                            A, strideA, lda, strideA,
+                                            A, shiftA, lda, strideA,
 
                                             ipiv,
 
-                                            B, strideB, ldb, strideB,
+                                            B, shiftB, ldb, strideB,
 
-                                            X, strideX, ldx, strideX,
+                                            X, shiftX, ldx, strideX,
 
-                                            max_ter, tol, niter, info, batch_count);
+                                            max_iter, tol, niter, info, batch_count);
 }
 
 } // extern C

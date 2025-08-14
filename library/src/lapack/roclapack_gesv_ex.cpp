@@ -36,8 +36,10 @@ ROCSOLVER_BEGIN_NAMESPACE
 //  - A, B, X, compute type are lapack SDCZ storage types
 
 template <typename T>
-constexpr bool is_gesv_ex_homogenous_storage = std::is_same_v<T, float> || std::is_same_v<T, double>
-    || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
+constexpr bool is_gesv_ex_homogenous_storage
+    = std::is_same_v<
+          T,
+          float> || std::is_same_v<T, double> || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
 
 template <typename T, typename... Ts>
 constexpr bool gesv_ex_homogenous_accepts = (std::is_same_v<T, Ts> && ...)
@@ -175,16 +177,19 @@ using gesv_ex_mxp_lu_reduced_precision_t = typename gesv_ex_mxp_lu_reduced_preci
 //  - compute_type is SDCZ, half, or bfloat16
 
 template <typename T>
-constexpr bool is_gesv_ex_mxp_lu_storage = std::is_same_v<T, float> || std::is_same_v<T, double>
-    || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
+constexpr bool is_gesv_ex_mxp_lu_storage
+    = std::is_same_v<
+          T,
+          float> || std::is_same_v<T, double> || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
 
 template <typename T>
-constexpr bool is_gesv_ex_mxp_lu_compute = std::is_same_v<T, rocblas_half>
-    || std::is_same_v<T, rocblas_bfloat16> || is_gesv_ex_mxp_lu_storage<T>;
+constexpr bool is_gesv_ex_mxp_lu_compute
+    = std::is_same_v<T, rocblas_half> || std::is_same_v<T, rocblas_bfloat16> || is_gesv_ex_mxp_lu_storage<T>;
 
 template <typename TA, typename TB, typename TX, typename Tc>
-constexpr bool gesv_ex_mxp_lu_accepts = (std::is_same_v<TA, TB> && std::is_same_v<TA, TX>)
-    && is_gesv_ex_mxp_lu_storage<TA> && is_gesv_ex_mxp_lu_compute<Tc>;
+constexpr bool gesv_ex_mxp_lu_accepts
+    = (std::is_same_v<TA, TB> && std::is_same_v<TA, TX>)&&is_gesv_ex_mxp_lu_storage<
+        TA>&& is_gesv_ex_mxp_lu_compute<Tc>;
 
 template <typename T, typename LU, typename R = LU>
 rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
