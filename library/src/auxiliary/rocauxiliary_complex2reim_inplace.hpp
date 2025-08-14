@@ -167,34 +167,31 @@ static __global__ void reim2complex_inplace_kernel(
 // note: no scratch space is needed
 // assume there is no overlap in the A, A_re, A_im arrays
 // ----------------------------------------------------------------------------
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
+template <typename I, typename Istride, typename UA_reim, typename UA>
 static __global__ void reim2complex_outofplace_simple_kernel(
 
     I const nrows,
     I const ncols,
+
+    UA_reim A_re_,
+    Istride const shift_A_re,
+    I const ldA_re,
+    Istride const stride_A_re,
+
+    UA_reim A_im_,
+    Istride const shift_A_im,
+    I const ldA_im,
+    Istride const stride_A_im,
 
     UA A_,
     Istride const shift_A,
     I const ldA,
     Istride const stride_A,
 
-    UA_re A_re_,
-    Istride const shift_A_re,
-    I const ldA_re,
-    Istride const stride_A_re,
-
-    UA_im A_im_,
-    Istride const shift_A_im,
-    I const ldA_im,
-    Istride const stride_A_im,
-
     I const batch_count
 
 )
 {
-    assert(rocblas_is_complex<T>);
-    using S = decltype(std::real(T{}));
-
     bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
     if(!has_work)
     {
@@ -220,16 +217,29 @@ static __global__ void reim2complex_outofplace_simple_kernel(
         auto const A_re_p = load_ptr_batch(A_re_, bid, shift_A_re, stride_A_re);
         auto const A_im_p = load_ptr_batch(A_im_, bid, shift_A_im, stride_A_im);
 
+        using T = decltype(*A_p);
+        bool constexpr is_complex = rocblas_is_complex<T>;
+        assert(rocblas_is_complex<T>);
+
         for(auto j = j_start; j < ncols; j += j_inc)
         {
             for(auto i = i_start; i < nrows; i += i_inc)
             {
-                auto const aij_re = A_re_p[idx2D(i, j, ldA_re)];
-                auto const aij_im = A_im_p[idx2D(i, j, ldA_im)];
+                auto const ij_a = idx2D(i, j, ldA);
 
-                A_p[idx2D(i, j, ldA)] = T{aij_re, aij_im};
-            }
-        }
+                if constexpr(is_complex)
+                {
+                    auto const aij_re = A_re_p[idx2D(i, j, ldA_re)];
+                    auto const aij_im = A_im_p[idx2D(i, j, ldA_im)];
+
+                    A_p[ij_a] = T{aij_re, aij_im};
+                }
+                else
+                {
+                    A_p[ij_a] = A_re_p[idx2D(i, j, ldA_re)];
+                }
+            } // end for i
+        } // end for j
     } // end for bid
 }
 
@@ -241,17 +251,17 @@ static __global__ void reim2complex_outofplace_simple_kernel(
 // [ A_re ]
 // [ A_im ]
 // -------------------------------------------------------
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
+template <typename I, typename Istride, typename UA_reim, typename UA>
 static void reim2complex_inplace(hipStream_t stream,
                                  I const nrows,
                                  I const ncols,
 
-                                 UA_re A_re_,
+                                 UA_reim A_re_,
                                  Istride const shift_A_re,
                                  I const ldA_re,
                                  Istride const stride_A_re,
 
-                                 UA_im A_im_,
+                                 UA_reim A_im_,
                                  Istride const shift_A_im,
                                  I const ldA_im,
                                  Istride const stride_A_im,
@@ -262,7 +272,7 @@ static void reim2complex_inplace(hipStream_t stream,
                                  Istride const stride_A,
 
                                  I const batch_count,
-                                 T* const work,
+                                 void* const work_arg,
                                  size_t const lwork_in_bytes)
 {
     bool const has_work = (nrows >= 1) && (ncols >= 1) && (batch_count >= 1);
@@ -270,6 +280,12 @@ static void reim2complex_inplace(hipStream_t stream,
     {
         return;
     }
+
+    I const bid = 0;
+    auto const Ap = load_ptr_batch(A_, bid, shift_A, stride_A);
+    using T = decltype(*Ap);
+
+    T* const work = (T*)work_arg;
 
     I const lds_size = get_lds_size();
 
@@ -291,7 +307,7 @@ static void reim2complex_inplace(hipStream_t stream,
     I const num_threads = get_max_threads();
     I const nx = std::min(num_threads, nrows);
 
-    reim2complex_inplace_kernel<T, I, Istride, UA, UA_re, UA_im>
+    reim2complex_inplace_kernel<I, Istride, UA_reim, UA>
         <<<dim3(nbx, nby, nbz), dim3(nx, 1, 1), lds_size, stream>>>(
 
             nrows, ncols,
@@ -311,17 +327,17 @@ static void reim2complex_inplace(hipStream_t stream,
 //
 // note: assume A, A_re, A_im don't overlap
 // -------------------------------------------------------
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
-static void reim2complex_outofplace_simple(hipStream_t stream,
+template <typename I, typename Istride, typename UA_reim, typename UA>
+static void reim2complex_outofplace_simple(rocblas_handle handle,
                                            I const nrows,
                                            I const ncols,
 
-                                           UA_re A_re_,
+                                           UA_reim A_re_,
                                            Istride const shift_A_re,
                                            I const ldA_re,
                                            Istride const stride_A_re,
 
-                                           UA_im A_im_,
+                                           UA_reim A_im_,
                                            Istride const shift_A_im,
                                            I const ldA_im,
                                            Istride const stride_A_im,
@@ -339,6 +355,9 @@ static void reim2complex_outofplace_simple(hipStream_t stream,
         return;
     }
 
+    hipStream_t stream;
+    rocblas_get_stream(handle, &stream);
+
     auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
 
     I const max_blocks = 1024;
@@ -350,7 +369,7 @@ static void reim2complex_outofplace_simple(hipStream_t stream,
     I const nby = std::min(max_blocks, ceil(ncols, ny));
     I const nbz = std::min(max_blocks, batch_count);
 
-    reim2complex_outofplace_simple_kernel<T, I, Istride, UA, UA_re, UA_im>
+    reim2complex_outofplace_simple_kernel<I, Istride>
         <<<dim3(nbx, nby, nbz), dim3(nx, ny, 1), 0, stream>>>(
 
             nrows, ncols,
@@ -364,16 +383,16 @@ static void reim2complex_outofplace_simple(hipStream_t stream,
             batch_count);
 }
 
-template <typename T, typename I, typename Istride, typename UA, typename UA_re, typename UA_im>
+template <typename I, typename Istride, typename UA_reim, typename UA>
 static void reim2complex_inplace_getMemorySize(I const nrows,
                                                I const ncols,
 
-                                               UA_re A_re_,
+                                               UA_reim A_re_,
                                                Istride const shift_A_re,
                                                I const ldA_re,
                                                Istride const stride_A_re,
 
-                                               UA_im A_im_,
+                                               UA_reim A_im_,
                                                Istride const shift_A_im,
                                                I const ldA_im,
                                                Istride const stride_A_im,
@@ -392,6 +411,10 @@ static void reim2complex_inplace_getMemorySize(I const nrows,
     {
         return;
     }
+
+    I const bid = 0;
+    auto const Ap = load_ptr_batch(A_, bid, shift_A, stride_A);
+    using T = decltype(*Ap);
 
     auto const num_cu = get_num_cu();
     size_t const lwork_in_bytes = sizeof(T) * nrows * num_cu;
@@ -499,7 +522,7 @@ __global__ void complex2reim_inplace_kernel(const I m,
 }
 
 // --------------------------------------------------
-// perform conversion but use the std::clamp to avoid
+// perform conversion but use the clamp to avoid
 // generating overflow Inf values
 //
 // launch with dim3(nbx,nby,nbx), dim3(nx,ny,1)
@@ -508,26 +531,26 @@ __global__ void complex2reim_inplace_kernel(const I m,
 // nbz = batch_count
 // --------------------------------------------------
 template <typename Tcomplex, typename Treal, typename Tscale, typename I, typename Istride>
-__global__ void complex2reim_clamp_kernel(const I m,
-                                          const I n,
+__global__ void complex2reim_clamp_kernel(I const m,
+                                          I const n,
 
-                                          const Tcomplex* A,
-                                          const Istride shiftA,
-                                          const I ldA,
-                                          const Istride strideA,
+                                          Tcomplex const* const A,
+                                          Istride const shiftA,
+                                          I const ldA,
+                                          Istride const strideA,
 
-                                          Treal* A_re,
-                                          const Istride shiftA_re,
-                                          const I ldA_re,
-                                          const Istride strideA_re,
+                                          Treal* const A_re,
+                                          Istride const shiftA_re,
+                                          I const ldA_re,
+                                          Istride const strideA_re,
 
-                                          Treal* A_im,
-                                          const Istride shiftA_im,
-                                          const I ldA_im,
-                                          const Istride strideA_im,
+                                          Treal* const A_im,
+                                          Istride const shiftA_im,
+                                          I const ldA_im,
+                                          Istride const strideA_im,
 
-                                          const I batch_count,
-                                          const Tscale dlimit_arg)
+                                          I const batch_count,
+                                          Tscale const dlimit_arg)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
     if(!has_work)
@@ -536,6 +559,10 @@ __global__ void complex2reim_clamp_kernel(const I m,
     }
 
     auto const dlimit = std::abs(dlimit_arg);
+
+    auto clamp = [](auto aij, auto amin, auto amax) {
+        return ((aij < amin) ? amin : (aij > amax) ? amax : aij);
+    };
 
     I const i_inc = blockDim.x * gridDim.x;
     I const j_inc = blockDim.y * gridDim.y;
@@ -550,7 +577,7 @@ __global__ void complex2reim_clamp_kernel(const I m,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        Tcomplex* const A_bid = load_ptr_batch(A, bid, shiftA, strideA);
+        Tcomplex const* const A_bid = load_ptr_batch(A, bid, shiftA, strideA);
         Treal* const A_re_bid = load_ptr_batch(A_re, bid, shiftA_re, strideA_re);
         Treal* const A_im_bid = (is_complex && (A_im != nullptr))
             ? load_ptr_batch(A_im, bid, shiftA_im, strideA_im)
@@ -565,7 +592,7 @@ __global__ void complex2reim_clamp_kernel(const I m,
                 auto const aij_re = std::real(aij);
 
                 auto const ij_A_re = idx2D(i, j, ldA_re);
-                A_re_bid[ij_A_re] = std::clamp(aij_re, -dlimit, dlimit);
+                A_re_bid[ij_A_re] = clamp(aij_re, -dlimit, dlimit);
 
                 if constexpr(is_complex)
                 {
@@ -574,7 +601,7 @@ __global__ void complex2reim_clamp_kernel(const I m,
                         auto const ij_A_im = idx2D(i, j, ldA_im);
                         auto const aij_im = std::imag(aij);
 
-                        A_im_bid[ij_A_im] = std::clamp(aij_im, -dlimit, dlimit);
+                        A_im_bid[ij_A_im] = clamp(aij_im, -dlimit, dlimit);
                     }
                 }
             }

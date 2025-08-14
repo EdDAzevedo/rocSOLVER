@@ -202,24 +202,24 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
                                                           const void* alpha,
 
-                                                          const void* A,
+                                                          const void* A_arg,
                                                           rocblas_datatype type_A,
                                                           I const ld_A,
                                                           Istride const stride_A,
 
-                                                          const void* B,
+                                                          const void* B_arg,
                                                           rocblas_datatype type_B,
                                                           I const ld_B,
                                                           Istride const stride_B,
 
                                                           const void* beta,
 
-                                                          void* C,
+                                                          void* C_arg,
                                                           rocblas_datatype type_C,
                                                           I const ld_C,
                                                           Istride const stride_C,
 
-                                                          void* D,
+                                                          void* D_arg,
                                                           rocblas_datatype type_D,
                                                           I const ld_D,
                                                           Istride const stride_D,
@@ -239,15 +239,15 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     // ----------------------------------------
     auto const istat = (rocblas_gemm_strided_batched_ex(handle, trans_A, trans_B, m, n, k, alpha,
 
-                                                        A, type_A, ld_A, stride_A,
+                                                        A_arg, type_A, ld_A, stride_A,
 
-                                                        B, type_B, ld_B, stride_B,
+                                                        B_arg, type_B, ld_B, stride_B,
 
                                                         beta,
 
-                                                        C, type_C, ld_C, stride_C,
+                                                        C_arg, type_C, ld_C, stride_C,
 
-                                                        D, type_D, ld_D, stride_D,
+                                                        D_arg, type_D, ld_D, stride_D,
 
                                                         batch_count,
 
@@ -256,6 +256,11 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     {
         return (istat);
     }
+
+    Tfull* const A = (Tfull*)A_arg;
+    Tfull* const B = (Tfull*)B_arg;
+    Tfull* const C = (Tfull*)C_arg;
+    Tfull* const D = (Tfull*)D_arg;
 
     // ----------------------------------------------------
     // implement computation where storage type is
@@ -341,14 +346,14 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     size_t const size_B_im_chop = (is_complex) ? size_B_re_chop : 0;
 
     I const ldC = ld_C;
-    I const ldC_re = nrows_C;
-    I const ldC_im = ldC_re;
+    I const ldC_re = (is_complex) ? nrows_C : ld_C;
+    I const ldC_im = (is_complex) ? ldC_re : 0;
 
     Istride const shift_C_re = 0;
     Istride const shift_C_im = 0;
 
-    Istride const stride_C_re = ldC_re * ncols_C;
-    Istride const stride_C_im = stride_C_re;
+    Istride const stride_C_re = (is_complex) ? ldC_re * ncols_C : stride_C;
+    Istride const stride_C_im = (is_complex) ? stride_C_re : 0;
 
     size_t const size_C_re = sizeof(Sf) * stride_C_re * batch_count;
     size_t const size_C_im = size_C_re;
@@ -405,7 +410,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     {
         complex2reim_clamp(handle, nrows_A, ncols_A,
 
-                           A, shift_A, ld_A, stride_A,
+                           (Tfull*)A, shift_A, ld_A, stride_A,
 
                            A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
 
@@ -417,7 +422,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
         complex2reim_clamp(handle, nrows_B, ncols_B,
 
-                           B, shift_B, ld_B, stride_B,
+                           (Tfull*)B, shift_B, ld_B, stride_B,
 
                            B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
 
@@ -433,7 +438,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
         lacpy(handle, uplo, nrows_A, ncols_A,
 
-              A, shift_A, ld_A, stride_A,
+              (Tfull*)A, shift_A, ld_A, stride_A,
 
               A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
 
@@ -441,7 +446,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
         lacpy(handle, uplo, nrows_B, ncols_B,
 
-              B, shift_B, ld_B, stride_B,
+              (Tfull*)B, shift_B, ld_B, stride_B,
 
               B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
 
@@ -454,8 +459,6 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     if(is_complex)
     {
         Sf const dlimit_C = fp32_max;
-        Sf* const amax_C_re_null = nullptr;
-        Sf* const amax_C_im_null = nullptr;
 
         C_re = (Sf*)pfree;
         pfree += size_C_re;
@@ -466,7 +469,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
 
         complex2reim_clamp(handle, nrows_C, ncols_C,
 
-                           C, shift_C, ldC, stride_C,
+                           (Tfull*)C, shift_C, ldC, stride_C,
 
                            C_re, shift_C_re, ldC_re, stride_C_re,
 
@@ -478,9 +481,7 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     }
     else
     {
-        C_re = C;
-        ldC_re = ld_C;
-        stride_C_re = stride_C;
+        C_re = (Sf*)C;
     }
 
     // ------------------------------------
@@ -624,13 +625,15 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
         // convert from real and imag parts back to complex matrix
         // -------------------------------------------------------
 
-        reim2complex_simple(handle, nrows_C, ncols_C,
+        reim2complex_outofplace_simple(handle, nrows_C, ncols_C,
 
-                            C_re, shift_C_re, ldC_re, stride_C_re,
+                                       C_re, shift_C_re, ldC_re, stride_C_re,
 
-                            C_im, shift_C_im, ldC_im, stride_C_im,
+                                       C_im, shift_C_im, ldC_im, stride_C_im,
 
-                            C, shift_C, ldC, stride_C);
+                                       C, shift_C, ldC, stride_C,
+
+                                       batch_count);
     }
 
     return (rocblas_status_success);

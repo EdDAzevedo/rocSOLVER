@@ -113,6 +113,7 @@ __global__ static void lacpy_kernel(char const uplo,
         using Tf = decltype(*Ap);
         using Tr = decltype(*Cp);
         using Sr = decltype(std::real(*Cp));
+
         bool constexpr is_complex = rocblas_is_complex<Tf>;
         assert(rocblas_is_complex<Tf> == rocblas_is_complex<Tr>);
 
@@ -120,6 +121,9 @@ __global__ static void lacpy_kernel(char const uplo,
         // clamp values to avoid Inf
         // -------------------------
         double const dlimit = std::numeric_limits<Sr>::max();
+        auto clamp = [](auto aij, auto amin, auto amax) {
+            return ((aij < amin) ? amin : (aij > amax) ? amax : aij);
+        };
 
         if(use_all)
         {
@@ -128,22 +132,23 @@ __global__ static void lacpy_kernel(char const uplo,
                 for(I i = i_start; i < m; i += i_inc)
                 {
                     auto const ij_a = idx2D(i, j, lda);
-                    auto const aij = Ap[ij_a];
                     auto const ij_c = idx2D(i, j, ldc);
 
                     if constexpr(is_complex)
                     {
-                        auto const aij_real = std::real(aij);
-                        auto const aij_imag = std::imag(aij);
+                        auto const aij = Ap[ij_a];
+                        double const aij_real = std::real(aij);
+                        double const aij_imag = std::imag(aij);
 
-                        Sr const cij_real = std::clamp(aij_real, -dlimit, dlimit);
-                        Sr const cij_imag = std::clamp(aij_imag, -dlimit, dlimit);
+                        Sr const cij_real = clamp(aij_real, -dlimit, dlimit);
+                        Sr const cij_imag = clamp(aij_imag, -dlimit, dlimit);
 
                         Cp[ij_c] = Tr{cij_real, cij_imag};
                     }
                     else
                     {
-                        Sr const cij = std::clamp(aij, -dlimit, dlimit);
+                        double const aij = std::real(Ap[ij_a]);
+                        Sr const cij = clamp(aij, -dlimit, dlimit);
                         Cp[ij_c] = cij;
                     }
                 }
@@ -161,28 +166,29 @@ __global__ static void lacpy_kernel(char const uplo,
                     {
                         auto const ij_c = idx2D(i, j, ldc);
                         auto const ij_a = idx2D(i, j, lda);
-                        auto const aij = Ap[ij_a];
 
                         if constexpr(is_complex)
                         {
-                            auto const aij_real = std::real(aij);
-                            auto const aij_imag = std::imag(aij);
+                            auto const aij = Ap[ij_a];
+                            double const aij_real = std::real(aij);
+                            double const aij_imag = std::imag(aij);
 
-                            Sr const cij_real = std::clamp(aij_real, -dlimit, dlimit);
-                            Sr const cij_imag = std::clamp(aij_imag, -dlimit, dlimit);
+                            Sr const cij_real = clamp(aij_real, -dlimit, dlimit);
+                            Sr const cij_imag = clamp(aij_imag, -dlimit, dlimit);
 
                             Cp[ij_c] = Tr{cij_real, cij_imag};
                         }
                         else
                         {
-                            Sr const cij = std::clamp(aij, -dlimit, dlimit);
+                            double const aij = std::real(Ap[ij_a]);
+                            Sr const cij = clamp(aij, -dlimit, dlimit);
                             Cp[ij_c] = cij;
                         }
                     }
                 }
             }
         }
-    }
+    } // end for bid
 }
 
 template <typename I, typename Istride, typename AA, typename CC>
@@ -194,12 +200,12 @@ static void lacpy(rocblas_handle handle,
                   AA A,
                   Istride const shiftA,
                   I const lda,
-                  Istride strideA,
+                  Istride const strideA,
 
                   CC C,
                   Istride const shiftC,
                   I const ldc,
-                  Istride strideC,
+                  Istride const strideC,
 
                   I const batch_count)
 {
