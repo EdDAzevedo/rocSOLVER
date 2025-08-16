@@ -549,8 +549,8 @@ __global__ void complex2reim_clamp_kernel(I const m,
                                           I const ldA_im,
                                           Istride const strideA_im,
 
-                                          I const batch_count,
-                                          Tscale const dlimit_arg)
+                                          const I batch_count,
+                                          const Tscale dlimit)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
     if(!has_work)
@@ -558,8 +558,7 @@ __global__ void complex2reim_clamp_kernel(I const m,
         return;
     }
 
-    auto const dlimit = std::abs(dlimit_arg);
-
+    // implement our own clamp that can run on device
     auto clamp = [](auto aij, auto amin, auto amax) {
         return ((aij < amin) ? amin : (aij > amax) ? amax : aij);
     };
@@ -587,21 +586,21 @@ __global__ void complex2reim_clamp_kernel(I const m,
         {
             for(I i = i_start; i < m; i += i_inc)
             {
-                auto const ij_A = idx2D(i, j, ldA);
-                auto const aij = A_bid[ij_A];
-                auto const aij_re = std::real(aij);
+                const auto ij_A = idx2D(i, j, ldA);
+                const auto aij = A_bid[ij_A];
+                const auto aij_re = std::real(aij);
 
                 auto const ij_A_re = idx2D(i, j, ldA_re);
-                A_re_bid[ij_A_re] = clamp(aij_re, -dlimit, dlimit);
+                A_re_bid[ij_A_re] = static_cast<Treal>(clamp(aij_re, -dlimit, dlimit));
 
                 if constexpr(is_complex)
                 {
                     if(A_im_bid != nullptr)
                     {
-                        auto const ij_A_im = idx2D(i, j, ldA_im);
-                        auto const aij_im = std::imag(aij);
+                        const auto ij_A_im = idx2D(i, j, ldA_im);
+                        const auto aij_im = std::imag(aij);
 
-                        A_im_bid[ij_A_im] = clamp(aij_im, -dlimit, dlimit);
+                        A_im_bid[ij_A_im] = static_cast<Treal>(clamp(aij_im, -dlimit, dlimit));
                     }
                 }
             }

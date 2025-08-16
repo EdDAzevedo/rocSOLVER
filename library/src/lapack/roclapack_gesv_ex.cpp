@@ -29,6 +29,11 @@
 #include "rocblas_utility.hpp"
 #include <rocblas/internal/rocblas-types.h>
 
+#include "roclapack_gesv.hpp"
+#include "roclapack_getrf.hpp"
+#include "roclapack_getrf_mxp.hpp"
+#include "roclapack_getrs.hpp"
+
 ROCSOLVER_BEGIN_NAMESPACE
 
 // The following traits enforce that homogenous computation is viable if
