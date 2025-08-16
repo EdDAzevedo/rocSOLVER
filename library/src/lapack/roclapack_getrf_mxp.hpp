@@ -481,7 +481,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
 
                     size_t const size_remain = (pwork + size_work) - pfree;
 
-                    auto const istat = rocblasCall_gemm_strided_batched_ex<T, Treduced, I, Istride>(
+                    auto const istat = rocblasCall_gemm_strided_batched_ex(
                         handle,
 
                         trans_A, trans_B, mm, nn, jb,
