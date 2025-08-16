@@ -114,6 +114,8 @@ __global__ static void lacpy_kernel(char const uplo,
         using Tr = decltype(*Cp);
         using Sr = decltype(std::real(*Cp));
 
+        bool constexpr is_fp16_or_bf16 = (sizeof(Sr) == 2);
+
         bool constexpr is_complex = rocblas_is_complex<Tf>;
         assert(rocblas_is_complex<Tf> == rocblas_is_complex<Tr>);
 
@@ -148,8 +150,20 @@ __global__ static void lacpy_kernel(char const uplo,
                     else
                     {
                         double const aij = std::real(Ap[ij_a]);
-                        Sr const cij = clamp(aij, -dlimit, dlimit);
-                        Cp[ij_c] = cij;
+                        if constexpr(is_fp16_or_bf16)
+                        {
+                            // ------------------------------------
+                            // indirect type conversion from double
+                            // to fp16 or bf16  via float
+                            // ------------------------------------
+                            float const cij = clamp(aij, -dlimit, dlimit);
+                            Cp[ij_c] = static_cast<Sr>(cij);
+                        }
+                        else
+                        {
+                            Sr const cij = clamp(aij, -dlimit, dlimit);
+                            Cp[ij_c] = cij;
+                        }
                     }
                 }
             }
@@ -181,8 +195,20 @@ __global__ static void lacpy_kernel(char const uplo,
                         else
                         {
                             double const aij = std::real(Ap[ij_a]);
-                            Sr const cij = clamp(aij, -dlimit, dlimit);
-                            Cp[ij_c] = cij;
+                            if constexpr(is_fp16_or_bf16)
+                            {
+                                // ------------------------------------
+                                // indirect type conversion from double
+                                // to fp16 or bf16  via float
+                                // ------------------------------------
+                                float const cij = clamp(aij, -dlimit, dlimit);
+                                Cp[ij_c] = static_cast<Sr>(cij);
+                            }
+                            else
+                            {
+                                Sr const cij = clamp(aij, -dlimit, dlimit);
+                                Cp[ij_c] = cij;
+                            }
                         }
                     }
                 }
