@@ -216,22 +216,26 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
     }
 #endif
 
-template <typename T, typename Treduced, typename I, typename Istride, typename INFO, typename UA, typename UA_S>
+template <typename T, typename Treduced, typename I, typename Istride, typename INFO>
 rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
-                                            const I m,
-                                            const I n,
+                                            I const m,
+                                            I const n,
+
                                             T* const A,
-                                            const Istride shiftA,
-                                            const I inca,
-                                            const I lda,
-                                            const Istride strideA,
-                                            I* ipiv,
-                                            const Istride shiftP,
-                                            const Istride strideP,
+                                            Istride const shiftA,
+                                            I const inca,
+                                            I const lda,
+                                            Istride const strideA,
+
+                                            I* const ipiv,
+                                            Istride const shiftP,
+                                            Istride const strideP,
+
                                             INFO* const info,
-                                            const I batch_count,
-                                            const bool pivot,
-                                            void* work,
+                                            I const batch_count,
+                                            bool const pivot,
+
+                                            void* const work,
                                             size_t const size_work)
 {
     ROCSOLVER_ENTER("getrf_mxp", "m:", m, "n:", n, "shiftA:", shiftA, "inca:", inca, "lda:", lda,
@@ -285,7 +289,7 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     }
 
     // size of outer blocks
-    I const blk = getrf_mxp_get_blksize<ISBATCHED, T>(dim, pivot);
+    I blk = getrf_mxp_get_blksize<ISBATCHED, T>(dim, pivot);
 
     std::byte* const pwork = (std::byte*)work;
     std::byte* pfree = pwork;
@@ -452,45 +456,53 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
                     T alpha = minone;
                     T beta = one;
 
-                    rocblas_datatype type_A = rocblas_datatype_from_type<T>;
-                    rocblas_datatype type_B = type_A;
-                    rocblas_datatype type_C = type_A;
-                    rocblas_datatype type_D = type_A;
+                    rocblas_datatype const type_A = rocblas_datatype_from_type<T>;
+                    rocblas_datatype const type_B = type_A;
+                    rocblas_datatype const type_C = type_A;
+                    rocblas_datatype const type_D = type_C;
 
-                    rocblas_datatype compute_type = rocblas_datatype_from_type<Treduced>;
+                    rocblas_datatype const compute_type = rocblas_datatype_from_type<Treduced>;
 
-                    auto L21 = A + shiftA + idx2D(nextpiv, j, inca, lda);
-                    auto ldL21 = lda;
-                    auto stride_L21 = strideA;
+                    rocblas_gemm_algo algo = rocblas_gemm_algo_standard;
+                    int32_t solution_index = 0;
+                    uint32_t flags = rocblas_gemm_flags_none;
 
-                    auto U12 = A + shiftA + idx2D(j, nextpiv, inca, lda);
-                    auto ldU12 = lda;
-                    auto stride_U12 = strideA;
+                    auto const L21 = A + shiftA + idx2D(nextpiv, j, inca, lda);
+                    auto const ldL21 = lda;
+                    auto const stride_L21 = strideA;
 
-                    auto A22 = A + shiftA + idx2D(nextpiv, nextpiv, inca, lda);
-                    auto ldA22 = lda;
-                    auto stride_A22 = strideA;
+                    auto const U12 = A + shiftA + idx2D(j, nextpiv, inca, lda);
+                    auto const ldU12 = lda;
+                    auto const stride_U12 = strideA;
 
-                    size_t size_remain = (pwork + size_work) - pfree;
+                    auto const A22 = A + shiftA + idx2D(nextpiv, nextpiv, inca, lda);
+                    auto const ldA22 = lda;
+                    auto const stride_A22 = strideA;
 
-                    istat = rocsolverCall_gemm_strided_batched_ex(handle, trans_A, trans_B, mm, nn,
-                                                                  jb,
+                    size_t const size_remain = (pwork + size_work) - pfree;
 
-                                                                  &alpha,
+                    auto const istat = rocblasCall_gemm_strided_batched_ex(
+                        handle,
 
-                                                                  L21, type_A, ldL21, stride_L21,
+                        trans_A, trans_B, mm, nn, jb,
 
-                                                                  U12, type_B, ldU12, stride_U12,
+                        &alpha,
 
-                                                                  &beta,
+                        L21, type_A, ldL21, stride_L21,
 
-                                                                  A22, type_C, ldA22, stride_A22,
+                        U12, type_B, ldU12, stride_U12,
 
-                                                                  A22, type_D, ldA22, stride_A22,
+                        &beta,
 
-                                                                  batch_count,
+                        A22, type_C, ldA22, stride_A22,
 
-                                                                  pfree, size_remain);
+                        A22, type_D, ldA22, stride_A22,
+
+                        batch_count,
+
+                        compute_type, algo, solution_index, flags,
+
+                        (void*)pfree, size_remain);
                 }
                 if(istat != rocblas_status_success)
                 {
