@@ -54,7 +54,7 @@ add_executable(mxp_test
 find_package(HDF5 REQUIRED COMPONENTS CXX C)
 find_package(OpenMP REQUIRED)
 
-target_compile_options(mxp_test PRIVATE ${HDF5_CXX_DEFINITIONS} -Wall -Wno-unused-function -Wimplicit-fallthrough -Wunreachable-code -Wsign-compare -Wno-deprecated-declarations -Werror)
+target_compile_options(mxp_test PRIVATE ${HDF5_CXX_DEFINITIONS} -Wall -Wno-unused-function -Wimplicit-fallthrough -Wunreachable-code -Wsign-compare -Wno-deprecated-declarations -Wno-unused-command-line-argument -Werror)
 target_include_directories(mxp_test PRIVATE ${HDF5_CXX_INCLUDE_DIRS})
 target_link_libraries(mxp_test PRIVATE hdf5::hdf5_cpp hdf5::hdf5 OpenMP::OpenMP_CXX)
 
