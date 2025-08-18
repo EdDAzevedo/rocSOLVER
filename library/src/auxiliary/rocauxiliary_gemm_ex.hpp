@@ -208,17 +208,17 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
                                                                I const ld_A,
                                                                Istride const stride_A,
 
-                                                               Tfull* B,
+                                                               Tfull* const B,
                                                                I const ld_B,
                                                                Istride const stride_B,
 
                                                                Tfull* const beta,
 
-                                                               Tfull* const C,
+                                                               Tfull* C,
                                                                I const ld_C,
                                                                Istride const stride_C,
 
-                                                               Tfull* const D,
+                                                               Tfull* D,
                                                                I const ld_D,
                                                                Istride const stride_D,
 

@@ -218,8 +218,12 @@ static __global__ void reim2complex_outofplace_simple_kernel(
         auto const A_im_p = load_ptr_batch(A_im_, bid, shift_A_im, stride_A_im);
 
         using T = decltype(*A_p);
-        bool constexpr is_complex = rocblas_is_complex<T>;
-        assert(rocblas_is_complex<T>);
+        bool constexpr is_complex
+            = rocblas_is_complex<T> || std::is_same<UA, rocblas_float_complex*>::value
+            || std::is_same<UA, rocblas_double_complex*>::value
+            || std::is_same<UA, rocblas_float_complex**>::value
+            || std::is_same<UA, rocblas_double_complex**>::value;
+        assert(is_complex);
 
         for(auto j = j_start; j < ncols; j += j_inc)
         {
@@ -232,7 +236,11 @@ static __global__ void reim2complex_outofplace_simple_kernel(
                     auto const aij_re = A_re_p[idx2D(i, j, ldA_re)];
                     auto const aij_im = A_im_p[idx2D(i, j, ldA_im)];
 
-                    A_p[ij_a] = T{aij_re, aij_im};
+                    // -----------------------------------------------
+                    // TODO: why T aij{aij_re, aij_im} does not work
+                    // -----------------------------------------------
+                    std::complex<float> aij{aij_re, aij_im};
+                    A_p[ij_a] = aij;
                 }
                 else
                 {
