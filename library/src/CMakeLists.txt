@@ -502,11 +502,13 @@ target_include_directories(gemm_ex_test
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include/rocsolver>
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/common/include>
 )
+find_package(rocthrust REQUIRED)
 target_link_libraries(gemm_ex_test
   PRIVATE
   roc::rocblas
   rocsolver
   hip::device
+  roc::rocthrust
 )
 foreach(target rocsolver gemm_ex_test)
   target_compile_definitions(${target} PRIVATE
