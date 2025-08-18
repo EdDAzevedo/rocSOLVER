@@ -10,9 +10,9 @@ using namespace rocsolver;
 
 int main()
 {
-    const rocblas_int m = 17504;
-    const rocblas_int n = 17504;
-    const rocblas_int k = 32;
+    const rocblas_int m = 100;
+    const rocblas_int n = 100;
+    const rocblas_int k = 100;
 
     using Tfull = rocblas_float_complex;
     using Treduced = rocblas_half;
@@ -32,11 +32,11 @@ int main()
 
     rocblas_float_complex* ptr = nullptr;
 
-    std::vector<rocblas_float_complex> A_host(16);
-    std::vector<rocblas_float_complex> B_host(16);
-    std::vector<rocblas_float_complex> C_host(16);
-    std::vector<rocblas_float_complex> D_host_ref(16);
-    std::vector<rocblas_float_complex> D_host_ex(16);
+    std::vector<rocblas_float_complex> A_host(m * k);
+    std::vector<rocblas_float_complex> B_host(k * n);
+    std::vector<rocblas_float_complex> C_host(m * n);
+    std::vector<rocblas_float_complex> D_host_ref(m * n);
+    std::vector<rocblas_float_complex> D_host_ex(m * n);
     std::fill(A_host.begin(), A_host.end(), rocblas_float_complex{0.25, 0.5});
     std::fill(B_host.begin(), B_host.end(), rocblas_float_complex{-0.25, 0.5});
     std::fill(C_host.begin(), C_host.end(), rocblas_float_complex{1.5, 2.0});
@@ -82,19 +82,19 @@ int main()
 
     auto status = rocblas_gemm_ex(handle, rocblas_operation_none, rocblas_operation_none,
 
-                                  4, 4, 4,
+                                  m, n, k,
 
                                   &alpha_complex,
 
-                                  A.data(), rocblas_datatype_f32_c, 4,
+                                  A.data(), rocblas_datatype_f32_c, k,
 
-                                  B.data(), rocblas_datatype_f32_c, 4,
+                                  B.data(), rocblas_datatype_f32_c, n,
 
                                   &beta_complex,
 
-                                  C.data(), rocblas_datatype_f32_c, 4,
+                                  C.data(), rocblas_datatype_f32_c, n,
 
-                                  D_ref.data(), rocblas_datatype_f32_c, 4,
+                                  D_ref.data(), rocblas_datatype_f32_c, n,
 
                                   rocblas_datatype_f32_c, rocblas_gemm_algo_standard, 0, 0);
 
@@ -112,19 +112,19 @@ int main()
     status = rocblasCall_gemm_strided_batched_ex(
         handle, rocblas_operation_none, rocblas_operation_none,
 
-        4, 4, 4,
+        m, n, k,
 
         &alpha_real,
 
-        A.data(), rocblas_datatype_f16_r, 4, 0,
+        A.data(), rocblas_datatype_f16_r, k, 0,
 
-        B.data(), rocblas_datatype_f32_c, 4, 0,
+        B.data(), rocblas_datatype_f32_c, n, 0,
 
         &beta_real,
 
-        C.data(), rocblas_datatype_f32_c, 4, 0,
+        C.data(), rocblas_datatype_f32_c, n, 0,
 
-        D_ex.data(), rocblas_datatype_f32_c, 4, 0,
+        D_ex.data(), rocblas_datatype_f32_c, n, 0,
 
         1,
 
