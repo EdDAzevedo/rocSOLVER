@@ -1398,38 +1398,5 @@ inline rocblas_status rocsolver_trsm_upper(rocblas_handle handle,
         const rocblas_stride strideB, const I batch_count, const bool optim_mem, void* work1,     \
         void* work2, void* work3, void* work4)
 
-#define NOT_IMPL_TRSM_MEM(BATCHED, STRIDED, T, I)                                        \
-    template <>                                                                          \
-    rocblas_status rocsolver_trsm_mem<BATCHED, STRIDED, T, I>(                           \
-        const rocblas_side side, const rocblas_operation trans, const I m, const I n,    \
-        const I batch_count, size_t* size_work1, size_t* size_work2, size_t* size_work3, \
-        size_t* size_work4, bool* optim_mem, bool inblocked, const I lda, const I ldb,   \
-        const I inca, const I incb)                                                      \
-    {                                                                                    \
-        return rocblas_status_not_implemented;                                           \
-    }
-#define NOT_IMPL_TRSM_LOWER(BATCHED, STRIDED, T, I, U)                                             \
-    template <>                                                                                    \
-    rocblas_status rocsolver_trsm_lower<BATCHED, STRIDED, T, I, U>(                                \
-        rocblas_handle handle, const rocblas_side side, const rocblas_operation trans,             \
-        const rocblas_diagonal diag, const I m, const I n, U A, const rocblas_stride shiftA,       \
-        const I inca, const I lda, const rocblas_stride strideA, U B, const rocblas_stride shiftB, \
-        const I incb, const I ldb, const rocblas_stride strideB, const I batch_count,              \
-        const bool optim_mem, void* work1, void* work2, void* work3, void* work4)                  \
-    {                                                                                              \
-        return rocblas_status_not_implemented;                                                     \
-    }
-#define NOT_IMPL_TRSM_UPPER(BATCHED, STRIDED, T, I, U)                                             \
-    template <>                                                                                    \
-    rocblas_status rocsolver_trsm_upper<BATCHED, STRIDED, T, I, U>(                                \
-        rocblas_handle handle, const rocblas_side side, const rocblas_operation trans,             \
-        const rocblas_diagonal diag, const I m, const I n, U A, const rocblas_stride shiftA,       \
-        const I inca, const I lda, const rocblas_stride strideA, U B, const rocblas_stride shiftB, \
-        const I incb, const I ldb, const rocblas_stride strideB, const I batch_count,              \
-        const bool optim_mem, void* work1, void* work2, void* work3, void* work4)                  \
-    {                                                                                              \
-        return rocblas_status_not_implemented;                                                     \
-    }
-
 #undef ROCSOLVER_INTERNAL_TRSM
 ROCSOLVER_END_NAMESPACE
