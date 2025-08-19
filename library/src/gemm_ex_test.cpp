@@ -236,8 +236,10 @@ void test_gemm_ex(rocblas_handle handle, I const m, I const n, I const k)
 
         double err_max = 0;
         double err_L2 = 0;
+        double norm_C_cpu = 0;
+        double norm_C_gpu = 0;
 
-#pragma omp parallel for collapse(2) reduction(max : err_max) reduction(+ : err_L2)
+#pragma omp parallel for collapse(2) reduction(max : err_max) reduction(+ : err_L2,norm_C_cpu,norm_C_gpu)
         for(I j = 0; j < ncols_C; j++)
         {
             for(I i = 0; i < nrows_C; i++)
@@ -249,20 +251,24 @@ void test_gemm_ex(rocblas_handle handle, I const m, I const n, I const k)
 
                 err_max = std::max(err_max, abserr);
                 err_L2 += abserr * abserr;
+
+                norm_C_cpu += std::abs(cij_cpu);
+                norm_C_gpu += std::abs(cij_gpu);
             }
         }
         err_L2 = std::sqrt(err_L2);
         printf("m = %d, n=%d, k=%d, type_C = %d, compute_type = %d\n", m, n, k, (int)type_C,
                (int)compute_type);
         printf("err_max = %le, err_L2 = %le \n", err_max, err_L2);
+        printf("norm_C_cpu = %le, norm_C_gpu = %le\n", norm_C_cpu, norm_C_gpu);
     }
 }
 
 int main()
 {
-    const rocblas_int m = 100;
-    const rocblas_int n = 100;
-    const rocblas_int k = 100;
+    const rocblas_int m = 17;
+    const rocblas_int n = 13;
+    const rocblas_int k = 11;
 
     using Tfull = rocblas_float_complex;
     using Treduced = rocblas_half;
@@ -282,11 +288,26 @@ int main()
 
     rocblas_float_complex* ptr = nullptr;
 
-    std::vector<rocblas_float_complex> A_host(m * k);
-    std::vector<rocblas_float_complex> B_host(k * n);
-    std::vector<rocblas_float_complex> C_host(m * n);
-    std::vector<rocblas_float_complex> D_host_ref(m * n);
-    std::vector<rocblas_float_complex> D_host_ex(m * n);
+    auto const nrows_A = m;
+    auto const ncols_A = k;
+    auto const nrows_B = k;
+    auto const ncols_B = n;
+    auto const nrows_C = m;
+    auto const ncols_C = n;
+
+    auto const nrows_D = nrows_C;
+    auto const ncols_D = ncols_C;
+
+    auto const lda = nrows_A;
+    auto const ldb = nrows_B;
+    auto const ldc = nrows_C;
+    auto const ldd = nrows_D;
+
+    std::vector<rocblas_float_complex> A_host(lda * ncols_A);
+    std::vector<rocblas_float_complex> B_host(ldb * ncols_B);
+    std::vector<rocblas_float_complex> C_host(ldc * ncols_C);
+    std::vector<rocblas_float_complex> D_host_ref(ldd * ncols_D);
+    std::vector<rocblas_float_complex> D_host_ex(ldd * ncols_D);
     std::fill(A_host.begin(), A_host.end(), rocblas_float_complex{0.25, 0.5});
     std::fill(B_host.begin(), B_host.end(), rocblas_float_complex{-0.25, 0.5});
     std::fill(C_host.begin(), C_host.end(), rocblas_float_complex{1.5, 2.0});
@@ -336,15 +357,15 @@ int main()
 
                                   &alpha_complex,
 
-                                  A.data(), rocblas_datatype_f32_c, k,
+                                  A.data(), rocblas_datatype_f32_c, lda,
 
-                                  B.data(), rocblas_datatype_f32_c, n,
+                                  B.data(), rocblas_datatype_f32_c, ldb,
 
                                   &beta_complex,
 
-                                  C.data(), rocblas_datatype_f32_c, n,
+                                  C.data(), rocblas_datatype_f32_c, ldc,
 
-                                  D_ref.data(), rocblas_datatype_f32_c, n,
+                                  D_ref.data(), rocblas_datatype_f32_c, ldd,
 
                                   rocblas_datatype_f32_c, rocblas_gemm_algo_standard, 0, 0);
 
@@ -353,30 +374,41 @@ int main()
     if(hipMemcpy(D_host_ref.data(), D_ref.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
         throw std::runtime_error("failed to copy D_ref back");
 
-    for(auto elem : D_host_ref)
+    bool const print_matrix = (nrows_D * ncols_D <= 1000);
+
+    if(print_matrix)
     {
-        printf("(%f, %f) ", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
+        for(auto elem : D_host_ref)
+        {
+            printf("(%f, %f)\n", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
+        }
+        puts("");
     }
-    puts("");
+
+    auto const batch_count = 1;
+    rocblas_stride stride_A = 0;
+    rocblas_stride stride_B = 0;
+    rocblas_stride stride_C = 0;
+    rocblas_stride stride_D = stride_C;
 
     status = rocblasCall_gemm_strided_batched_ex(
         handle, rocblas_operation_none, rocblas_operation_none,
 
         m, n, k,
 
-        &alpha_real,
+        &alpha_complex,
 
-        A.data(), rocblas_datatype_f16_r, k, 0,
+        A.data(), rocblas_datatype_f32_c, lda, stride_A,
 
-        B.data(), rocblas_datatype_f32_c, n, 0,
+        B.data(), rocblas_datatype_f32_c, ldb, stride_B,
 
-        &beta_real,
+        &beta_complex,
 
-        C.data(), rocblas_datatype_f32_c, n, 0,
+        C.data(), rocblas_datatype_f32_c, ldc, stride_C,
 
-        D_ex.data(), rocblas_datatype_f32_c, n, 0,
+        D_ex.data(), rocblas_datatype_f32_c, ldd, stride_D,
 
-        1,
+        batch_count,
 
         rocblas_datatype_f32_c, rocblas_gemm_algo_standard, 0, 0,
 
@@ -387,16 +419,44 @@ int main()
     if(hipMemcpy(D_host_ex.data(), D_ex.data(), C_bytes, hipMemcpyDeviceToHost) != hipSuccess)
         throw std::runtime_error("failed to copy D_ex back");
 
-    for(auto elem : D_host_ex)
+    // -------------
+    // compute error
+    // -------------
+    double max_err = 0;
+    double L2_err = 0;
+    double norm_D_host_ref = 0;
+    double norm_D_host_ex = 0;
+    for(auto j = 0; j < ncols_D; j++)
     {
-        printf("(%f, %f) ", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
+        for(auto i = 0; i < nrows_D; i++)
+        {
+            auto const dij_ref = D_host_ref[idx2D(i, j, ldd)];
+            auto const dij_ex = D_host_ex[idx2D(i, j, ldd)];
+            double const abs_err = std::abs(dij_ref - dij_ex);
+            max_err = std::max(max_err, abs_err);
+            L2_err += abs_err * abs_err;
+
+            norm_D_host_ref += std::abs(dij_ref);
+            norm_D_host_ex += std::abs(dij_ex);
+        }
     }
-    puts("");
+    L2_err = std::sqrt(L2_err);
+    printf("max_err=%le, L2_err=%le, norm_D_host_ref=%le, norm_D_host_ex=%le\n", max_err, L2_err,
+           norm_D_host_ref, norm_D_host_ex);
+
+    if(print_matrix)
+    {
+        for(auto elem : D_host_ex)
+        {
+            printf("(%f, %f)\n", static_cast<double>(elem.real()), static_cast<double>(elem.imag()));
+        }
+        puts("");
+    }
 
     {
-        auto const m = 4;
-        auto const n = 4;
-        auto const k = 4;
+        auto const m = 21;
+        auto const n = 33;
+        auto const k = 7;
         test_gemm_ex<rocblas_float_complex, rocblas_bfloat16, rocblas_int, rocblas_stride>(handle,
                                                                                            m, n, k);
 
