@@ -55,8 +55,6 @@ set(rocsolver_lapack_source
   lapack/roclapack_gesv_batched.cpp
   lapack/roclapack_gesv_strided_batched.cpp
   lapack/roclapack_gesv_outofplace.cpp
-  #
-  lapack/roclapack_zcgesv.cpp
   #- symmetric positive definite systems
   lapack/roclapack_potrs.cpp
   lapack/roclapack_potrs_batched.cpp
