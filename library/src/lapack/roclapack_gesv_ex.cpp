@@ -41,8 +41,10 @@ ROCSOLVER_BEGIN_NAMESPACE
 //  - A, B, X, compute type are lapack SDCZ storage types
 
 template <typename T>
-constexpr bool is_gesv_ex_homogenous_storage = std::is_same_v<T, float> || std::is_same_v<T, double>
-    || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
+constexpr bool is_gesv_ex_homogenous_storage
+    = std::is_same_v<
+          T,
+          float> || std::is_same_v<T, double> || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
 
 template <typename T, typename... Ts>
 constexpr bool gesv_ex_homogenous_accepts = (std::is_same_v<T, Ts> && ...)
@@ -260,11 +262,8 @@ __global__ static void check_convergence_kernel(I const n,
                                                 I const batch_count,
                                                 double tol,
 
-                                                bool* p_is_converged)
+                                                int* p_is_converged)
 {
-    bool is_converged = false;
-    *p_is_converged = is_converged;
-
     extern __shared__ double ldmem[];
 
     I const bid_start = blockIdx.z;
@@ -281,7 +280,7 @@ __global__ static void check_convergence_kernel(I const n,
 
     assert(gridDim.x == 1);
 
-    I nconverged = 0;
+    I non_converged = 0;
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
         T const* const Xp = load_ptr_batch(X, bid, shiftX, strideX);
@@ -327,9 +326,12 @@ __global__ static void check_convergence_kernel(I const n,
             max_reduce(xmax);
             max_reduce(rmax);
 
-            if(rmax <= xmax * tol)
+            if(tid == 0)
             {
-                nconverged++;
+                if(rmax > xmax * tol)
+                {
+                    non_converged++;
+                }
             }
 
         } // end for irhs
@@ -338,9 +340,16 @@ __global__ static void check_convergence_kernel(I const n,
 
     __syncthreads();
 
-    is_converged = (nconverged >= (nrhs * batch_count));
-
-    *p_is_converged = is_converged;
+    if(tid == 0)
+    {
+        if(non_converged >= 1)
+        {
+            // -------------------------
+            // set  is_converged to false
+            // -------------------------
+            atomicMin(p_is_converged, 0);
+        }
+    }
 }
 
 // check for convergence
@@ -362,13 +371,24 @@ static void check_convergence(rocblas_handle handle,
                               rocblas_int const batch_count,
                               double tol,
 
-                              bool* d_is_converged)
+                              int* d_is_converged)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
     rocblas_int const nx = 1024;
     size_t const ldsize = sizeof(double) * nx;
+
+    {
+        // ------------------------------------
+        // set initial value for d_is_converged
+        // ------------------------------------
+        int is_converged = true;
+        auto const istat = hipMemcpyAsync(d_is_converged, &is_converged, sizeof(int),
+                                          hipMemcpyHostToDevice, stream);
+        assert(istat == hipSuccess);
+    }
+
     check_convergence_kernel<T><<<dim3(1, nrhs, batch_count), dim3(nx, 1, 1), ldsize, stream>>>(
         n, nrhs,
 
@@ -402,8 +422,10 @@ using gesv_ex_mxp_lu_reduced_precision_t = typename gesv_ex_mxp_lu_reduced_preci
 //  - compute_type is SDCZ, half, or bfloat16
 
 template <typename T>
-constexpr bool is_gesv_ex_mxp_lu_storage = std::is_same_v<T, float> || std::is_same_v<T, double>
-    || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
+constexpr bool is_gesv_ex_mxp_lu_storage
+    = std::is_same_v<
+          T,
+          float> || std::is_same_v<T, double> || std::is_same_v<T, rocblas_float_complex> || std::is_same_v<T, rocblas_double_complex>;
 
 template <typename T>
 constexpr bool is_gesv_ex_mxp_lu_compute
@@ -411,8 +433,9 @@ constexpr bool is_gesv_ex_mxp_lu_compute
     is_gesv_ex_mxp_lu_storage<T>;
 
 template <typename TA, typename TB, typename TX, typename Tc>
-constexpr bool gesv_ex_mxp_lu_accepts = (std::is_same_v<TA, TB> && std::is_same_v<TA, TX>)
-    && is_gesv_ex_mxp_lu_storage<TA> && is_gesv_ex_mxp_lu_compute<Tc>;
+constexpr bool gesv_ex_mxp_lu_accepts
+    = (std::is_same_v<TA, TB> && std::is_same_v<TA, TX>)&&is_gesv_ex_mxp_lu_storage<
+        TA>&& is_gesv_ex_mxp_lu_compute<Tc>;
 
 template <typename T, typename LU>
 rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
@@ -747,8 +770,11 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     bool is_all_converged = false;
 
     {
-        bool* const d_is_all_converged = (bool*)pfree;
-        pfree += sizeof(bool);
+        int* const d_is_all_converged = (int*)pfree;
+        pfree += sizeof(int);
+
+        CHECK_MEM(pfree);
+
         check_convergence(handle, n, nrhs, X, shiftX, ldx, strideX, R, shiftR, ldr, strideR,
                           batch_count, tol, d_is_all_converged);
 
@@ -756,7 +782,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                                  hipMemcpyDeviceToHost, stream));
         HIP_CHECK(hipStreamSynchronize(stream));
 
-        pfree = pfree - sizeof(bool);
+        pfree = pfree - sizeof(int);
     }
 
     if(is_all_converged)
@@ -877,7 +903,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         bool is_all_converged = false;
 
         {
-            bool* const d_is_all_converged = (bool*)pfree;
+            int* const d_is_all_converged = (int*)pfree;
             pfree += sizeof(bool);
             check_convergence(handle, n, nrhs,
 
@@ -891,7 +917,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                                      hipMemcpyDeviceToHost, stream));
             HIP_CHECK(hipStreamSynchronize(stream));
 
-            pfree = pfree - sizeof(bool);
+            pfree = pfree - sizeof(int);
         }
 
         if(is_all_converged)
@@ -1095,6 +1121,7 @@ rocblas_status rocsolver_gesv_ex_impl(rocblas_handle handle,
     return ret;
 }
 
+#undef CHECK_MEM
 ROCSOLVER_END_NAMESPACE
 
 /*
