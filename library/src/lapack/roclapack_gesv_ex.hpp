@@ -53,22 +53,20 @@ rocblas_status rocsolver_ex_datatype_dispatch(rocblas_datatype dt, Args&&... arg
     switch(dt)
     {
     case rocblas_datatype_f16_r:
-        return rocsolver_ex_datatype_dispatch<Lambda, rocblas_half, Ts..., Args...>(
+        return rocsolver_ex_datatype_dispatch<Lambda, Ts..., rocblas_half>(
             std::forward<Args>(args)...);
     case rocblas_datatype_f32_r:
-        return rocsolver_ex_datatype_dispatch<Lambda, float, Ts..., Args...>(
-            std::forward<Args>(args)...);
+        return rocsolver_ex_datatype_dispatch<Lambda, Ts..., float>(std::forward<Args>(args)...);
     case rocblas_datatype_f64_r:
-        return rocsolver_ex_datatype_dispatch<Lambda, double, Ts..., Args...>(
-            std::forward<Args>(args)...);
+        return rocsolver_ex_datatype_dispatch<Lambda, Ts..., double>(std::forward<Args>(args)...);
     case rocblas_datatype_f32_c:
-        return rocsolver_ex_datatype_dispatch<Lambda, rocblas_float_complex, Ts..., Args...>(
+        return rocsolver_ex_datatype_dispatch<Lambda, Ts..., rocblas_float_complex>(
             std::forward<Args>(args)...);
     case rocblas_datatype_f64_c:
-        return rocsolver_ex_datatype_dispatch<Lambda, rocblas_double_complex, Ts..., Args...>(
+        return rocsolver_ex_datatype_dispatch<Lambda, Ts..., rocblas_double_complex>(
             std::forward<Args>(args)...);
     case rocblas_datatype_bf16_r:
-        return rocsolver_ex_datatype_dispatch<Lambda, rocblas_bfloat16, Ts..., Args...>(
+        return rocsolver_ex_datatype_dispatch<Lambda, Ts..., rocblas_bfloat16>(
             std::forward<Args>(args)...);
     default: return rocblas_status_not_implemented;
     }
