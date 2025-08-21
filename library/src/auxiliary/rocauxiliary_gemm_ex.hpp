@@ -692,8 +692,9 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
 #if(0)
 // currently limited to fp32 complex data for all of A, B, C, D
 template <typename TA, typename TB, typename TC, typename TD, typename TCompute>
-constexpr bool gemm_ex_accepts = std::is_same_v<TA, rocblas_float_complex> && std::is_same_v<TA, TB>
-    && std::is_same_v<TA, TC> && std::is_same_v<TA, TD> && !std::is_same_v<TA, TCompute>;
+constexpr bool gemm_ex_accepts
+    = std::is_same_v<TA, rocblas_float_complex>&& std::is_same_v<TA, TB>&& std::is_same_v<TA, TC>&&
+          std::is_same_v<TA, TD> && !std::is_same_v<TA, TCompute>;
 
 template <typename TA, typename TB, typename TC, typename TD, typename TCompute, typename...>
 struct gemm_ex_call
@@ -934,6 +935,8 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex(rocblas_handle handle,
     return (istat);
 
 #undef DISPATCH
+#undef CHECK_MEM
+#undef ROCBLAS_CHECK
 }
 
 ROCSOLVER_END_NAMESPACE
