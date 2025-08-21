@@ -766,8 +766,10 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         }
     }; // end compute_residual()
 
+    compute_residual();
+
     rocblas_stride iter = 0;
-    bool is_all_converged = false;
+    int is_all_converged = false;
 
     {
         int* const d_is_all_converged = (int*)pfree;
@@ -778,7 +780,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         check_convergence(handle, n, nrhs, X, shiftX, ldx, strideX, R, shiftR, ldr, strideR,
                           batch_count, tol, d_is_all_converged);
 
-        HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(bool),
+        HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(int),
                                  hipMemcpyDeviceToHost, stream));
         HIP_CHECK(hipStreamSynchronize(stream));
 
@@ -900,11 +902,14 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // check convergence
         // -----------------
 
-        bool is_all_converged = false;
+        int is_all_converged = false;
 
         {
             int* const d_is_all_converged = (int*)pfree;
-            pfree += sizeof(bool);
+            pfree += sizeof(int);
+
+            CHECK_MEM(pfree);
+
             check_convergence(handle, n, nrhs,
 
                               X, shiftX, ldx, strideX,
@@ -913,7 +918,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
                               batch_count, tol, d_is_all_converged);
 
-            HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(bool),
+            HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(int),
                                      hipMemcpyDeviceToHost, stream));
             HIP_CHECK(hipStreamSynchronize(stream));
 
