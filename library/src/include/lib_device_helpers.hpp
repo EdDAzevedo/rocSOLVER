@@ -47,7 +47,9 @@ ROCSOLVER_BEGIN_NAMESPACE
 // device functions that are used by many kernels
 // **********************************************************
 
-template <typename S, typename T, std::enable_if_t<!rocblas_is_complex<T>, int> = 0>
+template <typename S,
+          typename T,
+          std::enable_if_t<!rocblas_is_complex<T> && !std::is_same_v<T, rocblas_half>, int> = 0>
 __device__ S aabs(T val)
 {
     return std::abs(val);
@@ -57,6 +59,13 @@ template <typename S, typename T, std::enable_if_t<rocblas_is_complex<T>, int> =
 __device__ S aabs(T val)
 {
     return asum(val);
+}
+
+template <typename S, typename T, std::enable_if_t<std::is_same<T, rocblas_half>::value, int> = 0>
+__device__ S aabs(T val)
+{
+    // promote to float to use abs, since there's no std::abs(rocblas_half)
+    return std::abs(static_cast<float>(val));
 }
 
 template <typename T>
