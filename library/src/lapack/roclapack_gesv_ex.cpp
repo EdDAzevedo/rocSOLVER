@@ -468,7 +468,6 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                     tol_arg, "max_iter", max_iter_arg);
 
     *niter = 0;
-    *info = 0;
 
     bool constexpr is_complex = rocblas_is_complex<T>;
 
