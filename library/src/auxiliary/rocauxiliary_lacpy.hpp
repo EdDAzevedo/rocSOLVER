@@ -263,4 +263,5 @@ static void lacpy(rocblas_handle handle,
                                                               batch_count);
 }
 
+#undef HIP_CHECK
 ROCSOLVER_END_NAMESPACE
