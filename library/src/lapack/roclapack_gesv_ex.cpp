@@ -177,8 +177,8 @@ static void rocsolver_gesv_mxp_getMemorySize(const I n,
 {
     using S = decltype(std::real(T{}));
 
-    bool constexpr BATCHED = true;
-    bool constexpr STRIDED = true;
+    bool constexpr BATCHED = false;
+    bool constexpr STRIDED = false;
 
     size_t size_work = 0;
     *p_size_work = size_work;
@@ -296,8 +296,8 @@ static void rocsolver_gesv_mxp_getMemorySize(const I n,
         // storage for GESV
         // ----------------
 
-        bool constexpr BATCHED = true;
-        bool constexpr STRIDED = true;
+        bool constexpr BATCHED = false;
+        bool constexpr STRIDED = false;
 
         size_t size_scalars = 0;
         size_t size_work0 = 0;
@@ -787,8 +787,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // use regular LU factorization (without mixed precision)
         // ------------------------------------------------------
 
-        bool constexpr BATCHED = true;
-        bool constexpr STRIDED = true;
+        bool constexpr BATCHED = false;
+        bool constexpr STRIDED = false;
 
         rocblas_int const inca = 1;
         rocblas_stride const shiftP = 0;
@@ -858,8 +858,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         size_t size_work4 = 0;
         bool optim_mem = true;
 
-        bool constexpr BATCHED = true;
-        bool constexpr STRIDED = true;
+        bool constexpr BATCHED = false;
+        bool constexpr STRIDED = false;
         rocsolver_getrs_getMemorySize<BATCHED, STRIDED, LU>(trans, n, nrhs, batch_count,
 
                                                             &size_work1, &size_work2, &size_work3,
@@ -1138,8 +1138,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     pfree = pwork;
 
     {
-        bool constexpr BATCHED = true;
-        bool constexpr STRIDED = true;
+        bool constexpr BATCHED = false;
+        bool constexpr STRIDED = false;
 
         size_t size_scalars = 0;
         size_t size_work0 = 0;
