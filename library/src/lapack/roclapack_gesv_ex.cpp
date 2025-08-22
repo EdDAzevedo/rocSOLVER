@@ -36,6 +36,13 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
+#ifndef HIP_CHECK
+#define HIP_CHECK(fcn)               \
+    {                                \
+        auto const istat = (fcn);    \
+        assert(istat == hipSuccess); \
+    }
+#endif
 // The following traits enforce that homogenous computation is viable if
 //  - A, B, X, compute_type are all the same type
 //  - A, B, X, compute type are lapack SDCZ storage types
@@ -158,6 +165,177 @@ struct gesv_homogenous_call
         return rocblas_status_not_implemented;
     }
 };
+
+template <typename T, typename Tlu, typename Treduced, typename I>
+static void rocsolver_gesv_mxp_getMemorySize(const I n,
+                                             const I nrhs,
+                                             const I batch_count,
+
+                                             size_t* p_size_work
+
+)
+{
+    using S = decltype(std::real(T{}));
+
+    bool constexpr BATCHED = true;
+    bool constexpr STRIDED = true;
+
+    size_t size_work = 0;
+    *p_size_work = size_work;
+
+    // if quick return, no workspace is needed
+    bool const has_work = (n >= 1) && (nrhs >= 1) && (batch_count >= 1);
+    if(!has_work)
+    {
+        return;
+    }
+
+    // ---------------------------------------------------
+    // storage for copies of matrices for iterative refinement
+    // ---------------------------------------------------
+    {
+        size_t size_A_lu = sizeof(Tlu) * n * n * batch_count;
+        size_t size_R = sizeof(T) * n * nrhs * batch_count;
+        size_t size_B_lu = sizeof(Tlu) * n * nrhs * batch_count;
+
+        size_work += size_A_lu;
+        size_work += size_R;
+        size_work += size_B_lu;
+    }
+
+    // --------------------------------------
+    // storage for LU factorization (in FP32)
+    // --------------------------------------
+    bool const use_pivot = true;
+    size_t size_getrf = 0;
+    {
+        size_t size_scalars = 0;
+        size_t size_work0 = 0;
+        size_t size_work1 = 0;
+        size_t size_work2 = 0;
+        size_t size_work3 = 0;
+        size_t size_work4 = 0;
+        size_t size_pivotval = 0;
+        size_t size_pivotidx = 0;
+        size_t size_iipiv = 0;
+        size_t size_iinfo = 0;
+        size_t optim_mem = true;
+
+        bool opt1 = true;
+        bool opt2 = true;
+
+        // ------------------------------------
+        // workspace required for calling GETRF
+        // ------------------------------------
+        rocsolver_getrf_getMemorySize<BATCHED, STRIDED, Tlu>(
+            n, n, use_pivot, batch_count, &size_scalars, &size_work1, &size_work2, &size_work3,
+            &size_work4, &size_pivotval, &size_pivotidx, &size_iipiv, &size_iinfo, &opt1);
+
+        size_getrf = size_scalars + size_work1 + size_work2 + size_work3 + size_work4
+            + size_pivotval + size_pivotidx + size_iipiv + size_iinfo;
+    }
+
+    // ----------------
+    // workspace  for GETRS
+    // ----------------
+    {
+        bool opt1 = true;
+        bool opt2 = true;
+
+        size_t w1 = 0;
+        size_t w2 = 0;
+        size_t w3 = 0;
+        size_t w4 = 0;
+
+        rocsolver_getrs_getMemorySize<BATCHED, STRIDED, Tlu>(rocblas_operation_none, n, nrhs,
+                                                             batch_count, &w1, &w2, &w3, &w4, &opt2);
+
+        size_t const size_getrs = w1 + w2 + w3 + w4;
+
+        size_work += size_getrs;
+    }
+
+    // ------------------------------------
+    // storage for mixed precision LU solver
+    // ------------------------------------
+    size_t size_getrf_mxp = 0;
+    {
+        auto const m = n;
+        rocsolver_getrf_mxp_getMemorySize<Tlu, Treduced, I>(m, n, use_pivot, batch_count,
+                                                            &size_getrf_mxp);
+    }
+
+    size_work += std::max(size_getrf, size_getrf_mxp);
+
+    // ----------------------
+    // storage for xnrm, rnrm
+    // ----------------------
+    {
+        size_t const size_xnrm = sizeof(S) * batch_count * nrhs;
+        size_t const size_rnrm = sizeof(S) * batch_count * nrhs;
+
+        size_t const size_ixnrm = sizeof(I) * batch_count * nrhs;
+        size_t const size_irnrm = sizeof(I) * batch_count * nrhs;
+
+        // ---------------------------------------------------------------
+        // TODO: not clear how much workspace is needed in rocblas_iamax()
+        // ---------------------------------------------------------------
+        size_t const size_iamax = 2 * sizeof(S*) * n * batch_count;
+
+        size_work += size_xnrm;
+        size_work += size_rnrm;
+
+        size_work += size_ixnrm;
+        size_work += size_irnrm;
+
+        size_work += size_iamax;
+    }
+
+    {
+        // ----------------
+        // storage for GESV
+        // ----------------
+
+        bool constexpr BATCHED = true;
+        bool constexpr STRIDED = true;
+
+        size_t size_scalars = 0;
+        size_t size_work0 = 0;
+        size_t size_work1 = 0;
+        size_t size_work2 = 0;
+        size_t size_work3 = 0;
+        size_t size_work4 = 0;
+
+        size_t size_pivotval = 0;
+        size_t size_pivotidx = 0;
+        size_t size_iipiv = 0;
+        size_t size_iinfo = 0;
+        bool optim_mem = true;
+
+        rocsolver_gesv_getMemorySize<BATCHED, STRIDED, T>(
+            n, nrhs, batch_count,
+
+            &size_scalars, &size_work0, &size_work1, &size_work2, &size_work3, &size_work4,
+            &size_pivotval,
+
+            &size_pivotidx, &size_iipiv, &size_iinfo, &optim_mem);
+
+        size_t const size_gesv = size_scalars + size_work0 + size_work1 + size_work2 + size_work3
+            + size_work4 + size_pivotval + size_pivotidx + size_iipiv + size_iinfo;
+
+        size_work = std::max(size_work, size_gesv);
+    }
+
+    {
+        // -----------------
+        // check convergence
+        // -----------------
+
+        size_work += sizeof(int);
+    }
+
+    *p_size_work = size_work;
+}
 
 // -----------------------------------------------------
 // gather the value from iamax into xnrm
@@ -471,9 +649,15 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
     bool constexpr is_complex = rocblas_is_complex<T>;
 
-    using Sfull = typename std::conditional<is_complex, decltype(std::real(T{})), T>::type;
+    using Istride = decltype(rocblas_stride{});
+    using I = decltype(rocblas_int{});
+
+    using Tfull = decltype(T{});
+    using Sfull = decltype(std::real(Tfull{}));
     using Slu = decltype(std::real(LU{}));
-    using Sreduced = decltype(std::real(LU{}));
+
+    // XXX: need to pass in Treduced whether to use BF16 or FP16?
+    using Treduced = rocblas_bfloat16;
 
     double const tol_default = std::numeric_limits<Sfull>::epsilon() * n;
 
@@ -485,8 +669,27 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    // XXX: can we use std::ceil/ceilf?
     auto ceil = [](auto n, auto b) { return ((n - 1) / b + 1); };
+
+    size_t size_work = 0;
+    rocsolver_gesv_mxp_getMemorySize<Tfull, LU, Treduced, rocblas_int>(n, nrhs, batch_count,
+                                                                       &size_work);
+    void* work = nullptr;
+
+    {
+        if(rocblas_is_device_memory_size_query(handle))
+            return rocblas_set_optimal_device_memory_size(handle, size_work);
+
+        // memory workspace allocation
+        rocblas_device_malloc mem(handle, size_work);
+
+        if(!mem)
+            return rocblas_status_memory_error;
+
+        work = (void*)mem[0];
+    }
+    std::byte* const pwork = (std::byte*)work;
+    std::byte* pfree = pwork;
 
     // ----------
     // reset info
@@ -494,11 +697,6 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
     ROCSOLVER_LAUNCH_KERNEL(reset_info, dim3(ceil(batch_count, BS1), 1, 1), dim3(BS1, 1, 1), 0,
                             stream, info, batch_count, 0);
-
-    void* work = nullptr;
-    size_t size_work = 0;
-    std::byte* const pwork = (std::byte*)work;
-    std::byte* pfree = pwork;
 
 #ifndef CHECK_MEM
 #define CHECK_MEM(pfree)                                       \
@@ -547,16 +745,11 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     // ----------------
     {
         char const uplo = 'A';
-        // XXX: use standard copying kernels
-        // lacpy<rocblas_int, Istride>(handle, uplo, nrows_A, ncols_A,
-        //                   A, shiftA, lda, strideA,
-        //                   A_lu, shiftA_lu, ldA_lu, strideA_lu,
-        //                   batch_count);
+        lacpy<I, Istride>(handle, uplo, nrows_A, ncols_A, A, shiftA, lda, strideA, A_lu, shiftA_lu,
+                          ldA_lu, strideA_lu, batch_count);
 
-        // lacpy<I, Istride>(handle, uplo, nrows_B, ncols_B,
-        //                   B, shiftB, ldb, strideB,
-        //                   B_lu, shiftB_lu, ldB_lu, strideB_lu,
-        //                   batch_count);
+        lacpy<I, Istride>(handle, uplo, nrows_B, ncols_B, B, shiftB, ldb, strideB, B_lu, shiftB_lu,
+                          ldB_lu, strideB_lu, batch_count);
     }
 
     // ------------------------
@@ -689,6 +882,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
             use_pivot));
     }; // end solve_rhs()
 
+    solve_rhs();
+
     {
         auto const istat = solve_rhs();
         if(istat != rocblas_status_success)
@@ -702,12 +897,9 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     // --------------------
     {
         char const uplo = 'A';
-        // XXX: use standard kernels
 
-        // lacpy(handle, uplo, nrows_B, ncols_B,
-        //       B_lu, shiftB_lu, ldB_lu, strideB_lu,
-        //       X, shiftX, ldx, strideX,
-        //       batch_count);
+        lacpy<I, Istride>(handle, uplo, nrows_B, ncols_B, B_lu, shiftB_lu, ldB_lu, strideB_lu, X,
+                          shiftX, ldx, strideX, batch_count);
     }
     // ---------------------
     // compute R = B - A * X
@@ -1018,7 +1210,6 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                   batch_count);
         }
 
-        // XXX: not sure what this is doing
         {
             auto const istat = rocsolver_gesv_template<BATCHED, STRIDED, T>(
                 handle, n, nrhs,
@@ -1126,6 +1317,7 @@ rocblas_status rocsolver_gesv_ex_impl(rocblas_handle handle,
 }
 
 #undef CHECK_MEM
+#undef HIP_CHECK
 ROCSOLVER_END_NAMESPACE
 
 /*
