@@ -34,6 +34,8 @@
 #include "roclapack_getrf_mxp.hpp"
 #include "roclapack_getrs.hpp"
 
+#include "auxiliary/rocauxiliary_geadd.hpp"
+
 ROCSOLVER_BEGIN_NAMESPACE
 
 #ifndef HIP_CHECK
@@ -41,6 +43,17 @@ ROCSOLVER_BEGIN_NAMESPACE
     {                                \
         auto const istat = (fcn);    \
         assert(istat == hipSuccess); \
+    }
+#endif
+
+#ifndef ROCBLAS_CHECK
+#define ROCBLAS_CHECK(fcn)                  \
+    {                                       \
+        auto const istat = (fcn);           \
+        if(istat != rocblas_status_success) \
+        {                                   \
+            return (istat);                 \
+        };                                  \
     }
 #endif
 // The following traits enforce that homogenous computation is viable if
@@ -466,8 +479,14 @@ __global__ static void check_convergence_kernel(I const n,
 
         for(I irhs = irhs_start; irhs < nrhs; irhs += irhs_inc)
         {
-            double xmax = 0;
-            double rmax = 0;
+            double xmax_[1];
+            double rmax_[1];
+            double& xmax = xmax_[0];
+            double& rmax = rmax_[0];
+
+            xmax = 0.0;
+            rmax = 0.0;
+
             for(I i = i_start; i < n; i += i_inc)
             {
                 auto const xi = Xp[idx2D(i, irhs, ldx)];
@@ -484,8 +503,8 @@ __global__ static void check_convergence_kernel(I const n,
             // perform max reduction
             // the answer is in the [0] position
             // ---------------------------------
-            auto max_reduce = [=](auto& xmax) {
-                ldmem[tid] = xmax;
+            auto max_reduce = [=](auto& xval) {
+                ldmem[tid] = xval;
                 __syncthreads();
 
                 for(I gap = nthreads / 2; gap > 0; gap = gap / 2)
@@ -497,7 +516,7 @@ __global__ static void check_convergence_kernel(I const n,
                     __syncthreads();
                 }
                 __syncthreads();
-                xmax = ldmem[0];
+                xval = ldmem[0];
                 __syncthreads();
             };
 
@@ -506,6 +525,8 @@ __global__ static void check_convergence_kernel(I const n,
 
             if(tid == 0)
             {
+                printf("irhs=%d, rmax=%le, xmax=%le\n", irhs, rmax, xmax);
+
                 if(rmax > xmax * tol)
                 {
                     non_converged++;
@@ -657,7 +678,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     using Slu = decltype(std::real(LU{}));
 
     // XXX: need to pass in Treduced whether to use BF16 or FP16?
-    using Treduced = rocblas_bfloat16;
+    using Treduced = LU;
 
     double const tol_default = std::numeric_limits<Sfull>::epsilon() * n;
 
@@ -844,8 +865,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     // ------------------------------------
 
     // XXX: this is probably too big for a lambda
-    auto solve_rhs = [=]() {
-        auto pfree_local = pfree;
+    auto solve_rhs = [=, &pfree]() -> rocblas_status {
+        auto const pfree_saved = pfree;
 
         rocblas_int const inca = 1;
         rocblas_int const incb = 1;
@@ -865,32 +886,28 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                                                             &size_work1, &size_work2, &size_work3,
                                                             &size_work4, &optim_mem);
 
-        LU* const work1 = (LU*)pfree_local;
-        pfree_local += size_work1;
-        LU* const work2 = (LU*)pfree_local;
-        pfree_local += size_work2;
-        LU* const work3 = (LU*)pfree_local;
-        pfree_local += size_work3;
-        LU* const work4 = (LU*)pfree_local;
-        pfree_local += size_work4;
+        LU* const work1 = (LU*)pfree;
+        pfree += size_work1;
+        LU* const work2 = (LU*)pfree;
+        pfree += size_work2;
+        LU* const work3 = (LU*)pfree;
+        pfree += size_work3;
+        LU* const work4 = (LU*)pfree;
+        pfree += size_work4;
 
-        CHECK_MEM(pfree_local);
+        CHECK_MEM(pfree);
 
-        return (rocsolver_getrs_template<BATCHED, STRIDED, LU>(
+        auto const istat = (rocsolver_getrs_template<BATCHED, STRIDED, LU>(
             handle, trans, n, nrhs, A_lu, shiftA_lu, inca, ldA_lu, strideA_lu, ipiv, strideP, B_lu,
             shiftB_lu, incb, ldB_lu, strideB_lu, batch_count, work1, work2, work3, work4, optim_mem,
             use_pivot));
+
+        pfree = pfree_saved;
+
+        return (istat);
     }; // end solve_rhs()
 
-    solve_rhs();
-
-    {
-        auto const istat = solve_rhs();
-        if(istat != rocblas_status_success)
-        {
-            return (istat);
-        }
-    }
+    ROCBLAS_CHECK(solve_rhs());
 
     // --------------------
     // convert solution back to T
@@ -923,41 +940,46 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     // compute residual using the latest version of X
     // the residual matrix R will be updated
     // ----------------------------------------------
-    auto compute_residual = [=] {
+    auto compute_residual = [=, &pfree]() -> rocblas_status {
         // ----------
         // (1) R <- B
         // ----------
         {
             char const uplo = 'A';
-            // lacpy(handle, uplo, n, nrhs,
-            //       B, shiftB, ldb, strideB,
-            //       R, shiftR, ldr, strideR,
-            //       batch_count);
+            lacpy(handle, uplo, n, nrhs, B, shiftB, ldb, strideB, R, shiftR, ldr, strideR,
+                  batch_count);
         }
 
         // ------------------
         // (2) R <- R - A * X
         // ------------------
-        {
-            T alpha = -1;
-            T beta = 1;
+        T alpha = -1;
+        T beta = 1;
 
-            rocblas_int const mm = nrows_R;
-            rocblas_int const nn = ncols_R;
-            rocblas_int const kk = ncols_A;
+        rocblas_int const mm = nrows_R;
+        rocblas_int const nn = ncols_R;
+        rocblas_int const kk = ncols_A;
 
-            rocblas_operation const trans1 = rocblas_operation_none;
-            rocblas_operation const trans2 = rocblas_operation_none;
+        rocblas_operation const trans1 = rocblas_operation_none;
+        rocblas_operation const trans2 = rocblas_operation_none;
 
-            rocblas_status istat = rocblasCall_gemm<T>(
-                handle, trans1, trans2, mm, nn, kk, &alpha, A, shiftA, lda, strideA, X, shiftX, ldx,
-                strideX, &beta, R, shiftR, ldr, strideR, batch_count, (T**)pfree);
+        size_t size_work_gemm = sizeof(T*) * batch_count;
+        T** work_gemm = (T**)pfree;
 
-            assert(istat == rocblas_status_success);
-        }
+        pfree += size_work_gemm;
+
+        CHECK_MEM(pfree);
+
+        auto const istat = rocblasCall_gemm<T>(handle, trans1, trans2, mm, nn, kk, &alpha, A,
+                                               shiftA, lda, strideA, X, shiftX, ldx, strideX, &beta,
+                                               R, shiftR, ldr, strideR, batch_count, work_gemm);
+
+        pfree = pfree - size_work_gemm;
+
+        return (istat);
     }; // end compute_residual()
 
-    compute_residual();
+    ROCBLAS_CHECK(compute_residual());
 
     rocblas_stride iter = 0;
     int is_all_converged = false;
@@ -971,9 +993,22 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         check_convergence(handle, n, nrhs, X, shiftX, ldx, strideX, R, shiftR, ldr, strideR,
                           batch_count, tol, d_is_all_converged);
 
-        HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(int),
-                                 hipMemcpyDeviceToHost, stream));
-        HIP_CHECK(hipStreamSynchronize(stream));
+        {
+            auto const istat_memcpy = hipMemcpyAsync(&is_all_converged, d_is_all_converged,
+                                                     sizeof(int), hipMemcpyDeviceToHost, stream);
+            if(istat_memcpy != hipSuccess)
+            {
+                return (rocblas_status_internal_error);
+            }
+        }
+
+        {
+            auto const istat_sync = hipStreamSynchronize(stream);
+            if(istat_sync != hipSuccess)
+            {
+                return (rocblas_status_internal_error);
+            }
+        }
 
         pfree = pfree - sizeof(int);
     }
@@ -1005,19 +1040,13 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // solve for "dx" correction
         // answer over-writes B_lu
         // -------------------------
-        {
-            auto const istat = solve_rhs();
-            if(istat != rocblas_status_success)
-            {
-                return (istat);
-            }
-        }
+        ROCBLAS_CHECK(solve_rhs());
 
         // ------------
         // update X <-  X + dx
         // dx is stored in B_lu
         // ------------
-        auto update_X = [=] {
+        auto update_X = [=]() -> rocblas_status {
             // ------------------
             // update X <- X + dx
             // (1) R <- dx
@@ -1041,33 +1070,33 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                 // --------------
                 // (2) X <- X + R
                 // --------------
-                rocblas_stride stride_alpha = 0;
-                T alpha = 1;
-                rocblas_int const inc1 = 1;
-                rocblas_int const inc2 = 1;
 
-                // XXX: this should probably be a bespoke kernel
-                for(rocblas_int irhs = 0; irhs < nrhs; irhs++)
-                {
-                    rocblas_status istat = rocblas_status_success;
-                    // auto const istat
-                    //     = rocblasCall_axpy(handle,
-                    //                        n, &alpha, stride_alpha,
-                    //                        R, shiftR, inc1, strideR,
-                    //                        X + idx2D(0, irhs, ldx), shiftX, inc2, strideX,
-                    //                        batch_count);
-                    assert(istat == rocblas_status_success);
-                } // end for irhs
+                char const trans = 'N';
+                T const alpha = 1;
+                T const beta = 1;
+                ROCBLAS_CHECK(rocsolver_geadd_template(handle, trans, nrows_R, ncols_R,
+
+                                                       alpha,
+
+                                                       R, shiftR, ldr, strideR,
+
+                                                       beta,
+
+                                                       X, shiftX, ldx, strideX,
+
+                                                       batch_count));
             }
+
+            return (rocblas_status_success);
         }; // end update_X()
 
-        update_X();
+        ROCBLAS_CHECK(update_X());
 
         // ---------------
         // compute residual R
         // using latest version of X
         // ---------------
-        compute_residual();
+        ROCBLAS_CHECK(compute_residual());
 
         // ---------
         // B_lu <- R
@@ -1087,7 +1116,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // compute correction "dx"
         // dx over-writes B_lu
         // -----------------------
-        solve_rhs();
+        ROCBLAS_CHECK(solve_rhs());
 
         // -----------------
         // check convergence
@@ -1318,6 +1347,7 @@ rocblas_status rocsolver_gesv_ex_impl(rocblas_handle handle,
 
 #undef CHECK_MEM
 #undef HIP_CHECK
+#undef ROCBLAS_CHECK
 ROCSOLVER_END_NAMESPACE
 
 /*
