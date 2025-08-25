@@ -793,20 +793,16 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     size_t size_work = 0;
     rocsolver_gesv_mxp_getMemorySize<Tfull, LU, Treduced, rocblas_int>(n, nrhs, batch_count,
                                                                        &size_work);
-    void* work = nullptr;
+    if(rocblas_is_device_memory_size_query(handle))
+        return rocblas_set_optimal_device_memory_size(handle, size_work);
 
-    {
-        if(rocblas_is_device_memory_size_query(handle))
-            return rocblas_set_optimal_device_memory_size(handle, size_work);
+    // memory workspace allocation
+    rocblas_device_malloc mem(handle, size_work);
 
-        // memory workspace allocation
-        rocblas_device_malloc mem(handle, size_work);
+    if(!mem)
+        return rocblas_status_memory_error;
 
-        if(!mem)
-            return rocblas_status_memory_error;
-
-        work = (void*)mem[0];
-    }
+    void* work = mem[0];
     std::byte* const pwork = (std::byte*)work;
     std::byte* pfree = pwork;
 
