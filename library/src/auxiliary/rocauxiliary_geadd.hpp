@@ -85,7 +85,7 @@ __global__ static void geadd_kernel(char trans,
     I const bid_inc = gridDim.z;
 
     bool const is_conj_transpose = (trans == 'C') || (trans == 'c');
-    bool const is_transpose = (trans == 'N') || (trans == 'n');
+    bool const is_transpose = (trans == 'T') || (trans == 't');
     bool const is_no_transpose = (!is_transpose) && (!is_conj_transpose);
 
     auto idx2D = [](auto i, auto j, auto ld) { return (i + j * static_cast<int64_t>(ld)); };
