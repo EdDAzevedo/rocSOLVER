@@ -105,9 +105,9 @@ rocblas_status rocsolver_gesv_ex_homogenous(rocblas_handle handle,
     rocblas_int shiftB = 0;
 
     // normal (non-batched non-strided) execution
-    rocblas_stride strideA = 0;
-    rocblas_stride strideB = 0;
-    rocblas_stride strideP = 0;
+    rocblas_stride strideA = rocblas_stride{lda} * n;
+    rocblas_stride strideB = rocblas_stride{ldb} * nrhs;
+    rocblas_stride strideP = n;
     rocblas_int batch_count = 1;
 
     // memory workspace sizes:
@@ -309,7 +309,17 @@ static void rocsolver_gesv_mxp_getMemorySize(const I n,
 
     {
         // ----------------
+        // storage for GEMM
+        // for computing R <- B - A * X
+        // ----------------
+        size_t const size_gemm = sizeof(T*) * batch_count;
+        size_work += size_gemm;
+    }
+
+    {
+        // ----------------
         // storage for GESV
+        // as fall-back solver
         // ----------------
 
         bool constexpr BATCHED = false;
@@ -626,8 +636,8 @@ static rocblas_status check_convergence_host(rocblas_handle handle,
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
 
-    std::vector<T> h_X(strideX * batch_count);
-    std::vector<T> h_R(strideR * batch_count);
+    std::vector<T> h_X((batch_count == 1) ? (ldx * nrhs) : strideX * batch_count);
+    std::vector<T> h_R((batch_count == 1) ? (ldr * nrhs) : strideR * batch_count);
 
     assert(shiftX == 0);
     assert(shiftR == 0);
@@ -766,7 +776,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     using Slu = decltype(std::real(LU{}));
 
     // XXX: need to pass in Treduced whether to use BF16 or FP16?
-    using Treduced = LU;
+    using Treduced = rocblas_bfloat16;
 
     double const tol_default = std::numeric_limits<Sfull>::epsilon() * n;
 
@@ -834,12 +844,14 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     rocblas_int const ldB_lu = nrows_B;
     rocblas_stride const strideB_lu = ldB_lu * ncols_B;
     size_t const size_B_lu = sizeof(LU) * strideB_lu * batch_count;
+
     LU* const B_lu = (LU*)pfree;
     pfree += size_B_lu;
 
     rocblas_int const ldA_lu = nrows_A;
     rocblas_stride const strideA_lu = ldA_lu * ncols_A;
     size_t const size_A_lu = sizeof(LU) * strideA_lu * batch_count;
+
     LU* const A_lu = (LU*)pfree;
     pfree += size_A_lu;
 
@@ -854,11 +866,21 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     // ----------------
     {
         char const uplo = 'A';
-        lacpy<I, Istride>(handle, uplo, nrows_A, ncols_A, A, shiftA, lda, strideA, A_lu, shiftA_lu,
-                          ldA_lu, strideA_lu, batch_count);
+        ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_A, ncols_A,
 
-        lacpy<I, Istride>(handle, uplo, nrows_B, ncols_B, B, shiftB, ldb, strideB, B_lu, shiftB_lu,
-                          ldB_lu, strideB_lu, batch_count);
+                                               A, shiftA, lda, strideA,
+
+                                               A_lu, shiftA_lu, ldA_lu, strideA_lu,
+
+                                               batch_count));
+
+        ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_B, ncols_B,
+
+                                               B, shiftB, ldb, strideB,
+
+                                               B_lu, shiftB_lu, ldB_lu, strideB_lu,
+
+                                               batch_count));
     }
 
     // ------------------------
@@ -877,9 +899,16 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         rocblas_stride shiftP = 0;
         bool const use_pivot = true;
 
-        auto const istat = rocsolver_getrf_mxp_template<LU, LU>(
-            handle, nrows_A, ncols_A, A_lu, shiftA_lu, inca, ldA_lu, strideA_lu, ipiv, shiftP,
-            strideP, info, batch_count, use_pivot, pfree, size_remain);
+        auto const istat
+            = rocsolver_getrf_mxp_template<LU, Treduced>(handle, nrows_A, ncols_A,
+
+                                                         A_lu, shiftA_lu, inca, ldA_lu, strideA_lu,
+
+                                                         ipiv, shiftP, strideP,
+
+                                                         info, batch_count, use_pivot,
+
+                                                         pfree, size_remain);
 
         if(istat != rocblas_status_success)
         {
@@ -939,10 +968,14 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
         CHECK_MEM(pfree);
 
-        rocsolver_getrf_template<BATCHED, STRIDED, LU>(
-            handle, n, n, A_lu, shiftA_lu, inca, ldA_lu, strideA_lu, ipiv, shiftP, strideP, info,
-            batch_count, scalars, work1, work2, work3, work4, pivotval, pivotidx, iipiv, iinfo,
-            optim_mem, use_pivot);
+        rocsolver_getrf_template<BATCHED, STRIDED, LU>(handle, n, n,
+
+                                                       A_lu, shiftA_lu, inca, ldA_lu, strideA_lu,
+
+                                                       ipiv, shiftP, strideP, info, batch_count,
+
+                                                       scalars, work1, work2, work3, work4, pivotval,
+                                                       pivotidx, iipiv, iinfo, optim_mem, use_pivot);
 
         pfree = pfree_saved;
     }
@@ -1003,8 +1036,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     {
         char const uplo = 'A';
 
-        lacpy<I, Istride>(handle, uplo, nrows_B, ncols_B, B_lu, shiftB_lu, ldB_lu, strideB_lu, X,
-                          shiftX, ldx, strideX, batch_count);
+        ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_B, ncols_B, B_lu, shiftB_lu, ldB_lu,
+                                               strideB_lu, X, shiftX, ldx, strideX, batch_count));
     }
     // ---------------------
     // compute R = B - A * X
@@ -1034,8 +1067,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // ----------
         {
             char const uplo = 'A';
-            lacpy(handle, uplo, n, nrhs, B, shiftB, ldb, strideB, R, shiftR, ldr, strideR,
-                  batch_count);
+            ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, n, nrhs, B, shiftB, ldb, strideB,
+                                                   R, shiftR, ldr, strideR, batch_count));
         }
 
         // ------------------
@@ -1058,9 +1091,17 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
         CHECK_MEM(pfree);
 
-        auto const istat = rocblasCall_gemm<T>(handle, trans1, trans2, mm, nn, kk, &alpha, A,
-                                               shiftA, lda, strideA, X, shiftX, ldx, strideX, &beta,
-                                               R, shiftR, ldr, strideR, batch_count, work_gemm);
+        auto const istat = rocblasCall_gemm<T>(handle, trans1, trans2, mm, nn, kk, &alpha,
+
+                                               A, shiftA, lda, strideA,
+
+                                               X, shiftX, ldx, strideX,
+
+                                               &beta,
+
+                                               R, shiftR, ldr, strideR,
+
+                                               batch_count, work_gemm);
 
         pfree = pfree - size_work_gemm;
 
@@ -1118,13 +1159,13 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // ---------------------------
         {
             char const uplo = 'A';
-            lacpy(handle, uplo, nrows_R, ncols_R,
+            ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_R, ncols_R,
 
-                  R, shiftR, ldr, strideR,
+                                                   R, shiftR, ldr, strideR,
 
-                  B_lu, shiftB_lu, ldB_lu, strideB_lu,
+                                                   B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
-                  batch_count);
+                                                   batch_count));
         }
 
         // -------------------------
@@ -1148,13 +1189,13 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                 // (1) R <- dx
                 // -----------
                 char const uplo = 'A';
-                lacpy(handle, uplo, nrows_R, ncols_R,
+                ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_R, ncols_R,
 
-                      B_lu, shiftB_lu, ldB_lu, strideB_lu,
+                                                       B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
-                      R, shiftR, ldr, strideR,
+                                                       R, shiftR, ldr, strideR,
 
-                      batch_count);
+                                                       batch_count));
             }
 
             {
@@ -1194,13 +1235,13 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // ---------
         {
             char const uplo = 'A';
-            lacpy(handle, uplo, nrows_B, ncols_B,
+            ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_B, ncols_B,
 
-                  R, shiftR, ldr, strideR,
+                                                   R, shiftR, ldr, strideR,
 
-                  B_lu, shiftB_lu, ldB_lu, strideB_lu,
+                                                   B_lu, shiftB_lu, ldB_lu, strideB_lu,
 
-                  batch_count);
+                                                   batch_count));
         }
 
         // -----------------------
@@ -1340,33 +1381,35 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
         // ------
         {
             auto const uplo = 'A';
-            lacpy(handle, uplo, nrows_B, ncols_B,
+            ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_B, ncols_B,
 
-                  B, shiftB, ldb, strideB,
+                                                   B, shiftB, ldb, strideB,
 
-                  X, shiftX, ldx, strideX,
+                                                   X, shiftX, ldx, strideX,
 
-                  batch_count);
+                                                   batch_count));
         }
 
-        auto const istat = (rocsolver_gesv_template<BATCHED, STRIDED, T>(
-            handle, n, nrhs,
-
-            A, shiftA, lda, strideA,
-
-            ipiv, strideP,
-
-            X, shiftX, ldx, strideX,
-
-            info, batch_count,
-
-            scalars, work0, work1, work2, work3, work4,
-
-            pivotval, pivotidx, iipiv, iinfo, optim_mem));
-        if(istat != rocblas_status_success)
         {
-            return (istat);
-        };
+            auto const istat = (rocsolver_gesv_template<BATCHED, STRIDED, T>(
+                handle, n, nrhs,
+
+                A, shiftA, lda, strideA,
+
+                ipiv, strideP,
+
+                X, shiftX, ldx, strideX,
+
+                info, batch_count,
+
+                scalars, work0, work1, work2, work3, work4,
+
+                pivotval, pivotidx, iipiv, iinfo, optim_mem));
+            if(istat != rocblas_status_success)
+            {
+                return (istat);
+            };
+        }
     }
 
     return (rocblas_status_success);

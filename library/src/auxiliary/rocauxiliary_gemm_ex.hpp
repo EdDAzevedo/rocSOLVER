@@ -480,21 +480,23 @@ static rocblas_status rocblasCall_gemm_strided_batched_ex_impl(rocblas_handle ha
     {
         char const uplo = 'A';
 
-        lacpy(handle, uplo, nrows_A, ncols_A,
+        ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_A, ncols_A,
 
-              A, shift_A, ld_A, stride_A,
+                                               A, shift_A, ld_A, stride_A,
 
-              A_re_chop, shift_A_re_chop, ldA_re_chop, stride_A_re_chop,
+                                               A_re_chop, shift_A_re_chop, ldA_re_chop,
+                                               stride_A_re_chop,
 
-              batch_count);
+                                               batch_count));
 
-        lacpy(handle, uplo, nrows_B, ncols_B,
+        ROCBLAS_CHECK(rocsolver_lacpy_template(handle, uplo, nrows_B, ncols_B,
 
-              B, shift_B, ld_B, stride_B,
+                                               B, shift_B, ld_B, stride_B,
 
-              B_re_chop, shift_B_re_chop, ldB_re_chop, stride_B_re_chop,
+                                               B_re_chop, shift_B_re_chop, ldB_re_chop,
+                                               stride_B_re_chop,
 
-              batch_count);
+                                               batch_count));
     }
 
     // ----------------------------------------------

@@ -43,14 +43,6 @@
 
 ROCSOLVER_BEGIN_NAMESPACE
 
-#ifndef HIP_CHECK
-#define HIP_CHECK(fcn)               \
-    {                                \
-        auto const istat = (fcn);    \
-        assert(istat == hipSuccess); \
-    }
-#endif
-
 // ---------------------------------
 // copy lower or upper or full
 // m by n submatrix from A to C
@@ -218,27 +210,27 @@ __global__ static void lacpy_kernel(char const uplo,
 }
 
 template <typename I, typename Istride, typename AA, typename CC>
-static void lacpy(rocblas_handle handle,
-                  char const uplo,
-                  I const m,
-                  I const n,
+static rocblas_status rocsolver_lacpy_template(rocblas_handle handle,
+                                               char const uplo,
+                                               I const m,
+                                               I const n,
 
-                  AA A,
-                  Istride const shiftA,
-                  I const lda,
-                  Istride const strideA,
+                                               AA A,
+                                               Istride const shiftA,
+                                               I const lda,
+                                               Istride const strideA,
 
-                  CC C,
-                  Istride const shiftC,
-                  I const ldc,
-                  Istride const strideC,
+                                               CC C,
+                                               Istride const shiftC,
+                                               I const ldc,
+                                               Istride const strideC,
 
-                  I const batch_count)
+                                               I const batch_count)
 {
     bool const has_work = (m >= 1) && (n >= 1) && (batch_count >= 1);
     if(!has_work)
     {
-        return;
+        return (rocblas_status_success);
     }
 
     hipStream_t stream;
@@ -261,7 +253,7 @@ static void lacpy(rocblas_handle handle,
                                                               C, shiftC, ldc, strideC,
 
                                                               batch_count);
+    return (rocblas_status_success);
 }
 
-#undef HIP_CHECK
 ROCSOLVER_END_NAMESPACE
