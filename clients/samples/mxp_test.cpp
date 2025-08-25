@@ -285,7 +285,7 @@ int main(int argc, char** argv)
                     l_2_b = sqrt(l_2_b);
                     printf("B norm L2=%e, B=%e\n", l_2_b, l_inf_b);
 
-                    printf("R norm / B norm L2=%e, B=%e\n", l_2_b / l_2_r, l_inf_b / l_inf_r);
+                    printf("R norm / B norm L2=%e, B=%e\n", l_2_r / l_2_b, l_inf_r / l_inf_b);
                 }
             }
         }
