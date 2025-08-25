@@ -39,10 +39,13 @@
 ROCSOLVER_BEGIN_NAMESPACE
 
 #ifndef HIP_CHECK
-#define HIP_CHECK(fcn)               \
-    {                                \
-        auto const istat = (fcn);    \
-        assert(istat == hipSuccess); \
+#define HIP_CHECK(fcn)                              \
+    {                                               \
+        auto const istat = (fcn);                   \
+        if(istat != hipSuccess)                     \
+        {                                           \
+            return (rocblas_status_internal_error); \
+        };                                          \
     }
 #endif
 
@@ -553,24 +556,24 @@ __global__ static void check_convergence_kernel(I const n,
 
 // check for convergence
 template <typename T>
-static void check_convergence(rocblas_handle handle,
-                              rocblas_int const n,
-                              rocblas_int const nrhs,
+static rocblas_status check_convergence(rocblas_handle handle,
+                                        rocblas_int const n,
+                                        rocblas_int const nrhs,
 
-                              T* X,
-                              rocblas_stride const shiftX,
-                              rocblas_int const ldx,
-                              rocblas_stride const strideX,
+                                        T* X,
+                                        rocblas_stride const shiftX,
+                                        rocblas_int const ldx,
+                                        rocblas_stride const strideX,
 
-                              T* R,
-                              rocblas_stride const shiftR,
-                              rocblas_int const ldr,
-                              rocblas_stride const strideR,
+                                        T* R,
+                                        rocblas_stride const shiftR,
+                                        rocblas_int const ldr,
+                                        rocblas_stride const strideR,
 
-                              rocblas_int const batch_count,
-                              double tol,
+                                        rocblas_int const batch_count,
+                                        double tol,
 
-                              int* d_is_converged)
+                                        int* d_is_converged)
 {
     hipStream_t stream;
     rocblas_get_stream(handle, &stream);
@@ -583,9 +586,8 @@ static void check_convergence(rocblas_handle handle,
         // set initial value for d_is_converged
         // ------------------------------------
         int is_converged = true;
-        auto const istat = hipMemcpyAsync(d_is_converged, &is_converged, sizeof(int),
-                                          hipMemcpyHostToDevice, stream);
-        assert(istat == hipSuccess);
+        HIP_CHECK(hipMemcpyAsync(d_is_converged, &is_converged, sizeof(int), hipMemcpyHostToDevice,
+                                 stream));
     }
 
     check_convergence_kernel<T><<<dim3(1, nrhs, batch_count), dim3(nx, 1, 1), ldsize, stream>>>(
@@ -596,6 +598,8 @@ static void check_convergence(rocblas_handle handle,
         R, shiftR, ldr, strideR,
 
         batch_count, tol, d_is_converged);
+
+    return (rocblas_status_success);
 }
 
 // The following traits allow selecting a reduced precision companion type for a given compute type
@@ -981,7 +985,6 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
     ROCBLAS_CHECK(compute_residual());
 
-    rocblas_stride iter = 0;
     int is_all_converged = false;
 
     {
@@ -990,37 +993,32 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
         CHECK_MEM(pfree);
 
-        check_convergence(handle, n, nrhs, X, shiftX, ldx, strideX, R, shiftR, ldr, strideR,
-                          batch_count, tol, d_is_all_converged);
+        ROCBLAS_CHECK(check_convergence(handle, n, nrhs, X, shiftX, ldx, strideX, R, shiftR, ldr,
+                                        strideR, batch_count, tol, d_is_all_converged));
 
-        {
-            auto const istat_memcpy = hipMemcpyAsync(&is_all_converged, d_is_all_converged,
-                                                     sizeof(int), hipMemcpyDeviceToHost, stream);
-            if(istat_memcpy != hipSuccess)
-            {
-                return (rocblas_status_internal_error);
-            }
-        }
-
-        {
-            auto const istat_sync = hipStreamSynchronize(stream);
-            if(istat_sync != hipSuccess)
-            {
-                return (rocblas_status_internal_error);
-            }
-        }
+        HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(int),
+                                 hipMemcpyDeviceToHost, stream));
+        HIP_CHECK(hipStreamSynchronize(stream));
 
         pfree = pfree - sizeof(int);
     }
 
     if(is_all_converged)
     {
-        *niter = iter;
-        *info = 0;
+        *niter = 0;
+
+        // -------------
+        // set *info = 0
+        // -------------
+        rocblas_int h_info = 0;
+        HIP_CHECK(hipMemcpyAsync(info, &h_info, sizeof(rocblas_int), hipMemcpyHostToDevice, stream));
+        HIP_CHECK(hipStreamSynchronize(stream));
+
         return (rocblas_status_success);
     }
 
-    for(rocblas_int iter = 0; iter < max_iter; iter++)
+    rocblas_int iter = 0;
+    for(iter = 0; iter < max_iter; iter++)
     {
         // ---------------------------
         // convert R from FP64 to FP32
@@ -1130,16 +1128,17 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
             CHECK_MEM(pfree);
 
-            check_convergence(handle, n, nrhs,
+            ROCBLAS_CHECK(check_convergence(handle, n, nrhs,
 
-                              X, shiftX, ldx, strideX,
+                                            X, shiftX, ldx, strideX,
 
-                              R, shiftR, ldr, strideR,
+                                            R, shiftR, ldr, strideR,
 
-                              batch_count, tol, d_is_all_converged);
+                                            batch_count, tol, d_is_all_converged));
 
             HIP_CHECK(hipMemcpyAsync(&is_all_converged, d_is_all_converged, sizeof(int),
                                      hipMemcpyDeviceToHost, stream));
+
             HIP_CHECK(hipStreamSynchronize(stream));
 
             pfree = pfree - sizeof(int);
@@ -1147,8 +1146,13 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
 
         if(is_all_converged)
         {
-            *info = 0;
             *niter = iter;
+
+            rocblas_int h_info = 0;
+            HIP_CHECK(
+                hipMemcpyAsync(info, &h_info, sizeof(rocblas_int), hipMemcpyHostToDevice, stream));
+            HIP_CHECK(hipStreamSynchronize(stream));
+
             return (rocblas_status_success);
         }
 
@@ -1239,27 +1243,24 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
                   batch_count);
         }
 
+        auto const istat = (rocsolver_gesv_template<BATCHED, STRIDED, T>(
+            handle, n, nrhs,
+
+            A, shiftA, lda, strideA,
+
+            ipiv, strideP,
+
+            X, shiftX, ldx, strideX,
+
+            info, batch_count,
+
+            scalars, work0, work1, work2, work3, work4,
+
+            pivotval, pivotidx, iipiv, iinfo, optim_mem));
+        if(istat != rocblas_status_success)
         {
-            auto const istat = rocsolver_gesv_template<BATCHED, STRIDED, T>(
-                handle, n, nrhs,
-
-                A, shiftA, lda, strideA,
-
-                ipiv, strideP,
-
-                X, shiftX, ldx, strideX,
-
-                info, batch_count,
-
-                scalars, work0, work1, work2, work3, work4,
-
-                pivotval, pivotidx, iipiv, iinfo, optim_mem);
-
-            if(istat != rocblas_status_success)
-            {
-                return (istat);
-            }
-        }
+            return (istat);
+        };
     }
 
     return (rocblas_status_success);
