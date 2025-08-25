@@ -218,8 +218,14 @@ int main(int argc, char** argv)
                 {
                     // also check convergence of dev solution while we're here
 
-                    // original kkr is A
-                    auto& A = kkrmat_data_device;
+                    // recopy A from host
+                    gpubuf_t<rocblas_double_complex> A;
+                    if(A.alloc(kkrmat_data_device.size()) != hipSuccess)
+                        throw std::runtime_error("failed to alloc A");
+                    if(hipMemcpy(A.data(), kkrmat_data_host.get(), kkrmat.getInMemDataSize(),
+                                 hipMemcpyHostToDevice))
+                        throw std::runtime_error("failed to recopy A");
+
                     // reconstruct B from padded tmat
                     gpubuf_t<rocblas_double_complex> B;
                     if(B.alloc(tmat_data_device.size()) != hipSuccess)
