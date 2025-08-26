@@ -92,7 +92,7 @@ __global__ static void geadd_kernel(char trans,
 
     bool constexpr is_complex = rocblas_is_complex<T>;
 
-    bool const zero = 0.0;
+    T const zero = 0.0;
     bool const is_beta_zero = (beta == zero);
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
