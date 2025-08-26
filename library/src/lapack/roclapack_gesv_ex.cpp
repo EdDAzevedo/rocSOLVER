@@ -1434,7 +1434,7 @@ struct gesv_mxp_lu_call
     {
         if constexpr(gesv_ex_mxp_lu_accepts<TA, TB, TX, Tc>)
         {
-            bool use_pivot = false;
+            bool use_pivot = true;
             // no batched/strided support yet
             rocblas_int batch_count = 1;
             rocblas_stride shiftA = 0, strideA = rocblas_stride{lda} * n;
