@@ -111,6 +111,10 @@ int main(int argc, char** argv)
        != hipSuccess)
         throw std::runtime_error("failed to hipmalloc t");
 
+    gpubuf_t<rocblas_double_complex> solution_device;
+    if(solution_device.alloc(tmat_data_device.size()) != hipSuccess)
+        throw std::runtime_error("failed to hipmalloc solution");
+
     gpubuf_t<rocblas_int> ipiv;
     if(ipiv.alloc(sizeof(rocblas_int) * kkrmat_dims[0]) != hipSuccess)
         throw std::runtime_error("failed to hipmalloc ipiv");
@@ -130,6 +134,7 @@ int main(int argc, char** argv)
 
     std::unique_ptr<rocblas_double_complex[]> ref_output;
     std::unique_ptr<rocblas_double_complex[]> dev_output;
+    const rocblas_double_complex* solution_ptr = nullptr;
 
     for(size_t i = 0; i < ntrial; ++i)
     {
@@ -168,6 +173,7 @@ int main(int argc, char** argv)
                 status = ref_zgesv(handle, kkrmat_dims[0], tmat_dims[0], kkrmat_data_device.data(),
                                    kkrmat_dims[1], ipiv.data(), tmat_data_device.data(),
                                    kkrmat_dims[1], info.data());
+                solution_ptr = tmat_data_device.data();
             }
             else
             {
@@ -178,9 +184,10 @@ int main(int argc, char** argv)
                                      kkrmat_data_device.data(), rocblas_datatype_f64_c,
 
                                      kkrmat_dims[1], ipiv.data(), tmat_data_device.data(),
-                                     rocblas_datatype_f64_c, kkrmat_dims[1], tmat_data_device.data(),
+                                     rocblas_datatype_f64_c, kkrmat_dims[1], solution_device.data(),
                                      rocblas_datatype_f64_c, kkrmat_dims[1], max_iter, tol, &niter,
                                      rocblas_datatype_f32_c, info.data());
+                solution_ptr = solution_device.data();
             }
 
             if(hipEventRecord(stop) != hipSuccess)
@@ -208,8 +215,7 @@ int main(int argc, char** argv)
             {
                 output = std::make_unique<rocblas_double_complex[]>(tmat_data_device.size());
                 // copy results back
-                if(hipMemcpy(output.get(), tmat_data_device.data(), tmat_data_device.size(),
-                             hipMemcpyDeviceToHost)
+                if(hipMemcpy(output.get(), solution_ptr, tmat_data_device.size(), hipMemcpyDeviceToHost)
                    != hipSuccess)
                     throw std::runtime_error("failed to memcpy output");
 
@@ -233,16 +239,15 @@ int main(int argc, char** argv)
                        != hipSuccess)
                         throw std::runtime_error("failed to re-memcpy to device");
 
-                    // X was written to tmat
-                    auto& X = tmat_data_device;
+                    // X is the solution
 
                     // compute residual: R = B - A * X, store it in B
                     const rocblas_double_complex alpha{-1, 0};
                     const rocblas_double_complex beta{1, 0};
                     auto status = rocblas_zgemm(
                         handle, rocblas_operation_none, rocblas_operation_none, kkrmat_dims[0],
-                        tmat_dims[0], kkrmat_dims[1], &alpha, A.data(), kkrmat_dims[0], X.data(),
-                        kkrmat_dims[0], &beta, B.data(), kkrmat_dims[0]);
+                        tmat_dims[0], kkrmat_dims[1], &alpha, A.data(), kkrmat_dims[0],
+                        solution_ptr, kkrmat_dims[0], &beta, B.data(), kkrmat_dims[0]);
 
                     if(status != rocblas_status_success)
                     {
