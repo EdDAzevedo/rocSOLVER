@@ -209,7 +209,7 @@ int main(int argc, char** argv)
                 output = std::make_unique<rocblas_double_complex[]>(
                     kkrmat.getInMemDataSize() / sizeof(rocblas_double_complex));
                 // copy results back
-                if(hipMemcpy(output.get(), kkrmat_data_device.data(), kkrmat.getInMemDataSize(),
+                if(hipMemcpy(output.get(), tmat_data_device.data(), kkrmat.getInMemDataSize(),
                              hipMemcpyDeviceToHost)
                    != hipSuccess)
                     throw std::runtime_error("failed to memcpy output");
