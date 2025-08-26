@@ -729,10 +729,13 @@ constexpr bool is_gesv_ex_mxp_lu_compute
     = // std::is_same_v<T, rocblas_half> || std::is_same_v<T, rocblas_bfloat16> ||
     is_gesv_ex_mxp_lu_storage<T>;
 
+// A, B, X must be the same type.
+// Storage and compute types must be allowed by the mxp code.
+// A, B, X, compute must be either all complex or all real.
 template <typename TA, typename TB, typename TX, typename Tc>
 constexpr bool gesv_ex_mxp_lu_accepts
     = (std::is_same_v<TA, TB> && std::is_same_v<TA, TX>)&&is_gesv_ex_mxp_lu_storage<
-        TA>&& is_gesv_ex_mxp_lu_compute<Tc>;
+          TA>&& is_gesv_ex_mxp_lu_compute<Tc>&& rocblas_is_complex<TA> == rocblas_is_complex<Tc>;
 
 template <typename T, typename LU>
 rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
