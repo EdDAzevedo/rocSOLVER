@@ -102,14 +102,14 @@ __global__ static void lacpy_kernel(char const uplo,
         const auto Ap = load_ptr_batch(A, bid, shiftA, strideA);
         auto Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
-        using Tf = decltype(*Ap);
-        using Tr = decltype(*Cp);
+        using Tf = typename std::remove_reference<decltype(*Ap)>::type;
+        using Tr = typename std::remove_reference<decltype(*Cp)>::type;
         using Sr = decltype(std::real(*Cp));
 
         bool constexpr is_fp16_or_bf16 = (sizeof(Sr) == 2);
 
         bool constexpr is_complex = rocblas_is_complex<Tf>;
-        assert(rocblas_is_complex<Tf> == rocblas_is_complex<Tr>);
+        static_assert(rocblas_is_complex<Tf> == rocblas_is_complex<Tr>);
 
         // -------------------------
         // clamp values to avoid Inf
