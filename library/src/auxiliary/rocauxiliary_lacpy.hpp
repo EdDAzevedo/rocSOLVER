@@ -64,7 +64,7 @@ __global__ static void lacpy_kernel(char const uplo,
                                     I const m,
                                     I const n,
 
-                                    AA A,
+                                    const AA A,
                                     Istride const shiftA,
                                     I const lda,
                                     Istride strideA,
@@ -99,8 +99,8 @@ __global__ static void lacpy_kernel(char const uplo,
 
     for(I bid = bid_start; bid < batch_count; bid += bid_inc)
     {
-        auto const Ap = load_ptr_batch(A, bid, shiftA, strideA);
-        auto const Cp = load_ptr_batch(C, bid, shiftC, strideC);
+        const auto Ap = load_ptr_batch(A, bid, shiftA, strideA);
+        auto Cp = load_ptr_batch(C, bid, shiftC, strideC);
 
         using Tf = decltype(*Ap);
         using Tr = decltype(*Cp);
