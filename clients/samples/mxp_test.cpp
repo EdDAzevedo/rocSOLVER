@@ -140,6 +140,8 @@ int main(int argc, char** argv)
     {
         for(auto run_ref : {true, false})
         {
+            const char* description = run_ref ? "ref" : "dev";
+
             auto& gpu_time = run_ref ? ref_gpu_time : dev_gpu_time;
             auto& output = run_ref ? ref_output : dev_output;
 
@@ -205,7 +207,7 @@ int main(int argc, char** argv)
                != hipSuccess)
                 throw std::runtime_error("failed to copy info back");
 
-            printf("%s trial %zu info=%d status=%d", run_ref ? "ref" : "dev", i, info_host, status);
+            printf("%s trial %zu info=%d status=%d", description, i, info_host, status);
             if(!run_ref)
                 printf(" niter=%d\n", niter);
             else
@@ -219,78 +221,76 @@ int main(int argc, char** argv)
                    != hipSuccess)
                     throw std::runtime_error("failed to memcpy output");
 
-                if(!run_ref)
+                // also check convergence of solution while we're here
+
+                // recopy A from host
+                gpubuf_t<rocblas_double_complex> A;
+                if(A.alloc(kkrmat_data_device.size()) != hipSuccess)
+                    throw std::runtime_error("failed to alloc A");
+                if(hipMemcpy(A.data(), kkrmat_data_host.get(), kkrmat.getInMemDataSize(),
+                             hipMemcpyHostToDevice))
+                    throw std::runtime_error("failed to recopy A");
+
+                // reconstruct B from padded tmat
+                gpubuf_t<rocblas_double_complex> B;
+                if(B.alloc(tmat_data_device.size()) != hipSuccess)
+                    throw std::runtime_error("failed to alloc B");
+                if(hipMemcpy(B.data(), tmat_data_pad_host.get(), B.size(), hipMemcpyHostToDevice)
+                   != hipSuccess)
+                    throw std::runtime_error("failed to re-memcpy to device");
+
+                // X is the solution
+
+                // compute residual: R = B - A * X, store it in B
+                const rocblas_double_complex alpha{-1, 0};
+                const rocblas_double_complex beta{1, 0};
+                auto status = rocblas_zgemm(handle, rocblas_operation_none, rocblas_operation_none,
+                                            kkrmat_dims[0], tmat_dims[0], kkrmat_dims[1], &alpha,
+                                            A.data(), kkrmat_dims[0], solution_ptr, kkrmat_dims[0],
+                                            &beta, B.data(), kkrmat_dims[0]);
+
+                if(status != rocblas_status_success)
                 {
-                    // also check convergence of dev solution while we're here
-
-                    // recopy A from host
-                    gpubuf_t<rocblas_double_complex> A;
-                    if(A.alloc(kkrmat_data_device.size()) != hipSuccess)
-                        throw std::runtime_error("failed to alloc A");
-                    if(hipMemcpy(A.data(), kkrmat_data_host.get(), kkrmat.getInMemDataSize(),
-                                 hipMemcpyHostToDevice))
-                        throw std::runtime_error("failed to recopy A");
-
-                    // reconstruct B from padded tmat
-                    gpubuf_t<rocblas_double_complex> B;
-                    if(B.alloc(tmat_data_device.size()) != hipSuccess)
-                        throw std::runtime_error("failed to alloc B");
-                    if(hipMemcpy(B.data(), tmat_data_pad_host.get(), B.size(), hipMemcpyHostToDevice)
-                       != hipSuccess)
-                        throw std::runtime_error("failed to re-memcpy to device");
-
-                    // X is the solution
-
-                    // compute residual: R = B - A * X, store it in B
-                    const rocblas_double_complex alpha{-1, 0};
-                    const rocblas_double_complex beta{1, 0};
-                    auto status = rocblas_zgemm(
-                        handle, rocblas_operation_none, rocblas_operation_none, kkrmat_dims[0],
-                        tmat_dims[0], kkrmat_dims[1], &alpha, A.data(), kkrmat_dims[0],
-                        solution_ptr, kkrmat_dims[0], &beta, B.data(), kkrmat_dims[0]);
-
-                    if(status != rocblas_status_success)
-                    {
-                        throw std::runtime_error("gemm failed");
-                    }
-
-                    // compute norm
-                    auto residual_host
-                        = std::make_unique<rocblas_double_complex[]>(kkrmat_dims[0] * kkrmat_dims[1]);
-                    if(hipMemcpy(residual_host.get(), B.data(), B.size(), hipMemcpyDeviceToHost)
-                       != hipSuccess)
-                        throw std::runtime_error("failed to copy residual back");
-
-                    double l_inf_r = 0.0;
-                    double l_2_r = 0.0;
-#pragma omp parallel for reduction(max : l_inf_r) reduction(+ : l_2_r)
-                    for(size_t i = 0; i < kkrmat_dims[0] * kkrmat_dims[1]; ++i)
-                    {
-                        double rdiff = std::abs(residual_host[i].x);
-                        l_inf_r = std::max(rdiff, l_inf_r);
-                        double idiff = std::abs(residual_host[i].y);
-                        l_inf_r = std::max(idiff, l_inf_r);
-                        l_2_r += rdiff * rdiff + idiff * idiff;
-                    }
-                    l_2_r = sqrt(l_2_r);
-                    printf("Residual norm L2=%e, L-inf=%e\n", l_2_r, l_inf_r);
-
-                    double l_inf_b = 0.0;
-                    double l_2_b = 0.0;
-#pragma omp parallel for reduction(max : l_inf_b) reduction(+ : l_2_b)
-                    for(size_t i = 0; i < kkrmat_dims[0] * tmat_dims[0]; ++i)
-                    {
-                        double rdiff = std::abs(tmat_data_pad_host[i].x);
-                        l_inf_b = std::max(rdiff, l_inf_b);
-                        double idiff = std::abs(tmat_data_pad_host[i].y);
-                        l_inf_b = std::max(idiff, l_inf_b);
-                        l_2_b += rdiff * rdiff + idiff * idiff;
-                    }
-                    l_2_b = sqrt(l_2_b);
-                    printf("B norm L2=%e, B=%e\n", l_2_b, l_inf_b);
-
-                    printf("R norm / B norm L2=%e, B=%e\n", l_2_r / l_2_b, l_inf_r / l_inf_b);
+                    throw std::runtime_error("gemm failed");
                 }
+
+                // compute norm
+                auto residual_host
+                    = std::make_unique<rocblas_double_complex[]>(kkrmat_dims[0] * kkrmat_dims[1]);
+                if(hipMemcpy(residual_host.get(), B.data(), B.size(), hipMemcpyDeviceToHost)
+                   != hipSuccess)
+                    throw std::runtime_error("failed to copy residual back");
+
+                double l_inf_r = 0.0;
+                double l_2_r = 0.0;
+#pragma omp parallel for reduction(max : l_inf_r) reduction(+ : l_2_r)
+                for(size_t i = 0; i < kkrmat_dims[0] * kkrmat_dims[1]; ++i)
+                {
+                    double rdiff = std::abs(residual_host[i].x);
+                    l_inf_r = std::max(rdiff, l_inf_r);
+                    double idiff = std::abs(residual_host[i].y);
+                    l_inf_r = std::max(idiff, l_inf_r);
+                    l_2_r += rdiff * rdiff + idiff * idiff;
+                }
+                l_2_r = sqrt(l_2_r);
+                printf("Residual norm %s L2=%e, L-inf=%e\n", description, l_2_r, l_inf_r);
+
+                double l_inf_b = 0.0;
+                double l_2_b = 0.0;
+#pragma omp parallel for reduction(max : l_inf_b) reduction(+ : l_2_b)
+                for(size_t i = 0; i < kkrmat_dims[0] * tmat_dims[0]; ++i)
+                {
+                    double rdiff = std::abs(tmat_data_pad_host[i].x);
+                    l_inf_b = std::max(rdiff, l_inf_b);
+                    double idiff = std::abs(tmat_data_pad_host[i].y);
+                    l_inf_b = std::max(idiff, l_inf_b);
+                    l_2_b += rdiff * rdiff + idiff * idiff;
+                }
+                l_2_b = sqrt(l_2_b);
+                printf("B norm %s L2=%e, B=%e\n", description, l_2_b, l_inf_b);
+
+                printf("R norm / B norm %s L2=%e, B=%e\n", description, l_2_r / l_2_b,
+                       l_inf_r / l_inf_b);
             }
         }
     }
