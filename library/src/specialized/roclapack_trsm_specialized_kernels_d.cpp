@@ -45,10 +45,6 @@ INSTANTIATE_TRSM_MEM(1, 0, double, rocblas_int);
 INSTANTIATE_TRSM_LOWER(1, 0, double, rocblas_int, double* const*);
 INSTANTIATE_TRSM_UPPER(1, 0, double, rocblas_int, double* const*);
 
-NOT_IMPL_TRSM_MEM(1, 1, double, rocblas_int);
-NOT_IMPL_TRSM_LOWER(1, 1, double, rocblas_int, double*);
-NOT_IMPL_TRSM_UPPER(1, 1, double, rocblas_int, double*);
-
 #ifdef HAVE_ROCBLAS_64
 // 64-bit
 INSTANTIATE_TRSM_MEM(0, 0, double, int64_t);
