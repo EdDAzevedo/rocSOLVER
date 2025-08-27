@@ -113,8 +113,8 @@ void rocsolver_getrf_mxp_getMemorySize(const I m,
                                        const I lda = 1,
                                        const I inca = 1)
 {
-    bool constexpr BATCHED = true;
-    bool constexpr STRIDED = true;
+    bool constexpr BATCHED = false;
+    bool constexpr STRIDED = false;
 
     *p_size_work = 0;
 
@@ -241,8 +241,8 @@ rocblas_status rocsolver_getrf_mxp_template(rocblas_handle handle,
     ROCSOLVER_ENTER("getrf_mxp", "m:", m, "n:", n, "shiftA:", shiftA, "inca:", inca, "lda:", lda,
                     "shiftP:", shiftP, "bc:", batch_count);
 
-    bool constexpr BATCHED = true;
-    bool constexpr STRIDED = true;
+    bool constexpr BATCHED = false;
+    bool constexpr STRIDED = false;
 
     bool constexpr is_complex = rocblas_is_complex<T>;
 
