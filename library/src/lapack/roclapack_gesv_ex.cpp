@@ -773,7 +773,8 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     using Slu = decltype(std::real(LU{}));
 
     // XXX: need to pass in Treduced whether to use BF16 or FP16?
-    using Treduced = rocblas_bfloat16;
+    // using Treduced = rocblas_bfloat16;
+    using Treduced = rocblas_half;
 
     double const tol_default = std::numeric_limits<Sfull>::epsilon() * n;
 
