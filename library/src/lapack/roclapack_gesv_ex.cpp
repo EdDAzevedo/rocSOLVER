@@ -538,8 +538,6 @@ __global__ static void check_convergence_kernel(I const n,
 
             if(tid == 0)
             {
-                printf("irhs=%d, rmax=%le, xmax=%le\n", irhs, rmax, xmax);
-
                 if(rmax > xmax * tol)
                 {
                     non_converged++;
@@ -642,9 +640,6 @@ static rocblas_status check_convergence_host(rocblas_handle handle,
     assert(shiftX == 0);
     assert(shiftR == 0);
 
-    printf("host:n=%d,nrhs=%d,ldx=%d,strideX=%ld, ldr=%d, strideR=%ld\n", n, nrhs, ldx, strideX,
-           ldr, strideR);
-
     auto const istat1
         = hipMemcpyAsync(&(h_X[0]), X, sizeof(T) * h_X.size(), hipMemcpyDeviceToHost, stream);
     auto const istat2
@@ -683,7 +678,6 @@ static rocblas_status check_convergence_host(rocblas_handle handle,
                 rmax = std::max(abs_rij, rmax);
             }
 
-            printf("host: irhs=%d, rmax=%le, xmax=%le\n", irhs, rmax, xmax);
             if(rmax > xmax * tol)
             {
                 is_converged = false;
