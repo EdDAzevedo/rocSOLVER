@@ -1105,7 +1105,7 @@ rocblas_status rocsolver_gesv_ex_mxp_lu(rocblas_handle handle,
     ROCBLAS_CHECK(compute_residual());
 
     int is_all_converged = false;
-    bool const use_check_convergence_host = true;
+    bool const use_check_convergence_host = false;
 
     {
         if(use_check_convergence_host)
